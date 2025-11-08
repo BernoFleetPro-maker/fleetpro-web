@@ -6,7 +6,7 @@ export default function Drivers() {
   const [editing, setEditing] = useState(null);
 
   const fetchDrivers = async () => {
-    const res = await fetch("http://localhost:5000/api/drivers");
+    const res = await fetch("https://fleetpro-backend-production.up.railway.app/api/drivers");
     const data = await res.json();
     setDrivers(data);
   };
@@ -21,14 +21,14 @@ export default function Drivers() {
 
     if (editing) {
       // ✅ PUT for editing
-      await fetch(`http://localhost:5000/api/drivers/${editing}`, {
+      await fetch(`https://fleetpro-backend-production.up.railway.app/api/drivers/${editing}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
     } else {
       // ✅ POST for new driver
-      await fetch("http://localhost:5000/api/drivers", {
+      await fetch("https://fleetpro-backend-production.up.railway.app:5000/api/drivers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -42,7 +42,7 @@ export default function Drivers() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this driver?")) return;
-    await fetch(`http://localhost:5000/api/drivers/${id}`, { method: "DELETE" });
+    await fetch(`https://fleetpro-backend-production.up.railway.app/api/drivers/${id}`, { method: "DELETE" });
     fetchDrivers();
   };
 

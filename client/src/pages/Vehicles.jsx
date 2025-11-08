@@ -6,7 +6,7 @@ export default function Vehicles() {
   const [editing, setEditing] = useState(null);
 
   const fetchVehicles = async () => {
-    const res = await fetch("http://localhost:5000/api/vehicles");
+    const res = await fetch("https://fleetpro-backend-production.up.railway.app/api/vehicles");
     const data = await res.json();
     setVehicles(data);
   };
@@ -20,13 +20,13 @@ export default function Vehicles() {
     if (!form.reg) return alert("Vehicle registration required");
 
     if (editing) {
-      await fetch(`http://localhost:5000/api/vehicles/${editing}`, {
+      await fetch(`https://fleetpro-backend-production.up.railway.app/api/vehicles/${editing}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
     } else {
-      await fetch("http://localhost:5000/api/vehicles", {
+      await fetch("https://fleetpro-backend-production.up.railway.app/api/vehicles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -40,7 +40,7 @@ export default function Vehicles() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this vehicle?")) return;
-    await fetch(`http://localhost:5000/api/vehicles/${id}`, { method: "DELETE" });
+    await fetch(`https://fleetpro-backend-production.up.railway.app/api/vehicles/${id}`, { method: "DELETE" });
     fetchVehicles();
   };
 

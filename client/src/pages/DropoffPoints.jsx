@@ -19,7 +19,7 @@ export default function DropoffPoints() {
   // === Fetch Dropoff Points ===
   const fetchPoints = async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/points");
+      const res = await fetch("https://fleetpro-backend-production.up.railway.app/api/points");
       const data = await res.json();
       setPoints(
         (data || []).filter((p) => (p.type || "").toLowerCase() === "dropoff")
@@ -139,13 +139,13 @@ export default function DropoffPoints() {
 
     try {
       if (editing) {
-        await fetch(`http://localhost:5000/api/points/${editing}`, {
+        await fetch(`https://fleetpro-backend-production.up.railway.app/api/points/${editing}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
       } else {
-        await fetch("http://localhost:5000/api/points", {
+        await fetch("https://fleetpro-backend-production.up.railway.app/api/points", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -164,7 +164,7 @@ export default function DropoffPoints() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this dropoff point?")) return;
     try {
-      await fetch(`http://localhost:5000/api/points/${id}`, { method: "DELETE" });
+      await fetch(`https://fleetpro-backend-production.up.railway.app/api/points/${id}`, { method: "DELETE" });
       fetchPoints();
     } catch (err) {
       console.error("Delete failed", err);

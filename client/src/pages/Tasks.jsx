@@ -28,7 +28,7 @@ export default function Tasks() {
   });
 
   const googleServiceRef = useRef(null);
-  const api = axios.create({ baseURL: "http://localhost:5000/api" });
+  const api = axios.create({ baseURL: "https://fleetpro-backend-production.up.railway.app/api" });
 
   useEffect(() => {
     loadAll();
