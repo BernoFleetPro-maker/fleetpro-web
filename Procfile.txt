@@ -1,1 +1,2 @@
-root = "client"
+web: cd client && npm run start
+

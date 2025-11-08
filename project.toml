@@ -1,0 +1,11 @@
+[build]
+builder = "heroku/buildpacks:20"
+
+[build.env]
+NPM_CONFIG_PRODUCTION = "false"
+
+[build]
+base = "nodejs"
+
+[processes]
+web = "cd client && npm install && npm run start"
