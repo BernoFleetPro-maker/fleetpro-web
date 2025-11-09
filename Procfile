@@ -1,1 +1,2 @@
-web: cd client && npm install && npm run build && npx serve -s ./dist -l $PORT
+web: cd client && npm install && npx vite build && npx serve -s ./dist -l $PORT
+
