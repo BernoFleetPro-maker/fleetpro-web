@@ -1,0 +1,14 @@
+{
+  "name": "fleetpro-web-host",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "18.x"
+  },
+  "scripts": {
+    "start": "cd client && npx serve -s dist -l $PORT"
+  },
+  "dependencies": {
+    "serve": "^14.2.0"
+  }
+}
