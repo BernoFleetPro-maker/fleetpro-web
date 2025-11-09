@@ -1,8 +1,8 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm install && npm run build"
 workingDirectory = "client"
+buildCommand = "npm install && npm run build"
 
 [start]
-cmd = "npx serve -s dist -l $PORT"
 workingDirectory = "client"
+cmd = "npx serve -s dist -l $PORT"
