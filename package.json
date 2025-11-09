@@ -1,8 +1,0 @@
-{
-  "name": "fleetpro-web-root",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "start": "cd client && npm run build && npx serve -s ./dist -l $PORT"
-  }
-}
