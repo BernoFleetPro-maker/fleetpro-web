@@ -1,11 +1,6 @@
 [build]
-builder = "heroku/buildpacks:20"
+builder = "NIXPACKS"
+buildCommand = "cd client && npm install && npm run build"
 
-[build.env]
-NPM_CONFIG_PRODUCTION = "false"
-
-[build]
-base = "nodejs"
-
-[processes]
-web = "cd client && npm install && npm run start"
+[start]
+cmd = "cd client && npm start"
