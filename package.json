@@ -1,0 +1,9 @@
+{
+  "name": "fleetpro-web-root",
+  "private": true,
+  "workspaces": ["client"],
+  "scripts": {
+    "build": "npm run build -w client",
+    "start": "npx serve -s client/dist -l $PORT"
+  }
+}

@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build --outDir dist",
     "start": "npx serve -s ./dist -l $PORT"
   },
   "dependencies": {
