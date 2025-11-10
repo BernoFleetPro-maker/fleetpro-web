@@ -249,7 +249,7 @@ async function drawPoints() {
   pointOverlaysRef.current = [];
 
   try {
-    const res = await fetch("https://fleetpro-backend-production.up.railway.app");
+    const res = await fetch("https://fleetpro-backend-production.up.railway.app/api/points");
     const points = await res.json();
 
     points.forEach((p) => {
@@ -316,7 +316,7 @@ async function drawPoints() {
 
     async function fetchAll() {
       try {
-        const res = await fetch("https://fleetpro-backend-production.up.railway.app");
+        const res = await fetch("https://fleetpro-backend-production.up.railway.app/api/positions");
         const positions = await res.json();
         if (Array.isArray(positions)) drawOrUpdateVehicles(positions);
         await drawPoints();

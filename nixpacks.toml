@@ -1,0 +1,10 @@
+[phases.build]
+cmds = [
+  "cd client && npm install && npm run build"
+]
+
+[phases.start]
+cmd = "npx serve -s client/dist -l $PORT"
+
+[static]
+dir = "client/dist"
