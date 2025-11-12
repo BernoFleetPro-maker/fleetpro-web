@@ -30,17 +30,18 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install lightweight static server
+# Install lightweight static file server
 RUN npm install -g serve
 
-# Copy built files from builder stage
+# Copy build output from builder
 COPY --from=builder /app/client/dist ./dist
 
-# Railway automatically injects PORT — fallback to 8080
+# Set environment variables
+ENV NODE_ENV=production
 ENV PORT=${PORT:-8080}
 
-# Expose port for Railway
+# Expose port
 EXPOSE ${PORT}
 
-# Start the server
-CMD ["serve", "-s", "dist", "-l", "0.0.0.0:$PORT"]
+# Start the server (correct syntax)
+CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}"]
