@@ -8,9 +8,8 @@
   "engines": {
     "node": ">=18 <23"
   },
-  "scripts": {
+"scripts": {
   "build": "npm run build --prefix client",
   "start": "npx serve -s client/dist -l $PORT",
   "preview": "npx serve -s client/dist -l $PORT"
-  }
 }
