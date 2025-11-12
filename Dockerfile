@@ -28,7 +28,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Install a lightweight static file server
-RUN npm install -g serve
+RUN npm ci --workspace client --legacy-peer-deps
 
 # Copy build output from builder
 COPY --from=builder /app/client/dist ./dist
