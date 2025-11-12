@@ -4,39 +4,34 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy only package files for dependency install
-COPY package*.json ./
+# Copy only necessary files first for cache efficiency
+COPY package*.json ./ 
 COPY client/package*.json ./client/
 
-# Install dependencies
-RUN npm set cache /tmp/npm-cache --global
+# Install client dependencies
 RUN cd client && npm install --legacy-peer-deps --no-audit --progress=false
 
-# Copy the rest of the project including client source
+# Copy the rest of the app
 COPY . .
 
-# Set working directory to client
+# Build the Vite app
 WORKDIR /app/client
-
-# Build the frontend
 RUN npm run build
 
+
 # -------------------------------
-# Stage 2: Serve built files
+# Stage 2: Serve the built app
 # -------------------------------
 FROM node:20-alpine
 WORKDIR /app
 
-# Install lightweight static file server
+# Install static file server
 RUN npm install -g serve
 
-# Copy built frontend from builder stage
+# Copy Vite build output from builder
 COPY --from=builder /app/client/dist ./dist
 
-# Environment and port setup
-ENV NODE_ENV=production
+# Expose port and start
 ENV PORT=8080
 EXPOSE 8080
-
-# Run production server
 CMD ["serve", "-s", "dist", "-l", "8080"]
