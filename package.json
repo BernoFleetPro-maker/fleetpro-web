@@ -1,6 +1,10 @@
 {
   "name": "fleetpro-web-root",
   "private": true,
+  "engines": {
+    "node": "22.x",
+    "npm": "10.x"
+  },
   "workspaces": ["client"],
   "scripts": {
     "install": "npm install --workspace client",
