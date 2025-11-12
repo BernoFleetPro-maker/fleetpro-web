@@ -6,23 +6,21 @@ FROM node:22-alpine AS builder
 # Set working directory
 WORKDIR /app
 
-# Copy package files for caching layer
+# Copy package files for caching
 COPY package*.json ./
 COPY client/package*.json ./client/
 
-# Install dependencies first (cached layer)
+# Install dependencies for the client (cached layer)
 RUN npm install --prefix ./client --legacy-peer-deps
 
-# Now copy the rest of the files
+# Copy full client source (after dependencies cached)
 COPY client ./client
 
-# Copy the full client folder
-COPY client ./client
+# Set build environment variables
+ENV NODE_ENV=production
+ENV VITE_API_URL=${VITE_API_URL:-https://fleetpro-backend-production.up.railway.app}
 
-# Install dependencies for the client only
-RUN npm install --prefix ./client --legacy-peer-deps
-
-# Build the client project
+# Build the Vite project
 RUN npm run build --prefix ./client
 
 # -------------------------------
@@ -30,16 +28,21 @@ RUN npm run build --prefix ./client
 # -------------------------------
 FROM node:22-alpine
 
+# Working directory
 WORKDIR /app
 
-# Install a lightweight static file server
+# Install lightweight static server globally
 RUN npm install -g serve
 
-# Copy build output from builder
+# Copy build output from builder stage
 COPY --from=builder /app/client/dist ./dist
 
-# Expose the port that Railway assigns
+# Expose port for Railway
 EXPOSE 8080
+
+# Define environment variable for serve (optional)
+ENV PORT=8080
+ENV NODE_ENV=production
 
 # Start the server
 CMD ["serve", "-s", "dist", "-l", "8080"]
