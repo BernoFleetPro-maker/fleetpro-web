@@ -5,12 +5,12 @@ nixPkgs = ["nodejs"]
 
 [phases.install]
 cmds = [
-  "cd client && npm install"
+  "npm install --workspace client"
 ]
 
 [phases.build]
 cmds = [
-  "cd client && npm run build"
+  "npm run build --workspace client"
 ]
 
 [start]
