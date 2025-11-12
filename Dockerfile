@@ -10,11 +10,11 @@ WORKDIR /app
 COPY package*.json ./
 COPY client/package*.json ./client/
 
-# Copy the full client folder before installing
+# Copy the full client folder
 COPY client ./client
 
 # Install dependencies for the client only
-RUN npm ci --prefix ./client --legacy-peer-deps
+RUN npm install --prefix ./client --legacy-peer-deps
 
 # Build the client project
 RUN npm run build --prefix ./client
@@ -26,7 +26,7 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install lightweight static file server globally
+# Install a lightweight static file server
 RUN npm install -g serve
 
 # Copy build output from builder
