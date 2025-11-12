@@ -28,13 +28,16 @@ WORKDIR /app
 # Install serve
 RUN npm install -g serve
 
-# Copy built dist folder from builder
-COPY --from=builder /app/client/dist ./dist
+# Copy the built Vite app
+COPY --from=builder /app/client/dist /app/dist
+
+# ✅ Double check: ensure file actually exists
+RUN echo "Contents of /app/dist:" && ls -l /app/dist
 
 # Environment
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# ✅ Serve the built static files
-CMD ["serve", "-s", "dist", "-l", "8080"]
+# ✅ Serve using full path (this fixes the 404)
+CMD ["npx", "serve", "-s", "/app/dist", "-l", "8080"]
