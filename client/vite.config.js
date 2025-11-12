@@ -11,4 +11,7 @@ export default defineConfig({
     host: true,
     port: process.env.PORT ? parseInt(process.env.PORT) : 4173,
   },
+  build: {
+    outDir: "dist", // ✅ ensures Docker serves the correct folder
+  },
 });

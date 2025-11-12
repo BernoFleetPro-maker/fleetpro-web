@@ -2,46 +2,38 @@
 # Stage 1: Build the Vite frontend
 # -------------------------------
 FROM node:22-alpine AS builder
-
-# Set working directory
 WORKDIR /app
 
-# Copy package files for caching
+# Copy only package files first for caching
 COPY package*.json ./
 COPY client/package*.json ./client/
 
-# Install dependencies for the client (cached layer)
-RUN npm install --prefix ./client --legacy-peer-deps
+# Install dependencies for client only
+RUN cd client && npm install
 
-# Copy full client source (after dependencies cached)
-COPY client ./client
+# Copy all remaining files
+COPY . .
 
-# Set build environment variables
-ENV NODE_ENV=production
-ENV VITE_API_URL=${VITE_API_URL:-https://fleetpro-backend-production.up.railway.app}
+# Build Vite frontend
+RUN cd client && npm run build
 
-# Build the Vite project
-RUN npm run build --prefix ./client
 
 # -------------------------------
 # Stage 2: Serve built files
 # -------------------------------
 FROM node:22-alpine
-
 WORKDIR /app
 
-# Install lightweight static file server
+# Install serve
 RUN npm install -g serve
 
-# Copy build output from builder
+# Copy built files from builder
 COPY --from=builder /app/client/dist ./dist
 
-# Set environment variables
+# Environment + port
 ENV NODE_ENV=production
 ENV PORT=${PORT:-8080}
-
-# Expose port
 EXPOSE ${PORT}
 
-# Start the server (correct syntax)
+# Start static server
 CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}"]
