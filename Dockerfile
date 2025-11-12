@@ -1,42 +1,42 @@
 # -------------------------------
 # Stage 1: Build the Vite frontend
 # -------------------------------
-FROM node:22-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy only package files first for caching
 COPY package*.json ./
 COPY client/package*.json ./client/
 
-# ✅ Enable clean npm cache and faster installs
-RUN npm set cache /tmp/npm-cache --global
+# Disable optional dependencies for faster installs
+ENV npm_config_optional=false
+ENV CI=true
 
-# ✅ Install dependencies for client only
+# Install dependencies (no workspace loop)
 RUN cd client && npm install --legacy-peer-deps --no-audit --progress=false
 
-# Copy all remaining files
+# Copy the rest of the project
 COPY . .
 
-# Build Vite frontend
+# Build the Vite frontend
 RUN cd client && npm run build
-
 
 # -------------------------------
 # Stage 2: Serve built files
 # -------------------------------
-FROM node:22-alpine
+FROM node:20-alpine
 WORKDIR /app
 
-# Install serve
+# Install lightweight static server
 RUN npm install -g serve
 
-# Copy built files from builder
+# Copy build output from builder
 COPY --from=builder /app/client/dist ./dist
 
-# Environment + port
+# Expose and set environment port
 ENV NODE_ENV=production
-ENV PORT=${PORT:-8080}
-EXPOSE ${PORT}
+ENV PORT=8080
+EXPOSE 8080
 
-# Start static server
-CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}"]
+# Start server
+CMD ["npx", "serve", "-s", "dist", "-l", "0.0.0.0:8080"]

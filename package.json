@@ -1,15 +1,16 @@
 {
-  "name": "fleetpro-web-root",
+  "name": "fleetpro-web",
+  "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "client"
+  ],
   "engines": {
-    "node": "22.x",
-    "npm": "10.x"
+    "node": ">=18 <23"
   },
-  "workspaces": ["client"],
   "scripts": {
-    "install": "npm install --workspace client",
     "build": "npm run build --workspace client",
-    "start": "npx serve -s client/dist -l $PORT",
-    "preview": "npx serve -s client/dist -l $PORT"
+    "start": "npx serve -s client/dist -l 8080",
+    "preview": "npx serve -s client/dist -l 8080"
   }
 }
