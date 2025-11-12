@@ -25,20 +25,20 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# Install serve
+# Install serve globally
 RUN npm install -g serve
 
-# Copy the built Vite app
+# Copy the built Vite app from builder
 COPY --from=builder /app/client/dist /app/dist
 
-# ✅ Double check: ensure file actually exists
+# ✅ Ensure dist folder exists
 RUN echo "Contents of /app/dist:" && ls -l /app/dist
 
-# Environment
+# Set environment
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# ✅ Serve using full path (this fixes the 404)
-CMD ["npx", "serve", "-s", "/app/dist", "-l", "tcp://0.0.0.0:8080"]
-
+# ✅ Serve absolute path, ensure working directory is /app
+WORKDIR /app
+CMD ["serve", "-s", "/app/dist", "-l", "tcp://0.0.0.0:8080"]
