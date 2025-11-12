@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY client/package*.json ./client/
 
-# Install client dependencies
+# Install dependencies
 RUN cd client && npm install --legacy-peer-deps --no-audit --progress=false
 
 # Copy everything else
@@ -20,21 +20,21 @@ RUN npm run build
 
 
 # -------------------------------
-# Stage 2: Serve the built files
+# Stage 2: Serve built files
 # -------------------------------
 FROM node:20-alpine
 WORKDIR /app
 
-# Install static file server
+# Install lightweight static server
 RUN npm install -g serve
 
-# Copy built frontend files from builder
-COPY --from=builder /app/client/dist ./dist
+# Copy the built dist folder from builder (check actual path)
+COPY --from=builder /app/client/dist ./client/dist
 
-# Set environment and expose port
+# Environment and port
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# Start server correctly
-CMD ["serve", "-s", "dist", "-l", "8080"]
+# Serve the correct folder path
+CMD ["serve", "-s", "client/dist", "-l", "8080"]
