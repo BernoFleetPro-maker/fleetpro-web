@@ -40,4 +40,5 @@ ENV PORT=8080
 EXPOSE 8080
 
 # ✅ Serve using full path (this fixes the 404)
-CMD ["npx", "serve", "-s", "/app/dist", "-l", "8080"]
+CMD ["npx", "serve", "-s", "/app/dist", "-l", "tcp://0.0.0.0:8080"]
+
