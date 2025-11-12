@@ -9,8 +9,8 @@
     "node": ">=18 <23"
   },
   "scripts": {
-    "build": "npm run build --workspace client",
-    "start": "npx serve -s client/dist -l 8080",
-    "preview": "npx serve -s client/dist -l 8080"
+  "build": "cd client && npm run build",
+  "start": "npx serve -s client/dist -l $PORT",
+  "preview": "npx serve -s client/dist -l $PORT"
   }
 }
