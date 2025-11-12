@@ -6,9 +6,15 @@ FROM node:22-alpine AS builder
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files for caching layer
 COPY package*.json ./
 COPY client/package*.json ./client/
+
+# Install dependencies first (cached layer)
+RUN npm install --prefix ./client --legacy-peer-deps
+
+# Now copy the rest of the files
+COPY client ./client
 
 # Copy the full client folder
 COPY client ./client
