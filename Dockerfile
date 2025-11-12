@@ -4,17 +4,17 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy only package files for caching
+# Copy only package files
 COPY package*.json ./
 COPY client/package*.json ./client/
 
 # Install dependencies
 RUN cd client && npm install --legacy-peer-deps --no-audit --progress=false
 
-# Copy everything else
+# Copy all project files
 COPY . .
 
-# Build the Vite frontend
+# Build frontend
 WORKDIR /app/client
 RUN npm run build
 
@@ -25,16 +25,18 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# Install lightweight static server
+# Install serve
 RUN npm install -g serve
 
-# Copy the built dist folder from builder (check actual path)
+# Copy built files
+COPY --from=builder /app/client/dist ./dist
 COPY --from=builder /app/client/dist ./client/dist
 
-# Environment and port
+# ✅ DEBUG: List directory structure so we can see where dist actually is
+RUN echo "---- FILE STRUCTURE ----" && ls -R /app
+
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# Serve the correct folder path
-CMD ["serve", "-s", "client/dist", "-l", "8080"]
+CMD ["serve", "-s", "dist", "-l", "8080"]
