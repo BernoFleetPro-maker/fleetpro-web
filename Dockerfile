@@ -8,8 +8,11 @@ WORKDIR /app
 COPY package*.json ./
 COPY client/package*.json ./client/
 
-# Install dependencies for client only
-RUN cd client && npm install
+# ✅ Enable clean npm cache and faster installs
+RUN npm set cache /tmp/npm-cache --global
+
+# ✅ Install dependencies for client only
+RUN cd client && npm install --legacy-peer-deps --no-audit --progress=false
 
 # Copy all remaining files
 COPY . .
