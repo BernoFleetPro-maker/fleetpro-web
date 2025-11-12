@@ -1,10 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs", "npm"]
+
+[phases.install]
+cmds = ["cd client && npm install"]
+
 [phases.build]
-cmds = [
-  "cd client && npm install && npm run build"
-]
+cmds = ["cd client && npm run build"]
 
-[phases.start]
+[start]
 cmd = "npx serve -s client/dist -l $PORT"
-
-[static]
-dir = "client/dist"
