@@ -5,6 +5,7 @@
   "scripts": {
     "install": "npm install --workspace client",
     "build": "npm run build --workspace client",
-    "start": "npx serve -s client/dist -l $PORT"
+    "start": "npx serve -s client/dist -l $PORT",
+    "preview": "npx serve -s client/dist -l $PORT"
   }
 }
