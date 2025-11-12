@@ -1,16 +1,27 @@
 // src/App.jsx
 import React from "react";
 import { Routes, Route } from "react-router-dom";
+
+import LoginPage from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
+
 import MapView from "./pages/MapView";
 import Tasks from "./pages/Tasks";
-import Settings from "./pages/Settings";
 import Drivers from "./pages/Drivers";
 import Vehicles from "./pages/Vehicles";
 import LoadingPoints from "./pages/LoadingPoints";
 import DropoffPoints from "./pages/DropoffPoints";
+import Settings from "./pages/Settings";
 
 export default function App() {
+  const authed = localStorage.getItem("fleetpro_auth") === "yes";
+
+  // ✅ User NOT logged in → show login screen
+  if (!authed) {
+    return <LoginPage onLogin={() => window.location.reload()} />;
+  }
+
+  // ✅ User logged in → show dashboard
   return (
     <div className="flex h-screen">
       <Sidebar />

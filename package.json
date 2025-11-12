@@ -4,6 +4,6 @@
   "workspaces": ["client"],
   "scripts": {
     "build": "npm run build -w client",
-    "start": "npx serve -s client/dist -l $PORT"
+    "start": "npx serve -s client/dist -l 0.0.0.0:$PORT"
   }
 }

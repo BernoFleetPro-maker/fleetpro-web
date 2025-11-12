@@ -100,6 +100,17 @@ export default function Sidebar() {
         </NavLink>
       </nav>
 
+         <button
+  onClick={() => {
+    localStorage.removeItem("fleetpro_auth");
+    window.location.reload();
+  }}
+  className="mt-auto p-3 text-sm font-semibold text-red-600 hover:text-red-800"
+>
+  Logout
+</button>
+   
+
       {/* Footer */}
       <div className="p-4 text-sm text-slate-300 border-t border-slate-700">
         Logged in as<br />
