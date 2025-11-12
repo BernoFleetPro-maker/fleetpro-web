@@ -3,8 +3,8 @@
   "private": true,
   "workspaces": ["client"],
   "scripts": {
-    "install": "cd client && npm install",
-    "build": "cd client && npm run build",
+    "install": "npm install --workspace client",
+    "build": "npm run build --workspace client",
     "start": "npx serve -s client/dist -l $PORT"
   }
 }
