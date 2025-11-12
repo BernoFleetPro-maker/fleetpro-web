@@ -1,3 +1,4 @@
+# force_rebuild=true
 [phases.setup]
 nixPkgs = ["nodejs", "npm"]
 
