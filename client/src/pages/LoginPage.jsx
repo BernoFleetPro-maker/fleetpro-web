@@ -9,7 +9,7 @@ export default function LoginPage({ onLogin }) {
   async function handleSubmit(e) {
   e.preventDefault();
   try {
-    const res = await api.post("/api/login", { username, password });
+    const res = await api.post("/login", { username, password });
     if (res.data.success) {
       localStorage.setItem("fleetpro_auth", "yes");
       onLogin();
