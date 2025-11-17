@@ -1,7 +1,11 @@
 import axios from "axios";
 
+const production = window.location.hostname.includes("railway");
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000"
+    baseURL: production
+        ? "https://fleetpro-backend-production.up.railway.app"
+        : "http://localhost:5000",
 });
 
 export default api;
