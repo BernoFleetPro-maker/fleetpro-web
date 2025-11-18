@@ -14,10 +14,10 @@ export default function LoginPage({ onLogin }) {
       localStorage.setItem("fleetpro_auth", "yes");
       onLogin();
     } else {
-      setError("Incorrect login");
+      setError("Incorrect username");
     }
   } catch {
-    setError("Incorrect login");
+    setError("Incorrect password");
   }
 }
 
