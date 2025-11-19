@@ -183,6 +183,23 @@ export default function DropoffPoints() {
     if (p.lat && p.lon) updateMap(p.lat, p.lon, true);
   };
 
+  // ⭐⭐⭐ NEW — CLICK POINT TO SHOW ON MAP ⭐⭐⭐
+  const handleSelectPoint = (p) => {
+    if (!p.lat || !p.lon) return;
+
+    // Move the map + show marker
+    updateMap(p.lat, p.lon, true);
+
+    // Fill form but do NOT enter edit mode
+    setForm({
+      title: p.title,
+      address: p.address || "",
+      lat: p.lat,
+      lon: p.lon,
+      radius: p.radius || 1000,
+    });
+  };
+
   return (
     <div className="p-6">
       <h2 className="text-xl font-bold mb-4">Dropoff Points</h2>
@@ -236,7 +253,8 @@ export default function DropoffPoints() {
         {points.map((p) => (
           <li
             key={p.id}
-            className="flex justify-between items-center border-b py-2"
+            className="flex justify-between items-center border-b py-2 cursor-pointer"
+            onClick={() => handleSelectPoint(p)}   // ⭐ Make entire row clickable ⭐
           >
             <div>
               <strong>{p.title}</strong> — {p.address}{" "}
@@ -246,13 +264,19 @@ export default function DropoffPoints() {
             </div>
             <div className="space-x-2">
               <button
-                onClick={() => startEdit(p)}
+                onClick={(e) => {
+                  e.stopPropagation(); // prevent list click
+                  startEdit(p);
+                }}
                 className="text-green-600 hover:underline"
               >
                 Edit
               </button>
               <button
-                onClick={() => handleDelete(p.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(p.id);
+                }}
                 className="text-red-600 hover:underline"
               >
                 Delete

@@ -181,6 +181,23 @@ export default function LoadingPoints() {
     if (p.lat && p.lon) updateMap(p.lat, p.lon, true);
   };
 
+  // ⭐⭐⭐ NEW — CLICK POINT TO SHOW ON MAP ⭐⭐⭐
+  const handleSelectPoint = (p) => {
+    if (!p.lat || !p.lon) return;
+
+    // Move map and marker
+    updateMap(p.lat, p.lon, true);
+
+    // Fill form but DO NOT switch to edit mode
+    setForm({
+      title: p.title,
+      address: p.address || "",
+      lat: p.lat,
+      lon: p.lon,
+      radius: p.radius || 1000,
+    });
+  };
+
   return (
     <div className="p-6">
       <h2 className="text-xl font-bold mb-4">Loading Points</h2>
@@ -234,7 +251,8 @@ export default function LoadingPoints() {
         {points.map((p) => (
           <li
             key={p.id}
-            className="flex justify-between items-center border-b py-2"
+            className="flex justify-between items-center border-b py-2 cursor-pointer"
+            onClick={() => handleSelectPoint(p)}   // ⭐ CLICK TO SHOW ON MAP ⭐
           >
             <div>
               <strong>{p.title}</strong> — {p.address}{" "}
@@ -244,13 +262,19 @@ export default function LoadingPoints() {
             </div>
             <div className="space-x-2">
               <button
-                onClick={() => startEdit(p)}
+                onClick={(e) => {
+                  e.stopPropagation(); // ❗ prevent click from also triggering map pan
+                  startEdit(p);
+                }}
                 className="text-blue-600 hover:underline"
               >
                 Edit
               </button>
               <button
-                onClick={() => handleDelete(p.id)}
+                onClick={(e) => {
+                  e.stopPropagation(); // ❗ prevent accidental map click
+                  handleDelete(p.id);
+                }}
                 className="text-red-600 hover:underline"
               >
                 Delete
