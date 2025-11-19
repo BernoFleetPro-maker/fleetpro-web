@@ -28,7 +28,9 @@ export default function Tasks() {
   });
 
   const googleServiceRef = useRef(null);
-  const api = axios.create({ baseURL: "https://fleetpro-backend-production.up.railway.app/api" });
+  const api = axios.create({
+    baseURL: "https://fleetpro-backend-production.up.railway.app/api",
+  });
 
   useEffect(() => {
     loadAll();
@@ -101,7 +103,6 @@ export default function Tasks() {
   // --- hybrid search: local + Google
   async function searchLocations(query) {
     if (!query) return [];
-
     let results = [];
 
     try {
@@ -124,7 +125,8 @@ export default function Tasks() {
 
     if (results.length < 5 && window.google) {
       if (!googleServiceRef.current)
-        googleServiceRef.current = new window.google.maps.places.AutocompleteService();
+        googleServiceRef.current =
+          new window.google.maps.places.AutocompleteService();
 
       const service = googleServiceRef.current;
       const googleResults = await new Promise((resolve) => {
@@ -156,61 +158,40 @@ export default function Tasks() {
     return results;
   }
 
-async function saveTask(e) {
-  e && e.preventDefault();
-  try {
-    const payload = { ...form, date: form.date || selectedDate };
-
-    let response;
-
-    if (payload.id) {
-      response = await api.put(`/tasks/${payload.id}`, payload);
-    } else {
-      delete payload.id;
-      response = await api.post("/tasks", payload);
-
-      // ✅ Send push notification to driver IF driver is assigned
-      if (response.data.task?.driverId) {
-        await api.post("/tasks/notify-task", {
-          driverId: response.data.task.driverId,
-          taskReference: response.data.task.reference
-        });
-      }
-    }
-
-    setSelectedDate(payload.date);
-    await loadAll();
-    setShowForm(false);
-  } catch (err) {
-    console.error("Save failed", err);
-    alert("Failed to save task");
-  }
-}
-
-  async function quickUpdateStatus(taskId, newStatus) {
-    const t = tasks.find((x) => x.id === taskId);
-    if (!t) return;
+  async function saveTask(e) {
+    e && e.preventDefault();
     try {
-      await api.put(`/tasks/${taskId}`, { ...t, status: newStatus });
+      const payload = { ...form, date: form.date || selectedDate };
+      let response;
+
+      if (payload.id) {
+        response = await api.put(`/tasks/${payload.id}`, payload);
+      } else {
+        delete payload.id;
+        response = await api.post("/tasks", payload);
+      }
+
+      setSelectedDate(payload.date);
+      await loadAll();
+      setShowForm(false);
+    } catch (err) {
+      console.error("Save failed", err);
+      alert("Failed to save task");
+    }
+  }
+
+  // FIXED DELETE
+  async function deleteTask(id) {
+    if (!confirm("Delete this task?")) return;
+    try {
+      const res = await api.delete(`/tasks/${id}`);
+      if (!res.data?.success) throw new Error("Delete failed");
       await loadAll();
     } catch (err) {
-      console.error("Status update failed", err);
+      console.error("Failed to delete task", err);
+      alert("Failed to delete task");
     }
   }
-
-// TASK DELETE FUNCTION
-async function deleteTask(id) {
-  if (!confirm("Delete this task?")) return;
-  try {
-    const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error("Delete failed");
-    // reload tasks list (call your existing fetchTasks)
-    await loadAll(); // <-- replace with your actual task loader
-  } catch (err) {
-    console.error("Failed to delete task", err);
-    alert("Failed to delete task");
-  }
-}
 
   const grouped = {
     unassigned: tasks.filter(
@@ -307,30 +288,27 @@ async function deleteTask(id) {
                       </div>
                     </div>
 
-<div className="flex flex-col gap-1 items-end">
-  <div className="flex gap-1">
-    <button
-      onClick={() => openEdit(task)}
-      className="px-2 py-1 text-[11px] bg-yellow-600 hover:bg-yellow-700 rounded"
-    >
-      ✏
-    </button>
-    <button
-      onClick={() => deleteTask(task.id)}
-      className="px-2 py-1 text-[11px] bg-red-600 hover:bg-red-700 rounded"
-    >
-      🗑
-    </button>
-  </div>
-
-  {/* MOVE BUTTONS DISABLED */}
-  {/* → ToDo */}
-  {/* → Start */}
-  {/* ✓ Done */}
-</div>
-
+                    {/* ACTION BUTTONS ONLY (NO MOVE BUTTONS) */}
+                    <div className="flex flex-col gap-1 items-end">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => openEdit(task)}
+                          className="px-2 py-1 text-[11px] bg-yellow-600 hover:bg-yellow-700 rounded"
+                        >
+                          ✏
+                        </button>
+                        <button
+                          onClick={() => deleteTask(task.id)}
+                          className="px-2 py-1 text-[11px] bg-red-600 hover:bg-red-700 rounded"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
+
               {grouped[status].length === 0 && (
                 <div className="text-slate-400 text-xs italic">No tasks</div>
               )}
@@ -351,7 +329,9 @@ async function deleteTask(id) {
             </h3>
 
             <div className="mb-2">
-              <label className="text-sm text-slate-300 block mb-1">Title</label>
+              <label className="text-sm text-slate-300 block mb-1">
+                Title
+              </label>
               <input
                 value={form.title}
                 onChange={(e) => updateField("title", e.target.value)}
@@ -415,7 +395,9 @@ async function deleteTask(id) {
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-300 block mb-1">Date</label>
+                <label className="text-sm text-slate-300 block mb-1">
+                  Date
+                </label>
                 <input
                   type="date"
                   value={form.date || selectedDate}
@@ -424,7 +406,9 @@ async function deleteTask(id) {
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-300 block mb-1">Time</label>
+                <label className="text-sm text-slate-300 block mb-1">
+                  Time
+                </label>
                 <input
                   type="time"
                   value={form.time}
@@ -435,7 +419,9 @@ async function deleteTask(id) {
             </div>
 
             <div className="mb-3">
-              <label className="text-sm text-slate-300 block mb-1">Driver</label>
+              <label className="text-sm text-slate-300 block mb-1">
+                Driver
+              </label>
               <select
                 value={form.driverId || ""}
                 onChange={(e) => updateField("driverId", e.target.value)}
@@ -451,7 +437,9 @@ async function deleteTask(id) {
             </div>
 
             <div className="mb-3">
-              <label className="text-sm text-slate-300 block mb-1">Vehicle</label>
+              <label className="text-sm text-slate-300 block mb-1">
+                Vehicle
+              </label>
               <select
                 value={form.vehicleId || ""}
                 onChange={(e) => updateField("vehicleId", e.target.value)}
