@@ -316,28 +316,7 @@ async function saveTask(e) {
                           }
                           className="text-[11px] px-2 py-1 bg-blue-600 rounded mt-1"
                         >
-                          → ToDo
-                        </button>
-                      )}
-                      {status === "todo" && (
-                        <button
-                          onClick={() =>
-                            quickUpdateStatus(task.id, "inprogress")
-                          }
-                          className="text-[11px] px-2 py-1 bg-blue-600 rounded mt-1"
-                        >
-                          → Start
-                        </button>
-                      )}
-                      {status === "inprogress" && (
-                        <button
-                          onClick={() =>
-                            quickUpdateStatus(task.id, "completed")
-                          }
-                          className="text-[11px] px-2 py-1 bg-green-600 rounded mt-1"
-                        >
-                          ✓ Done
-                        </button>
+                          
                       )}
                     </div>
                   </div>
