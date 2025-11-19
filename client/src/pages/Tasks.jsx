@@ -198,6 +198,20 @@ async function saveTask(e) {
     }
   }
 
+// TASK DELETE FUNCTION
+async function deleteTask(id) {
+  if (!confirm("Delete this task?")) return;
+  try {
+    const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Delete failed");
+    // reload tasks list (call your existing fetchTasks)
+    await loadAll(); // <-- replace with your actual task loader
+  } catch (err) {
+    console.error("Failed to delete task", err);
+    alert("Failed to delete task");
+  }
+}
+
   const grouped = {
     unassigned: tasks.filter(
       (t) =>
@@ -293,54 +307,28 @@ async function saveTask(e) {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-1 items-end">
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => openEdit(task)}
-                          className="px-2 py-1 text-[11px] bg-yellow-600 hover:bg-yellow-700 rounded"
-                        >
-                          ✏
-                        </button>
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="px-2 py-1 text-[11px] bg-red-600 hover:bg-red-700 rounded"
-                        >
-                          🗑
-                        </button>
-                      </div>
+<div className="flex flex-col gap-1 items-end">
+  <div className="flex gap-1">
+    <button
+      onClick={() => openEdit(task)}
+      className="px-2 py-1 text-[11px] bg-yellow-600 hover:bg-yellow-700 rounded"
+    >
+      ✏
+    </button>
+    <button
+      onClick={() => deleteTask(task.id)}
+      className="px-2 py-1 text-[11px] bg-red-600 hover:bg-red-700 rounded"
+    >
+      🗑
+    </button>
+  </div>
 
-                      {status === "unassigned" && (
-                        <button
-                          onClick={() =>
-                            quickUpdateStatus(task.id, "todo")
-                          }
-                          className="text-[11px] px-2 py-1 bg-blue-600 rounded mt-1"
-                        >
-                          → ToDo
-                        </button>
-                      )}
-                      {status === "todo" && (
-                        <button
-                          onClick={() =>
-                            quickUpdateStatus(task.id, "inprogress")
-                          }
-                          className="text-[11px] px-2 py-1 bg-blue-600 rounded mt-1"
-                        >
-                          → Start
-                        </button>
-                      )}
-                      {status === "inprogress" && (
-                        <button
-                          onClick={() =>
-                            quickUpdateStatus(task.id, "completed")
-                          }
-                          className="text-[11px] px-2 py-1 bg-green-600 rounded mt-1"
-                        >
-                          ✓ Done
-                        </button>
-                      )}
-                    </div>
-                  </div>
+  {/* MOVE BUTTONS DISABLED */}
+  {/* → ToDo */}
+  {/* → Start */}
+  {/* ✓ Done */}
+</div>
+
                 );
               })}
               {grouped[status].length === 0 && (
