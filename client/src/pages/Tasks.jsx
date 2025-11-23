@@ -17,7 +17,6 @@ function formatTime(t) {
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [drivers, setDrivers] = useState([]);
-  const [locations, setLocations] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() =>
@@ -414,12 +413,6 @@ export default function Tasks() {
   <label className="text-sm text-slate-300 block mb-1">
     Date
   </label>
-
-  {/* Formatted date label */}
-  <div className="text-[10px] text-slate-500 mb-1">
-    {form.date ? formatDate(form.date) : formatDate(selectedDate)}
-  </div>
-
   <input
     type="date"
     value={form.date || selectedDate}
