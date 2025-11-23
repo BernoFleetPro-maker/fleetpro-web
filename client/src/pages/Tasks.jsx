@@ -2,6 +2,18 @@
 import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 
+function formatDate(d) {
+  if (!d) return "";
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
+}
+
+function formatTime(t) {
+  if (!t) return "";
+  const [h, m] = t.split(":");
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
+}
+
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -88,7 +100,7 @@ export default function Tasks() {
       driverId: task.driverId || "",
       vehicleId: task.vehicleId || "",
       date: task.date || selectedDate,
-      time: task.time || "",
+      time: formatTime(task.time),
       title: task.title || "",
       description: task.description || "",
       status: task.status || "unassigned",
@@ -214,7 +226,6 @@ export default function Tasks() {
       <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-xl font-bold">FleetPro — Tasks</h1>
-          <div className="text-xs text-slate-400">Date: {selectedDate}</div>
         </div>
 
         <div>
@@ -225,6 +236,10 @@ export default function Tasks() {
             + Add Task
           </button>
         </div>
+      </div>
+
+         <div className="text-xs text-slate-400">
+         Date: {formatDate(selectedDate)}
       </div>
 
       <div className="flex justify-end mb-4">
@@ -263,49 +278,50 @@ export default function Tasks() {
 
                 return (
                   <div
-                    key={task.id}
-                    className="bg-[#0b1220] border border-slate-700 rounded p-2 text-xs flex items-start justify-between gap-2"
-                  >
-                    <div className="flex-1">
-                      <div className="font-semibold truncate">
-                        {task.title || task.loadLocation || "No title"}
-                      </div>
+  key={task.id}
+  className="bg-[#0b1220] border border-slate-700 rounded p-2 text-xs flex items-start justify-between gap-2"
+>
+  <div className="flex-1">
+    <div className="font-semibold truncate">
+      {task.title || task.loadLocation || "No title"}
+    </div>
 
-                      {(driverName || vehicleReg) && (
-                        <div className="text-[11px] text-slate-300 mt-1">
-                          {driverName || "Unassigned"}
-                          {vehicleReg ? ` — ${vehicleReg}` : ""}
-                        </div>
-                      )}
+    {(driverName || vehicleReg) && (
+      <div className="text-[11px] text-slate-300 mt-1">
+        {driverName || "Unassigned"}
+        {vehicleReg ? ` — ${vehicleReg}` : ""}
+      </div>
+    )}
 
-                      <div className="text-slate-400 truncate text-[11px] mt-1">
-                        {task.loadLocation || "—"} →{" "}
-                        {task.dropoffLocation || "—"}
-                      </div>
+    <div className="text-slate-400 truncate text-[11px] mt-1">
+      {task.loadLocation || "—"} → {task.dropoffLocation || "—"}
+    </div>
 
-                      <div className="text-slate-500 text-[10px] mt-1">
-                        {task.time || ""}
-                      </div>
-                    </div>
+    <div className="text-slate-500 text-[10px] mt-1">
+      {formatTime(task.time)}
+      {task.date ? ` • ${formatDate(task.date)}` : ""}
+    </div>
+  </div> {/* End of flex-1 */}
 
-                    {/* ACTION BUTTONS ONLY (NO MOVE BUTTONS) */}
-                    <div className="flex flex-col gap-1 items-end">
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => openEdit(task)}
-                          className="px-2 py-1 text-[11px] bg-yellow-600 hover:bg-yellow-700 rounded"
-                        >
-                          ✏
-                        </button>
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="px-2 py-1 text-[11px] bg-red-600 hover:bg-red-700 rounded"
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+  {/* ACTION BUTTONS ONLY */}
+  <div className="flex flex-col gap-1 items-end">
+    <div className="flex gap-1">
+      <button
+        onClick={() => openEdit(task)}
+        className="px-2 py-1 text-[11px] bg-yellow-600 hover:bg-yellow-700 rounded"
+      >
+        ✏
+      </button>
+      <button
+        onClick={() => deleteTask(task.id)}
+        className="px-2 py-1 text-[11px] bg-red-600 hover:bg-red-700 rounded"
+      >
+        🗑
+      </button>
+    </div>
+  </div>
+</div>
+
                 );
               })}
 
@@ -395,16 +411,23 @@ export default function Tasks() {
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-300 block mb-1">
-                  Date
-                </label>
-                <input
-                  type="date"
-                  value={form.date || selectedDate}
-                  onChange={(e) => updateField("date", e.target.value)}
-                  className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-                />
-              </div>
+  <label className="text-sm text-slate-300 block mb-1">
+    Date
+  </label>
+
+  {/* Formatted date label */}
+  <div className="text-[10px] text-slate-500 mb-1">
+    {form.date ? formatDate(form.date) : formatDate(selectedDate)}
+  </div>
+
+  <input
+    type="date"
+    value={form.date || selectedDate}
+    onChange={(e) => updateField("date", e.target.value)}
+    className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
+  />
+</div>
+
               <div>
                 <label className="text-sm text-slate-300 block mb-1">
                   Time
