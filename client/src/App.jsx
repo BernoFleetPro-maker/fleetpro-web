@@ -13,15 +13,32 @@ import LoadingPoints from "./pages/LoadingPoints";
 import DropoffPoints from "./pages/DropoffPoints";
 import Settings from "./pages/Settings";
 
-export default function App() {
-  const authed = localStorage.getItem("fleetpro_auth") === "yes";
+function isLoggedIn() {
+  // Check for a JWT token instead of the old simple "yes" flag
+  const token = localStorage.getItem("fleetpro_token");
+  if (!token) return false;
 
-  // ✅ User NOT logged in → show login screen
+  // Check the token hasn't expired by reading the expiry from the payload
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    if (payload.exp && Date.now() / 1000 > payload.exp) {
+      // Token expired — clear it so user sees login page
+      localStorage.removeItem("fleetpro_token");
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default function App() {
+  const authed = isLoggedIn();
+
   if (!authed) {
     return <LoginPage onLogin={() => window.location.reload()} />;
   }
 
-  // ✅ User logged in → show dashboard
   return (
     <div className="flex h-screen">
       <Sidebar />

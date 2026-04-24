@@ -44,8 +44,23 @@ export default function Tasks() {
   });
 
   useEffect(() => {
-    loadAll();
-  }, []);
+  loadAll();
+
+  const ev = new EventSource(
+    "https://fleetpro-backend-production.up.railway.app/api/stream"
+  );
+
+  ev.onmessage = (e) => {
+    console.log("🔄 SSE → Tasks updated:", e.data);
+    loadAll(); // auto refresh
+  };
+
+  ev.onerror = (err) => {
+    console.log("SSE error:", err);
+  };
+
+  return () => ev.close();
+}, []);
 
   async function loadAll() {
     try {
