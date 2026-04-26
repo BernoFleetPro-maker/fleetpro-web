@@ -3,15 +3,15 @@ import React, { useEffect, useState } from "react";
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
 const STATUSES = [
-  { key: "unassigned", label: "Unassigned",   color: "border-gray-400",  badge: "bg-gray-100 text-gray-600" },
-  { key: "todo",       label: "To Do",         color: "border-blue-400",  badge: "bg-blue-100 text-blue-700" },
-  { key: "inprogress", label: "In Progress",   color: "border-yellow-400",badge: "bg-yellow-100 text-yellow-700" },
-  { key: "completed",  label: "Completed",     color: "border-green-400", badge: "bg-green-100 text-green-700" },
+  { key: "unassigned", label: "Unassigned",  color: "border-gray-400",   badge: "bg-gray-100 text-gray-600" },
+  { key: "todo",       label: "To Do",        color: "border-blue-400",   badge: "bg-blue-100 text-blue-700" },
+  { key: "inprogress", label: "In Progress",  color: "border-yellow-400", badge: "bg-yellow-100 text-yellow-700" },
+  { key: "completed",  label: "Completed",    color: "border-green-400",  badge: "bg-green-100 text-green-700" },
 ];
 
 const EMPTY_FORM = {
   title: "", loadLocation: "", dropoffLocation: "", additionalDropoff: "",
-  orderNumber: "", date: "", pickupTime: "", notes: "",
+  orderNumber: "", date: "", dropoffTime: "", notes: "",
   assignedDriverId: "", vehicleId: "",
 };
 
@@ -19,6 +19,8 @@ export default function Tasks() {
   const [tasks,    setTasks]    = useState([]);
   const [drivers,  setDrivers]  = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [loadingPoints,  setLoadingPoints]  = useState([]);
+  const [dropoffPoints,  setDropoffPoints]  = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
 
   const [showForm,  setShowForm]  = useState(false);
@@ -27,37 +29,32 @@ export default function Tasks() {
   const [saving,    setSaving]    = useState(false);
   const [formError, setFormError] = useState("");
 
-  // ── Load all data ──────────────────────────────────────────────────────────
   const loadAll = async () => {
     try {
-      const [tRes, dRes, vRes] = await Promise.all([
+      const [tRes, dRes, vRes, pRes] = await Promise.all([
         fetch(`${API}/tasks`),
         fetch(`${API}/drivers`),
         fetch(`${API}/vehicles`),
+        fetch(`${API}/points`),
       ]);
-      const [t, d, v] = await Promise.all([tRes.json(), dRes.json(), vRes.json()]);
+      const [t, d, v, p] = await Promise.all([tRes.json(), dRes.json(), vRes.json(), pRes.json()]);
       setTasks(   Array.isArray(t) ? t : []);
       setDrivers( Array.isArray(d) ? d : []);
       setVehicles(Array.isArray(v) ? v : []);
-    } catch (err) {
-      console.error("Load error:", err);
-    }
+      const pts = Array.isArray(p) ? p : [];
+      setLoadingPoints(pts.filter((x) => x.type === "loading"));
+      setDropoffPoints(pts.filter((x) => x.type === "dropoff"));
+    } catch (err) { console.error("Load error:", err); }
   };
 
   useEffect(() => { loadAll(); }, []);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  const driverName  = (id) => drivers.find((d) => d.id === id)?.name  || "—";
-  const vehicleReg  = (id) => vehicles.find((v) => v.id === id)?.registration || "—";
+  const driverName = (id) => drivers.find((d) => d.id === id)?.name || "—";
+  const vehicleReg = (id) => vehicles.find((v) => v.id === id)?.registration || "—";
 
   const tasksForStatus = (status) =>
-    tasks.filter((t) => {
-      const matchStatus = t.status === status;
-      const matchDate   = !t.date || t.date === selectedDate;
-      return matchStatus && matchDate;
-    });
+    tasks.filter((t) => t.status === status && (!t.date || t.date === selectedDate));
 
-  // ── Open create form ───────────────────────────────────────────────────────
   const openCreate = () => {
     setForm({ ...EMPTY_FORM, date: selectedDate });
     setEditingId(null);
@@ -65,7 +62,6 @@ export default function Tasks() {
     setShowForm(true);
   };
 
-  // ── Open edit form ─────────────────────────────────────────────────────────
   const openEdit = (task) => {
     setForm({
       title:             task.title             || "",
@@ -74,7 +70,7 @@ export default function Tasks() {
       additionalDropoff: task.additionalDropoff || "",
       orderNumber:       task.orderNumber       || "",
       date:              task.date              || selectedDate,
-      pickupTime:        task.pickupTime        || "",
+      dropoffTime:       task.pickupTime        || "",   // stored as pickupTime in DB for now
       notes:             task.notes             || "",
       assignedDriverId:  task.assignedDriverId  || "",
       vehicleId:         task.vehicleId         || "",
@@ -84,42 +80,34 @@ export default function Tasks() {
     setShowForm(true);
   };
 
-  // ── Save (create or update) ────────────────────────────────────────────────
   const handleSave = async (e) => {
     e.preventDefault();
     setFormError("");
-    if (!form.loadLocation.trim()) {
-      setFormError("Load location is required.");
-      return;
-    }
+    if (!form.loadLocation.trim()) { setFormError("Load location is required."); return; }
     setSaving(true);
     try {
+      const payload = { ...form, pickupTime: form.dropoffTime }; // map to DB field name
       const url    = editingId ? `${API}/tasks/${editingId}` : `${API}/tasks`;
       const method = editingId ? "PUT" : "POST";
       const res    = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) { setFormError(data.error || `Error ${res.status}`); return; }
       setShowForm(false);
       await loadAll();
-    } catch (err) {
-      setFormError("Network error — please try again.");
-    } finally {
-      setSaving(false);
-    }
+    } catch { setFormError("Network error — please try again."); }
+    finally { setSaving(false); }
   };
 
-  // ── Delete ─────────────────────────────────────────────────────────────────
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this task?")) return;
     await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
     loadAll();
   };
 
-  // ── Quick status change (test buttons) ────────────────────────────────────
   const setStatus = async (id, status) => {
     await fetch(`${API}/tasks/${id}/status`, {
       method: "PATCH",
@@ -129,7 +117,6 @@ export default function Tasks() {
     loadAll();
   };
 
-  // ── UI ─────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#0f1724] text-white p-4">
 
@@ -138,106 +125,79 @@ export default function Tasks() {
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
           <input
-            type="date"
-            value={selectedDate}
+            type="date" value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
             className="bg-[#1e293b] border border-slate-600 text-white text-sm px-3 py-1.5 rounded"
           />
-          <button
-            onClick={openCreate}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold"
-          >
+          <button onClick={openCreate}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">
             + Add Task
           </button>
         </div>
       </div>
 
-      {/* Kanban columns */}
+      {/* Kanban */}
       <div className="grid grid-cols-4 gap-3">
         {STATUSES.map(({ key, label, color, badge }) => {
           const col = tasksForStatus(key);
           return (
             <div key={key} className={`bg-[#1e293b] rounded-lg border-t-4 ${color} flex flex-col`}>
-              {/* Column header */}
               <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
-                <span className="text-sm font-semibold">{label}</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badge}`}>
-                  {col.length}
-                </span>
+                <span className="text-xs font-semibold">{label}</span>
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${badge}`}>{col.length}</span>
               </div>
 
-              {/* Cards */}
-              <div className="flex flex-col gap-2 p-2 flex-1 overflow-y-auto max-h-[70vh]">
+              <div className="flex flex-col gap-1.5 p-2 flex-1 overflow-y-auto max-h-[75vh]">
                 {col.length === 0 && (
-                  <p className="text-slate-500 text-xs italic text-center mt-4">No tasks</p>
+                  <p className="text-slate-500 text-[11px] italic text-center mt-3">No tasks</p>
                 )}
                 {col.map((task) => (
-                  <div
-                    key={task.id}
-                    className="bg-[#0b1220] border border-slate-700 rounded-lg p-3 text-xs"
-                  >
-                    {/* Task title / order */}
-                    <div className="font-semibold text-sm truncate mb-1">
+                  <div key={task.id}
+                    className="bg-[#0b1220] border border-slate-700 rounded p-2 text-[11px] leading-snug">
+
+                    {/* Title row */}
+                    <div className="font-semibold text-[12px] truncate">
                       {task.title || task.loadLocation || "Untitled"}
-                      {task.orderNumber && (
-                        <span className="ml-2 text-slate-400 font-normal">#{task.orderNumber}</span>
-                      )}
+                      {task.orderNumber && <span className="ml-1 text-slate-400 font-normal">#{task.orderNumber}</span>}
                     </div>
 
-                    {/* Route */}
-                    <div className="text-slate-300 mb-1">
-                      📍 {task.loadLocation || "—"}
-                    </div>
-                    <div className="text-slate-300 mb-1">
-                      🏁 {task.dropoffLocation || "—"}
+                    {/* Route — compact */}
+                    <div className="text-slate-400 truncate mt-0.5">
+                      📍{task.loadLocation || "—"} → 🏁{task.dropoffLocation || "—"}
                     </div>
 
-                    {/* Driver + Vehicle */}
-                    <div className="text-slate-400 mt-1">
-                      👤 {task.assignedDriverId ? driverName(task.assignedDriverId) : <span className="italic">Unassigned</span>}
-                    </div>
-                    <div className="text-slate-400">
-                      🚛 {task.vehicleId ? vehicleReg(task.vehicleId) : <span className="italic">No vehicle</span>}
+                    {/* Driver + Vehicle on one line */}
+                    <div className="text-slate-400 truncate mt-0.5">
+                      👤 {task.assignedDriverId ? driverName(task.assignedDriverId) : <span className="italic text-slate-500">Unassigned</span>}
+                      {"  "}🚛 {task.vehicleId ? vehicleReg(task.vehicleId) : <span className="italic text-slate-500">—</span>}
                     </div>
 
-                    {/* Date + Time */}
+                    {/* Date/time */}
                     {(task.date || task.pickupTime) && (
-                      <div className="text-slate-500 text-[11px] mt-1">
-                        {task.date} {task.pickupTime && `@ ${task.pickupTime}`}
+                      <div className="text-slate-500 text-[10px] mt-0.5">
+                        {task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}
                       </div>
                     )}
 
-                    {/* Action buttons */}
-                    <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-700">
-                      <button
-                        onClick={() => openEdit(task)}
-                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-[11px]"
-                      >✏️ Edit</button>
-                      <button
-                        onClick={() => handleDelete(task.id)}
-                        className="px-2 py-1 bg-red-900 hover:bg-red-700 rounded text-[11px]"
-                      >🗑 Delete</button>
+                    {/* Buttons — tiny */}
+                    <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
+                      <button onClick={() => openEdit(task)}
+                        className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
+                      <button onClick={() => handleDelete(task.id)}
+                        className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
 
-                      {/* ── TEST BUTTONS (remove later) ── */}
+                      {/* Test buttons */}
                       {task.status === "todo" && (
-                        <button
-                          onClick={() => setStatus(task.id, "inprogress")}
-                          className="px-2 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-[11px]"
-                          title="Simulates driver accepting task"
-                        >▶ Accept</button>
+                        <button onClick={() => setStatus(task.id, "inprogress")}
+                          className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]"
+                          title="Test: simulate driver accepting">▶ Accept</button>
                       )}
                       {task.status === "inprogress" && (
                         <>
-                          <button
-                            onClick={() => setStatus(task.id, "completed")}
-                            className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-[11px]"
-                            title="Simulates driver completing task"
-                          >✅ Complete</button>
-                          <button
-                            onClick={() => setStatus(task.id, "completed")}
-                            className="px-2 py-1 bg-orange-700 hover:bg-orange-600 rounded text-[11px]"
-                            title="Simulates driver failing task"
-                          >❌ Fail</button>
+                          <button onClick={() => setStatus(task.id, "completed")}
+                            className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
+                          <button onClick={() => setStatus(task.id, "completed")}
+                            className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
                         </>
                       )}
                     </div>
@@ -249,16 +209,12 @@ export default function Tasks() {
         })}
       </div>
 
-      {/* ── Create / Edit Modal ── */}
+      {/* ── Modal ── */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <form
-            onSubmit={handleSave}
-            className="bg-[#1e293b] rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 border border-slate-600"
-          >
-            <h2 className="text-lg font-bold mb-4">
-              {editingId ? "Edit Task" : "Create Task"}
-            </h2>
+          <form onSubmit={handleSave}
+            className="bg-[#1e293b] rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 border border-slate-600">
+            <h2 className="text-lg font-bold mb-4">{editingId ? "Edit Task" : "Create Task"}</h2>
 
             {formError && (
               <div className="bg-red-900/50 border border-red-500 text-red-300 text-sm px-3 py-2 rounded mb-3">
@@ -274,25 +230,59 @@ export default function Tasks() {
                   placeholder="e.g. Coal delivery" />
               </div>
 
+              {/* Load Location — saved points + free text */}
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Load Location *</label>
-                <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
-                  value={form.loadLocation} onChange={(e) => setForm({ ...form, loadLocation: e.target.value })}
-                  placeholder="Where to pick up" />
+                <input
+                  list="load-points-list"
+                  className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.loadLocation}
+                  onChange={(e) => setForm({ ...form, loadLocation: e.target.value })}
+                  placeholder="Select saved point or type address"
+                />
+                <datalist id="load-points-list">
+                  {loadingPoints.map((p) => (
+                    <option key={p.id} value={p.title}>{p.address ? `${p.title} — ${p.address}` : p.title}</option>
+                  ))}
+                </datalist>
+                {loadingPoints.length > 0 && (
+                  <p className="text-[10px] text-slate-500 mt-0.5">{loadingPoints.length} saved loading point{loadingPoints.length !== 1 ? "s" : ""} available</p>
+                )}
               </div>
 
+              {/* Dropoff Location — saved points + free text */}
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Dropoff Location</label>
-                <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
-                  value={form.dropoffLocation} onChange={(e) => setForm({ ...form, dropoffLocation: e.target.value })}
-                  placeholder="Where to deliver" />
+                <input
+                  list="dropoff-points-list"
+                  className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.dropoffLocation}
+                  onChange={(e) => setForm({ ...form, dropoffLocation: e.target.value })}
+                  placeholder="Select saved point or type address"
+                />
+                <datalist id="dropoff-points-list">
+                  {dropoffPoints.map((p) => (
+                    <option key={p.id} value={p.title}>{p.address ? `${p.title} — ${p.address}` : p.title}</option>
+                  ))}
+                </datalist>
+                {dropoffPoints.length > 0 && (
+                  <p className="text-[10px] text-slate-500 mt-0.5">{dropoffPoints.length} saved dropoff point{dropoffPoints.length !== 1 ? "s" : ""} available</p>
+                )}
               </div>
 
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Additional Dropoff (optional)</label>
-                <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
-                  value={form.additionalDropoff} onChange={(e) => setForm({ ...form, additionalDropoff: e.target.value })}
+                <input
+                  list="dropoff-points-list-2"
+                  className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.additionalDropoff}
+                  onChange={(e) => setForm({ ...form, additionalDropoff: e.target.value })}
                   placeholder="Second dropoff if needed" />
+                <datalist id="dropoff-points-list-2">
+                  {dropoffPoints.map((p) => (
+                    <option key={p.id} value={p.title} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -303,16 +293,16 @@ export default function Tasks() {
                     placeholder="e.g. ORD-001" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">Date</label>
+                  <label className="text-xs text-slate-400 block mb-1">Dropoff Date</label>
                   <input type="date" className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
                     value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Pickup Time</label>
+                <label className="text-xs text-slate-400 block mb-1">Dropoff Time</label>
                 <input type="time" className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
-                  value={form.pickupTime} onChange={(e) => setForm({ ...form, pickupTime: e.target.value })} />
+                  value={form.dropoffTime} onChange={(e) => setForm({ ...form, dropoffTime: e.target.value })} />
               </div>
 
               <div>
@@ -320,9 +310,7 @@ export default function Tasks() {
                 <select className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
                   value={form.assignedDriverId} onChange={(e) => setForm({ ...form, assignedDriverId: e.target.value })}>
                   <option value="">— Unassigned —</option>
-                  {drivers.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
+                  {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
 
@@ -331,9 +319,7 @@ export default function Tasks() {
                 <select className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
                   value={form.vehicleId} onChange={(e) => setForm({ ...form, vehicleId: e.target.value })}>
                   <option value="">— No Vehicle —</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>{v.registration}</option>
-                  ))}
+                  {vehicles.map((v) => <option key={v.id} value={v.id}>{v.registration}</option>)}
                 </select>
               </div>
 
@@ -344,12 +330,11 @@ export default function Tasks() {
                   placeholder="Any additional instructions..." />
               </div>
 
-              {/* Status hint */}
               <div className="text-xs text-slate-500 bg-slate-800 rounded p-2">
                 💡 Task will be <strong className="text-slate-300">
                   {form.assignedDriverId && form.vehicleId ? "To Do" : "Unassigned"}
                 </strong> after saving
-                {form.assignedDriverId && form.vehicleId && " — driver will be notified"}
+                {form.assignedDriverId && form.vehicleId && " — driver will be notified once push notifications are active"}
               </div>
             </div>
 
@@ -359,9 +344,7 @@ export default function Tasks() {
                 {saving ? "Saving..." : editingId ? "Save Changes" : "Create Task"}
               </button>
               <button type="button" onClick={() => setShowForm(false)}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm">
-                Cancel
-              </button>
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm">Cancel</button>
             </div>
           </form>
         </div>
