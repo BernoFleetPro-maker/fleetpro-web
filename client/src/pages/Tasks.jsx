@@ -1,471 +1,366 @@
-// src/pages/Tasks.jsx
-import React, { useEffect, useState, useRef } from "react";
-import axios from "axios";
+import React, { useEffect, useState } from "react";
 
-function formatDate(d) {
-  if (!d) return "";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
-}
+const API = "https://fleetpro-backend-production.up.railway.app/api";
 
-function formatTime(t) {
-  if (!t) return "";
-  const [h, m] = t.split(":");
-  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
-}
+const STATUSES = [
+  { key: "unassigned", label: "Unassigned",   color: "border-gray-400",  badge: "bg-gray-100 text-gray-600" },
+  { key: "todo",       label: "To Do",         color: "border-blue-400",  badge: "bg-blue-100 text-blue-700" },
+  { key: "inprogress", label: "In Progress",   color: "border-yellow-400",badge: "bg-yellow-100 text-yellow-700" },
+  { key: "completed",  label: "Completed",     color: "border-green-400", badge: "bg-green-100 text-green-700" },
+];
+
+const EMPTY_FORM = {
+  title: "", loadLocation: "", dropoffLocation: "", additionalDropoff: "",
+  orderNumber: "", date: "", pickupTime: "", notes: "",
+  assignedDriverId: "", vehicleId: "",
+};
 
 export default function Tasks() {
-  const [tasks, setTasks] = useState([]);
-  const [drivers, setDrivers] = useState([]);
+  const [tasks,    setTasks]    = useState([]);
+  const [drivers,  setDrivers]  = useState([]);
   const [vehicles, setVehicles] = useState([]);
-  const [locations, setLocations] = useState([]); // ✅ FIXED: was missing, caused crash
-  const [showForm, setShowForm] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(() =>
-    new Date().toISOString().slice(0, 10)
-  );
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
 
-  const [form, setForm] = useState({
-    id: null,
-    loadLocation: "",
-    dropoffLocation: "",
-    extraDropoff: "",
-    orderNumber: "",
-    assignedDriverId: "",
-    vehicleId: "",
-    date: "",
-    time: "",
-    title: "",
-    description: "",
-    status: "unassigned",
-  });
+  const [showForm,  setShowForm]  = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form,      setForm]      = useState(EMPTY_FORM);
+  const [saving,    setSaving]    = useState(false);
+  const [formError, setFormError] = useState("");
 
-  const googleServiceRef = useRef(null);
-  const api = axios.create({
-    baseURL: "https://fleetpro-backend-production.up.railway.app/api",
-  });
-
-  useEffect(() => {
-    loadAll();
-
-    // SSE for real-time task updates
-    const ev = new EventSource(
-      "https://fleetpro-backend-production.up.railway.app/api/stream/events"
-    );
-    ev.onmessage = (e) => {
-      console.log("🔄 SSE → Tasks updated:", e.data);
-      loadAll();
-    };
-    ev.onerror = (err) => {
-      console.log("SSE error:", err);
-    };
-    return () => ev.close();
-  }, []);
-
-  async function loadAll() {
+  // ── Load all data ──────────────────────────────────────────────────────────
+  const loadAll = async () => {
     try {
-      const [tRes, dRes, pRes, vRes] = await Promise.all([
-        api.get("/tasks"),
-        api.get("/drivers"),
-        api.get("/points"),
-        api.get("/vehicles"),
+      const [tRes, dRes, vRes] = await Promise.all([
+        fetch(`${API}/tasks`),
+        fetch(`${API}/drivers`),
+        fetch(`${API}/vehicles`),
       ]);
-
-      setTasks(Array.isArray(tRes.data) ? tRes.data : []);
-      setDrivers(Array.isArray(dRes.data) ? dRes.data : []);
-      setVehicles(Array.isArray(vRes.data) ? vRes.data : []);
-
-      const allPoints = Array.isArray(pRes.data) ? pRes.data : [];
-      const sorted = [
-        ...allPoints.filter((p) => (p.type || "").toLowerCase() === "loading"),
-        ...allPoints.filter((p) => (p.type || "").toLowerCase() === "dropoff"),
-      ];
-      setLocations(sorted); // ✅ Now works — state is declared above
+      const [t, d, v] = await Promise.all([tRes.json(), dRes.json(), vRes.json()]);
+      setTasks(   Array.isArray(t) ? t : []);
+      setDrivers( Array.isArray(d) ? d : []);
+      setVehicles(Array.isArray(v) ? v : []);
     } catch (err) {
-      console.error("Load error", err);
+      console.error("Load error:", err);
     }
-  }
-
-  function openCreate() {
-    setForm({
-      id: null,
-      loadLocation: "",
-      dropoffLocation: "",
-      extraDropoff: "",
-      orderNumber: "",
-      assignedDriverId: "",
-      vehicleId: "",
-      date: selectedDate,
-      time: "",
-      title: "",
-      description: "",
-      status: "unassigned",
-    });
-    setShowForm(true);
-  }
-
-  function openEdit(task) {
-    setForm({
-      id: task.id,
-      loadLocation: task.loadLocation || "",
-      dropoffLocation: task.dropoffLocation || "",
-      extraDropoff: task.extraDropoff || task.additionalDropoff || "",
-      orderNumber: task.orderNumber || "",
-      assignedDriverId: task.assignedDriverId || "",
-      vehicleId: task.vehicleId || "",
-      date: task.date || selectedDate,
-      time: formatTime(task.pickupTime || task.time || ""),
-      title: task.title || "",
-      description: task.description || "",
-      status: task.status || "unassigned",
-    });
-    setShowForm(true);
-  }
-
-  function updateField(key, value) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
-
-  async function searchLocations(query) {
-    if (!query) return [];
-    let results = [];
-
-    try {
-      const localMatches = locations
-        .filter(
-          (p) =>
-            p.title?.toLowerCase().includes(query.toLowerCase()) ||
-            p.address?.toLowerCase().includes(query.toLowerCase())
-        )
-        .map((p) => ({
-          label: `${p.title} — ${p.address || ""}`,
-          value: p.title,
-          type: p.type,
-        }));
-      results = localMatches;
-    } catch (e) {
-      console.warn("Local search failed", e);
-    }
-
-    if (results.length < 5 && window.google) {
-      if (!googleServiceRef.current)
-        googleServiceRef.current =
-          new window.google.maps.places.AutocompleteService();
-
-      const service = googleServiceRef.current;
-      const googleResults = await new Promise((resolve) => {
-        service.getPlacePredictions(
-          { input: query, componentRestrictions: { country: "za" } },
-          (preds, status) => {
-            if (
-              status === window.google.maps.places.PlacesServiceStatus.OK &&
-              preds
-            ) {
-              resolve(
-                preds.map((p) => ({
-                  label: p.description,
-                  value: p.description,
-                  type: "google",
-                }))
-              );
-            } else resolve([]);
-          }
-        );
-      });
-      results = [...results, ...googleResults];
-    }
-
-    return results;
-  }
-
-  async function saveTask(e) {
-    e && e.preventDefault();
-    try {
-      const payload = { ...form, date: form.date || selectedDate };
-      // Map frontend field names to backend field names
-      if (payload.extraDropoff) payload.additionalDropoff = payload.extraDropoff;
-      if (payload.time) payload.pickupTime = payload.time;
-
-      let response;
-      if (payload.id) {
-        response = await api.put(`/tasks/${payload.id}`, payload);
-      } else {
-        delete payload.id;
-        response = await api.post("/tasks/create", payload);
-      }
-
-      setSelectedDate(payload.date);
-      await loadAll();
-      setShowForm(false);
-    } catch (err) {
-      console.error("Save failed", err);
-      alert("Failed to save task");
-    }
-  }
-
-  async function deleteTask(id) {
-    if (!confirm("Delete this task?")) return;
-    try {
-      await api.delete(`/tasks/${id}`);
-      await loadAll();
-    } catch (err) {
-      console.error("Failed to delete task", err);
-      alert("Failed to delete task");
-    }
-  }
-
-  const grouped = {
-    unassigned: tasks.filter(
-      (t) => t.date === selectedDate && (t.status || "unassigned") === "unassigned"
-    ),
-    todo: tasks.filter((t) => t.date === selectedDate && t.status === "todo"),
-    inprogress: tasks.filter(
-      (t) => t.date === selectedDate && t.status === "inprogress"
-    ),
-    completed: tasks.filter(
-      (t) => t.date === selectedDate && t.status === "completed"
-    ),
   };
 
-  const headerClasses = "text-sm font-bold";
+  useEffect(() => { loadAll(); }, []);
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const driverName  = (id) => drivers.find((d) => d.id === id)?.name  || "—";
+  const vehicleReg  = (id) => vehicles.find((v) => v.id === id)?.registration || "—";
+
+  const tasksForStatus = (status) =>
+    tasks.filter((t) => {
+      const matchStatus = t.status === status;
+      const matchDate   = !t.date || t.date === selectedDate;
+      return matchStatus && matchDate;
+    });
+
+  // ── Open create form ───────────────────────────────────────────────────────
+  const openCreate = () => {
+    setForm({ ...EMPTY_FORM, date: selectedDate });
+    setEditingId(null);
+    setFormError("");
+    setShowForm(true);
+  };
+
+  // ── Open edit form ─────────────────────────────────────────────────────────
+  const openEdit = (task) => {
+    setForm({
+      title:             task.title             || "",
+      loadLocation:      task.loadLocation      || "",
+      dropoffLocation:   task.dropoffLocation   || "",
+      additionalDropoff: task.additionalDropoff || "",
+      orderNumber:       task.orderNumber       || "",
+      date:              task.date              || selectedDate,
+      pickupTime:        task.pickupTime        || "",
+      notes:             task.notes             || "",
+      assignedDriverId:  task.assignedDriverId  || "",
+      vehicleId:         task.vehicleId         || "",
+    });
+    setEditingId(task.id);
+    setFormError("");
+    setShowForm(true);
+  };
+
+  // ── Save (create or update) ────────────────────────────────────────────────
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setFormError("");
+    if (!form.loadLocation.trim()) {
+      setFormError("Load location is required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const url    = editingId ? `${API}/tasks/${editingId}` : `${API}/tasks`;
+      const method = editingId ? "PUT" : "POST";
+      const res    = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) { setFormError(data.error || `Error ${res.status}`); return; }
+      setShowForm(false);
+      await loadAll();
+    } catch (err) {
+      setFormError("Network error — please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this task?")) return;
+    await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
+    loadAll();
+  };
+
+  // ── Quick status change (test buttons) ────────────────────────────────────
+  const setStatus = async (id, status) => {
+    await fetch(`${API}/tasks/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    loadAll();
+  };
+
+  // ── UI ─────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#0f1724] text-white p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-xl font-bold">FleetPro — Tasks</h1>
-        <button
-          onClick={openCreate}
-          className="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-md text-sm font-semibold"
-        >
-          + Add Task
-        </button>
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-bold">Tasks</h1>
+        <div className="flex items-center gap-3">
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-[#1e293b] border border-slate-600 text-white text-sm px-3 py-1.5 rounded"
+          />
+          <button
+            onClick={openCreate}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold"
+          >
+            + Add Task
+          </button>
+        </div>
       </div>
 
-      <div className="text-xs text-slate-400">
-        Date: {formatDate(selectedDate)}
-      </div>
-
-      <div className="flex justify-end mb-4">
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="bg-[#1e293b] p-2 rounded-md border border-slate-600 text-sm"
-        />
-      </div>
-
+      {/* Kanban columns */}
       <div className="grid grid-cols-4 gap-3">
-        {["unassigned", "todo", "inprogress", "completed"].map((status) => (
-          <div key={status} className="bg-[#1e293b] rounded-md p-2">
-            <div className="flex items-center justify-between mb-2">
-              <div className={headerClasses}>
-                {status === "unassigned"
-                  ? "Unassigned"
-                  : status === "todo"
-                  ? "To Do"
-                  : status === "inprogress"
-                  ? "In Progress"
-                  : "Completed"}
+        {STATUSES.map(({ key, label, color, badge }) => {
+          const col = tasksForStatus(key);
+          return (
+            <div key={key} className={`bg-[#1e293b] rounded-lg border-t-4 ${color} flex flex-col`}>
+              {/* Column header */}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
+                <span className="text-sm font-semibold">{label}</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badge}`}>
+                  {col.length}
+                </span>
               </div>
-              <div className="text-xs text-slate-300">
-                {grouped[status].length}
-              </div>
-            </div>
 
-            <div className="flex flex-col gap-1">
-              {grouped[status].map((task) => {
-                const driver = drivers.find((d) => d.id === task.assignedDriverId);
-                const driverName = driver ? driver.name : "";
-                // ✅ FIXED: use registration not reg
-                const vehicle = vehicles.find((v) => v.id === task.vehicleId);
-                const vehicleReg = vehicle ? vehicle.registration : "";
-
-                return (
+              {/* Cards */}
+              <div className="flex flex-col gap-2 p-2 flex-1 overflow-y-auto max-h-[70vh]">
+                {col.length === 0 && (
+                  <p className="text-slate-500 text-xs italic text-center mt-4">No tasks</p>
+                )}
+                {col.map((task) => (
                   <div
                     key={task.id}
-                    className="bg-[#0b1220] border border-slate-700 rounded p-2 text-xs flex items-start justify-between gap-2"
+                    className="bg-[#0b1220] border border-slate-700 rounded-lg p-3 text-xs"
                   >
-                    <div className="flex-1">
-                      <div className="font-semibold truncate">
-                        {task.title || task.loadLocation || "No title"}
-                      </div>
-                      {(driverName || vehicleReg) && (
-                        <div className="text-[11px] text-slate-300 mt-1">
-                          {driverName || "Unassigned"}
-                          {vehicleReg ? ` — ${vehicleReg}` : ""}
-                        </div>
+                    {/* Task title / order */}
+                    <div className="font-semibold text-sm truncate mb-1">
+                      {task.title || task.loadLocation || "Untitled"}
+                      {task.orderNumber && (
+                        <span className="ml-2 text-slate-400 font-normal">#{task.orderNumber}</span>
                       )}
-                      <div className="text-slate-400 truncate text-[11px] mt-1">
-                        {task.loadLocation || "—"} → {task.dropoffLocation || "—"}
-                      </div>
-                      <div className="text-slate-500 text-[10px] mt-1">
-                        {formatTime(task.pickupTime || "")}
-                        {task.date ? ` • ${formatDate(task.date)}` : ""}
-                      </div>
                     </div>
-                    <div className="flex flex-col gap-1 items-end">
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => openEdit(task)}
-                          className="px-2 py-1 text-[11px] bg-yellow-600 hover:bg-yellow-700 rounded"
-                        >
-                          ✏
-                        </button>
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="px-2 py-1 text-[11px] bg-red-600 hover:bg-red-700 rounded"
-                        >
-                          🗑
-                        </button>
+
+                    {/* Route */}
+                    <div className="text-slate-300 mb-1">
+                      📍 {task.loadLocation || "—"}
+                    </div>
+                    <div className="text-slate-300 mb-1">
+                      🏁 {task.dropoffLocation || "—"}
+                    </div>
+
+                    {/* Driver + Vehicle */}
+                    <div className="text-slate-400 mt-1">
+                      👤 {task.assignedDriverId ? driverName(task.assignedDriverId) : <span className="italic">Unassigned</span>}
+                    </div>
+                    <div className="text-slate-400">
+                      🚛 {task.vehicleId ? vehicleReg(task.vehicleId) : <span className="italic">No vehicle</span>}
+                    </div>
+
+                    {/* Date + Time */}
+                    {(task.date || task.pickupTime) && (
+                      <div className="text-slate-500 text-[11px] mt-1">
+                        {task.date} {task.pickupTime && `@ ${task.pickupTime}`}
                       </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-700">
+                      <button
+                        onClick={() => openEdit(task)}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-[11px]"
+                      >✏️ Edit</button>
+                      <button
+                        onClick={() => handleDelete(task.id)}
+                        className="px-2 py-1 bg-red-900 hover:bg-red-700 rounded text-[11px]"
+                      >🗑 Delete</button>
+
+                      {/* ── TEST BUTTONS (remove later) ── */}
+                      {task.status === "todo" && (
+                        <button
+                          onClick={() => setStatus(task.id, "inprogress")}
+                          className="px-2 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-[11px]"
+                          title="Simulates driver accepting task"
+                        >▶ Accept</button>
+                      )}
+                      {task.status === "inprogress" && (
+                        <>
+                          <button
+                            onClick={() => setStatus(task.id, "completed")}
+                            className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-[11px]"
+                            title="Simulates driver completing task"
+                          >✅ Complete</button>
+                          <button
+                            onClick={() => setStatus(task.id, "completed")}
+                            className="px-2 py-1 bg-orange-700 hover:bg-orange-600 rounded text-[11px]"
+                            title="Simulates driver failing task"
+                          >❌ Fail</button>
+                        </>
+                      )}
                     </div>
                   </div>
-                );
-              })}
-
-              {grouped[status].length === 0 && (
-                <div className="text-slate-400 text-xs italic">No tasks</div>
-              )}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Create/Edit Task Modal */}
+      {/* ── Create / Edit Modal ── */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <form
-            onSubmit={saveTask}
-            className="bg-[#0f1724] p-5 rounded-md w-[560px] max-h-[90vh] overflow-auto border border-slate-700"
+            onSubmit={handleSave}
+            className="bg-[#1e293b] rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 border border-slate-600"
           >
-            <h3 className="text-lg font-semibold mb-3">
-              {form.id ? "Edit Task" : "Create Task"}
-            </h3>
+            <h2 className="text-lg font-bold mb-4">
+              {editingId ? "Edit Task" : "Create Task"}
+            </h2>
 
-            <div className="mb-2">
-              <label className="text-sm text-slate-300 block mb-1">Title</label>
-              <input
-                value={form.title}
-                onChange={(e) => updateField("title", e.target.value)}
-                className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-              />
-            </div>
+            {formError && (
+              <div className="bg-red-900/50 border border-red-500 text-red-300 text-sm px-3 py-2 rounded mb-3">
+                {formError}
+              </div>
+            )}
 
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              {["loadLocation", "dropoffLocation"].map((field) => (
-                <div key={field}>
-                  <label className="text-sm text-slate-300 block mb-1 capitalize">
-                    {field === "loadLocation" ? "Load Location" : "Dropoff Location"}
-                  </label>
-                  <input
-                    list={field + "-list"}
-                    value={form[field]}
-                    onChange={(e) => updateField(field, e.target.value)}
-                    onInput={async (e) => {
-                      const opts = await searchLocations(e.target.value);
-                      const datalist = document.getElementById(field + "-list");
-                      datalist.innerHTML = "";
-                      opts.forEach((opt) => {
-                        const option = document.createElement("option");
-                        option.value = opt.value;
-                        option.textContent = opt.label;
-                        datalist.appendChild(option);
-                      });
-                    }}
-                    placeholder="Enter or select"
-                    className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-                  />
-                  <datalist id={field + "-list"}></datalist>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Title (optional)</label>
+                <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  placeholder="e.g. Coal delivery" />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Load Location *</label>
+                <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.loadLocation} onChange={(e) => setForm({ ...form, loadLocation: e.target.value })}
+                  placeholder="Where to pick up" />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Dropoff Location</label>
+                <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.dropoffLocation} onChange={(e) => setForm({ ...form, dropoffLocation: e.target.value })}
+                  placeholder="Where to deliver" />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Additional Dropoff (optional)</label>
+                <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.additionalDropoff} onChange={(e) => setForm({ ...form, additionalDropoff: e.target.value })}
+                  placeholder="Second dropoff if needed" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Order Number</label>
+                  <input className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                    value={form.orderNumber} onChange={(e) => setForm({ ...form, orderNumber: e.target.value })}
+                    placeholder="e.g. ORD-001" />
                 </div>
-              ))}
-            </div>
-
-            <div className="mb-2">
-              <label className="text-sm text-slate-300 block mb-1">
-                Additional Dropoff (optional)
-              </label>
-              <input
-                value={form.extraDropoff}
-                onChange={(e) => updateField("extraDropoff", e.target.value)}
-                className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-                placeholder="Optional"
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 mb-2">
-              <div>
-                <label className="text-sm text-slate-300 block mb-1">Order #</label>
-                <input
-                  value={form.orderNumber}
-                  onChange={(e) => updateField("orderNumber", e.target.value)}
-                  className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-                />
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Date</label>
+                  <input type="date" className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                    value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                </div>
               </div>
+
               <div>
-                <label className="text-sm text-slate-300 block mb-1">Date</label>
-                <input
-                  type="date"
-                  value={form.date || selectedDate}
-                  onChange={(e) => updateField("date", e.target.value)}
-                  className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-                />
+                <label className="text-xs text-slate-400 block mb-1">Pickup Time</label>
+                <input type="time" className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.pickupTime} onChange={(e) => setForm({ ...form, pickupTime: e.target.value })} />
               </div>
+
               <div>
-                <label className="text-sm text-slate-300 block mb-1">Time</label>
-                <input
-                  type="time"
-                  value={form.time}
-                  onChange={(e) => updateField("time", e.target.value)}
-                  className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-                />
+                <label className="text-xs text-slate-400 block mb-1">Assign Driver</label>
+                <select className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.assignedDriverId} onChange={(e) => setForm({ ...form, assignedDriverId: e.target.value })}>
+                  <option value="">— Unassigned —</option>
+                  {drivers.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Assign Vehicle</label>
+                <select className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.vehicleId} onChange={(e) => setForm({ ...form, vehicleId: e.target.value })}>
+                  <option value="">— No Vehicle —</option>
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>{v.registration}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Notes</label>
+                <textarea className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="Any additional instructions..." />
+              </div>
+
+              {/* Status hint */}
+              <div className="text-xs text-slate-500 bg-slate-800 rounded p-2">
+                💡 Task will be <strong className="text-slate-300">
+                  {form.assignedDriverId && form.vehicleId ? "To Do" : "Unassigned"}
+                </strong> after saving
+                {form.assignedDriverId && form.vehicleId && " — driver will be notified"}
               </div>
             </div>
 
-            <div className="mb-3">
-              <label className="text-sm text-slate-300 block mb-1">Driver</label>
-              <select
-                value={form.assignedDriverId || ""}
-                onChange={(e) => updateField("assignedDriverId", e.target.value)}
-                className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-              >
-                <option value="">Unassigned</option>
-                {drivers.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mb-3">
-              <label className="text-sm text-slate-300 block mb-1">Vehicle</label>
-              <select
-                value={form.vehicleId || ""}
-                onChange={(e) => updateField("vehicleId", e.target.value)}
-                className="w-full p-2 rounded bg-[#1b2633] text-white text-sm"
-              >
-                <option value="">Unassigned</option>
-                {vehicles.map((v) => (
-                  // ✅ FIXED: use v.registration not v.reg
-                  <option key={v.id} value={v.id}>
-                    {v.registration}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-sm"
-              >
-                Cancel
+            <div className="flex gap-3 mt-5">
+              <button type="submit" disabled={saving}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white py-2 rounded font-semibold text-sm">
+                {saving ? "Saving..." : editingId ? "Save Changes" : "Create Task"}
               </button>
-              <button
-                type="submit"
-                className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-sm"
-              >
-                {form.id ? "Save" : "Create"}
+              <button type="button" onClick={() => setShowForm(false)}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm">
+                Cancel
               </button>
             </div>
           </form>
