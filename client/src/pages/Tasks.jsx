@@ -161,8 +161,11 @@ function PodModal({ task, drivers, vehicles, onClose }) {
                 {task.title || task.loadLocation || "Completed Task"}
                 {task.orderNumber && <span className="ml-2 text-slate-400 font-normal text-sm">#{task.orderNumber}</span>}
               </h2>
-              <span className="text-xs text-green-400 font-semibold">
-                ✅ Completed {task.completedAt && `— ${new Date(task.completedAt).toLocaleString("en-ZA")}`}
+              <span className="text-xs font-semibold">
+                {task.result === "failed"
+                  ? <span className="text-red-400">❌ Failed — {task.completedAt && new Date(task.completedAt).toLocaleString("en-ZA")}</span>
+                  : <span className="text-green-400">✅ Completed — {task.completedAt && new Date(task.completedAt).toLocaleString("en-ZA")}</span>
+                }
               </span>
             </div>
             <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
@@ -379,7 +382,17 @@ export default function Tasks() {
             <div key={key} className={`bg-[#1e293b] rounded-lg border-t-4 ${color} flex flex-col`}>
               <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
                 <span className="text-xs font-semibold">{label}</span>
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${badge}`}>{col.length}</span>
+                <div className="flex items-center gap-1">
+                  {key === "completed" && col.length > 0 && (
+                    <>
+                      <span className="text-[10px] text-green-400">{col.filter(t => t.result !== "failed").length}✅</span>
+                      {col.filter(t => t.result === "failed").length > 0 && (
+                        <span className="text-[10px] text-red-400 ml-1">{col.filter(t => t.result === "failed").length}❌</span>
+                      )}
+                    </>
+                  )}
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ml-1 ${badge}`}>{col.length}</span>
+                </div>
               </div>
               <div className="flex flex-col gap-1.5 p-2 flex-1 overflow-y-auto max-h-[75vh]">
                 {col.length === 0 && <p className="text-slate-500 text-[11px] italic text-center mt-3">No tasks</p>}
@@ -404,8 +417,15 @@ export default function Tasks() {
                         </div>
                       )}
                       {task.status === "completed" && (
-                        <div className="text-[10px] text-green-400 mt-0.5">
-                          📷 {photoCount} POD photo{photoCount !== 1 ? "s" : ""}
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {task.result === "failed" ? (
+                            <span className="text-[10px] bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded font-medium">❌ Failed</span>
+                          ) : (
+                            <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded font-medium">✅ Success</span>
+                          )}
+                          <span className="text-[10px] text-green-400">
+                            📷 {photoCount} photo{photoCount !== 1 ? "s" : ""}
+                          </span>
                         </div>
                       )}
                       <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
