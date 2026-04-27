@@ -37,8 +37,8 @@ function TaskCalendar({ selectedDate, onSelect, tasksByDate }) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  const firstDay     = new Date(view.year, view.month, 1).getDay();
-  const daysInMonth  = new Date(view.year, view.month + 1, 0).getDate();
+  const firstDay    = new Date(view.year, view.month, 1).getDay();
+  const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
   const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
@@ -47,7 +47,6 @@ function TaskCalendar({ selectedDate, onSelect, tasksByDate }) {
   const prevMonth = () => setView(v => v.month === 0 ? { year: v.year-1, month: 11 } : { ...v, month: v.month-1 });
   const nextMonth = () => setView(v => v.month === 11 ? { year: v.year+1, month: 0 } : { ...v, month: v.month+1 });
   const todayYMD  = toYMD(today.getFullYear(), today.getMonth(), today.getDate());
-
   const selDisplay = selectedDate
     ? new Date(selectedDate + "T00:00:00").toLocaleDateString("en-ZA", { day:"2-digit", month:"short", year:"numeric" })
     : "All dates";
@@ -96,91 +95,148 @@ function TaskCalendar({ selectedDate, onSelect, tasksByDate }) {
   );
 }
 
-// ── POD Modal — shows completed task details + photos ─────────────────────────
-function PodModal({ task, drivers, vehicles, onClose }) {
-  if (!task) return null;
-  const driver  = drivers.find(d => d.id === task.assignedDriverId);
-  const vehicle = vehicles.find(v => v.id === task.vehicleId);
-  const photos  = task.photoUrls?.length > 0 ? task.photoUrls : task.photoUrl ? [task.photoUrl] : [];
+// ── Full-screen image lightbox ────────────────────────────────────────────────
+function Lightbox({ photos, startIndex, onClose }) {
+  const [current, setCurrent] = useState(startIndex);
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="bg-[#1e293b] rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-600">
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-700">
-          <div>
-            <h2 className="text-lg font-bold text-white">
-              {task.title || task.loadLocation || "Completed Task"}
-              {task.orderNumber && <span className="ml-2 text-slate-400 font-normal text-sm">#{task.orderNumber}</span>}
-            </h2>
-            <span className="text-xs text-green-400 font-semibold">✅ Completed
-              {task.completedAt && ` — ${new Date(task.completedAt).toLocaleString("en-ZA")}`}
-            </span>
+    <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center"
+      onClick={onClose}>
+      {/* Close */}
+      <button className="absolute top-4 right-4 text-white text-3xl hover:text-gray-300 z-10"
+        onClick={onClose}>×</button>
+
+      {/* Navigation */}
+      {photos.length > 1 && (
+        <>
+          <button
+            className="absolute left-4 text-white text-4xl hover:text-gray-300 z-10 px-3 py-2"
+            onClick={(e) => { e.stopPropagation(); setCurrent(c => Math.max(0, c - 1)); }}
+          >‹</button>
+          <button
+            className="absolute right-4 text-white text-4xl hover:text-gray-300 z-10 px-3 py-2"
+            onClick={(e) => { e.stopPropagation(); setCurrent(c => Math.min(photos.length - 1, c + 1)); }}
+          >›</button>
+        </>
+      )}
+
+      {/* Image */}
+      <img
+        src={photos[current]}
+        alt={`POD ${current + 1}`}
+        className="max-w-[90vw] max-h-[85vh] object-contain rounded"
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      {/* Counter */}
+      <div className="text-white text-sm mt-3 opacity-60">
+        Photo {current + 1} of {photos.length}
+      </div>
+    </div>
+  );
+}
+
+// ── POD Modal ─────────────────────────────────────────────────────────────────
+function PodModal({ task, drivers, vehicles, onClose }) {
+  const [lightboxIndex, setLightboxIndex] = useState(null);
+  if (!task) return null;
+
+  const driver  = drivers.find(d => d.id === task.assignedDriverId);
+  const vehicle = vehicles.find(v => v.id === task.vehicleId);
+  const photos  = task.photoUrls?.length > 0 ? task.photoUrls
+                : task.photoUrl ? [task.photoUrl] : [];
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div className="bg-[#1e293b] rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-600">
+          <div className="flex items-center justify-between p-5 border-b border-slate-700">
+            <div>
+              <h2 className="text-lg font-bold text-white">
+                {task.title || task.loadLocation || "Completed Task"}
+                {task.orderNumber && <span className="ml-2 text-slate-400 font-normal text-sm">#{task.orderNumber}</span>}
+              </h2>
+              <span className="text-xs text-green-400 font-semibold">
+                ✅ Completed {task.completedAt && `— ${new Date(task.completedAt).toLocaleString("en-ZA")}`}
+              </span>
+            </div>
+            <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
-        </div>
 
-        <div className="p-5 space-y-4">
-          {/* Route */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">📍 Load Location</div>
-              <div className="text-white text-sm font-medium">{task.loadLocation || "—"}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">🏁 Dropoff Location</div>
-              <div className="text-white text-sm font-medium">{task.dropoffLocation || "—"}</div>
-            </div>
-          </div>
-
-          {/* Driver & Vehicle */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">👤 Driver</div>
-              <div className="text-white text-sm">{driver?.name || "—"}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">🚛 Vehicle</div>
-              <div className="text-white text-sm">{vehicle?.registration || "—"}</div>
-            </div>
-          </div>
-
-          {/* Notes */}
-          {task.notes && (
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">📝 Driver Notes</div>
-              <div className="text-white text-sm">{task.notes}</div>
-            </div>
-          )}
-
-          {/* POD Photos */}
-          <div>
-            <div className="text-sm font-semibold text-slate-300 mb-2">
-              📷 Proof of Delivery {photos.length > 0 ? `(${photos.length} photo${photos.length !== 1 ? "s" : ""})` : ""}
-            </div>
-            {photos.length === 0 ? (
-              <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">
-                No photos uploaded for this task
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-800 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">📍 Load Location</div>
+                <div className="text-white text-sm font-medium">{task.loadLocation || "—"}</div>
               </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {photos.map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                    <img
-                      src={url}
-                      alt={`POD ${i + 1}`}
-                      className="w-full rounded-lg object-cover aspect-video border border-slate-700 hover:border-blue-400 transition-colors cursor-pointer"
-                      onError={(e) => { e.target.style.display = "none"; }}
-                    />
-                    <div className="text-xs text-slate-500 text-center mt-1">Photo {i + 1} — tap to open</div>
-                  </a>
-                ))}
+              <div className="bg-slate-800 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">🏁 Dropoff Location</div>
+                <div className="text-white text-sm font-medium">{task.dropoffLocation || "—"}</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-800 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">👤 Driver</div>
+                <div className="text-white text-sm">{driver?.name || "—"}</div>
+              </div>
+              <div className="bg-slate-800 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">🚛 Vehicle</div>
+                <div className="text-white text-sm">{vehicle?.registration || "—"}</div>
+              </div>
+            </div>
+            {task.notes && (
+              <div className="bg-slate-800 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">📝 Driver Notes</div>
+                <div className="text-white text-sm">{task.notes}</div>
               </div>
             )}
+
+            {/* POD Photos */}
+            <div>
+              <div className="text-sm font-semibold text-slate-300 mb-2">
+                📷 Proof of Delivery {photos.length > 0 ? `(${photos.length} photo${photos.length !== 1 ? "s" : ""})` : ""}
+              </div>
+              {photos.length === 0 ? (
+                <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">
+                  No photos uploaded for this task
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500 mb-2">Click any photo to view full screen</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {photos.map((url, i) => (
+                      <div key={i} className="cursor-pointer group" onClick={() => setLightboxIndex(i)}>
+                        <div className="relative overflow-hidden rounded-lg border border-slate-700 group-hover:border-blue-400 transition-colors">
+                          <img
+                            src={url}
+                            alt={`POD ${i + 1}`}
+                            className="w-full object-cover aspect-video group-hover:scale-105 transition-transform duration-200"
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                            <span className="text-white text-2xl opacity-0 group-hover:opacity-100 transition-opacity">🔍</span>
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-500 text-center mt-1">Photo {i + 1}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* Lightbox */}
+      {lightboxIndex !== null && (
+        <Lightbox photos={photos} startIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
+      )}
+    </>
   );
 }
 
@@ -196,7 +252,7 @@ export default function Tasks() {
   const [form,          setForm]          = useState(EMPTY_FORM);
   const [saving,        setSaving]        = useState(false);
   const [formError,     setFormError]     = useState("");
-  const [podTask,       setPodTask]       = useState(null); // task to show in POD modal
+  const [podTask,       setPodTask]       = useState(null);
 
   const loadAll = async () => {
     try {
@@ -223,7 +279,6 @@ export default function Tasks() {
 
   const driverName = (id) => drivers.find(d => d.id === id)?.name || "—";
   const vehicleReg = (id) => vehicles.find(v => v.id === id)?.registration || "—";
-
   const tasksForStatus = (status) =>
     tasks.filter(t => t.status === status && (!selectedDate || !t.date || t.date === selectedDate));
 
@@ -277,8 +332,6 @@ export default function Tasks() {
 
   return (
     <div className="min-h-screen bg-[#0f1724] text-white p-4">
-
-      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
@@ -296,7 +349,6 @@ export default function Tasks() {
         </div>
       )}
 
-      {/* Kanban */}
       <div className="grid grid-cols-4 gap-3">
         {STATUSES.map(({ key, label, color, badge }) => {
           const col = tasksForStatus(key);
@@ -308,71 +360,66 @@ export default function Tasks() {
               </div>
               <div className="flex flex-col gap-1.5 p-2 flex-1 overflow-y-auto max-h-[75vh]">
                 {col.length === 0 && <p className="text-slate-500 text-[11px] italic text-center mt-3">No tasks</p>}
-                {col.map((task) => (
-                  <div key={task.id} className="bg-[#0b1220] border border-slate-700 rounded p-2 text-[11px] leading-snug">
-                    <div className="font-semibold text-[12px] truncate">
-                      {task.title || task.loadLocation || "Untitled"}
-                      {task.orderNumber && <span className="ml-1 text-slate-400 font-normal">#{task.orderNumber}</span>}
-                    </div>
-                    <div className="text-slate-400 truncate mt-0.5">
-                      📍{task.loadLocation || "—"} → 🏁{task.dropoffLocation || "—"}
-                    </div>
-                    <div className="text-slate-400 truncate mt-0.5">
-                      👤 {task.assignedDriverId ? driverName(task.assignedDriverId) : <span className="italic text-slate-500">Unassigned</span>}
-                      {"  "}🚛 {task.vehicleId ? vehicleReg(task.vehicleId) : <span className="italic text-slate-500">—</span>}
-                    </div>
-                    {(task.date || task.pickupTime) && (
-                      <div className="text-slate-500 text-[10px] mt-0.5">
-                        {task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}
+                {col.map((task) => {
+                  const photoCount = task.photoUrls?.length || (task.photoUrl ? 1 : 0);
+                  return (
+                    <div key={task.id} className="bg-[#0b1220] border border-slate-700 rounded p-2 text-[11px] leading-snug">
+                      <div className="font-semibold text-[12px] truncate">
+                        {task.title || task.loadLocation || "Untitled"}
+                        {task.orderNumber && <span className="ml-1 text-slate-400 font-normal">#{task.orderNumber}</span>}
                       </div>
-                    )}
-
-                    {/* Photo count badge for completed tasks */}
-                    {task.status === "completed" && (
-                      <div className="text-[10px] text-green-400 mt-0.5">
-                        📷 {(task.photoUrls?.length || 0) + (task.photoUrl && !task.photoUrls?.length ? 1 : 0)} POD photo(s)
+                      <div className="text-slate-400 truncate mt-0.5">
+                        📍{task.loadLocation || "—"} → 🏁{task.dropoffLocation || "—"}
                       </div>
-                    )}
-
-                    <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
-                      {/* View POD button for completed tasks */}
+                      <div className="text-slate-400 truncate mt-0.5">
+                        👤 {task.assignedDriverId ? driverName(task.assignedDriverId) : <span className="italic text-slate-500">Unassigned</span>}
+                        {"  "}🚛 {task.vehicleId ? vehicleReg(task.vehicleId) : <span className="italic text-slate-500">—</span>}
+                      </div>
+                      {(task.date || task.pickupTime) && (
+                        <div className="text-slate-500 text-[10px] mt-0.5">
+                          {task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}
+                        </div>
+                      )}
                       {task.status === "completed" && (
-                        <button onClick={() => setPodTask(task)}
-                          className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">
-                          👁 View POD
-                        </button>
+                        <div className="text-[10px] text-green-400 mt-0.5">
+                          📷 {photoCount} POD photo{photoCount !== 1 ? "s" : ""}
+                        </div>
                       )}
-                      <button onClick={() => openEdit(task)}
-                        className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
-                      <button onClick={() => handleDelete(task.id)}
-                        className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
-                      {task.status === "todo" && (
-                        <button onClick={() => setStatus(task.id, "inprogress")}
-                          className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]" title="Test: simulate driver accepting">▶ Accept</button>
-                      )}
-                      {task.status === "inprogress" && (
-                        <>
-                          <button onClick={() => setStatus(task.id, "completed")}
-                            className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
-                          <button onClick={() => setStatus(task.id, "completed")}
-                            className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
-                        </>
-                      )}
+                      <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
+                        {task.status === "completed" && (
+                          <button onClick={() => setPodTask(task)}
+                            className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">
+                            👁 View POD
+                          </button>
+                        )}
+                        <button onClick={() => openEdit(task)}
+                          className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
+                        <button onClick={() => handleDelete(task.id)}
+                          className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
+                        {task.status === "todo" && (
+                          <button onClick={() => setStatus(task.id, "inprogress")}
+                            className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]">▶ Accept</button>
+                        )}
+                        {task.status === "inprogress" && (
+                          <>
+                            <button onClick={() => setStatus(task.id, "completed")}
+                              className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
+                            <button onClick={() => setStatus(task.id, "completed")}
+                              className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* POD Modal */}
-      {podTask && (
-        <PodModal task={podTask} drivers={drivers} vehicles={vehicles} onClose={() => setPodTask(null)} />
-      )}
+      {podTask && <PodModal task={podTask} drivers={drivers} vehicles={vehicles} onClose={() => setPodTask(null)} />}
 
-      {/* Create/Edit Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <form onSubmit={handleSave}
