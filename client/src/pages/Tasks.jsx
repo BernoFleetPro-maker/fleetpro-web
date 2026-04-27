@@ -270,7 +270,30 @@ export default function Tasks() {
     } catch (err) { console.error("Load error:", err); }
   };
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+
+    // Connect to SSE for real-time updates
+    const sse = new EventSource(
+      "https://fleetpro-backend-production.up.railway.app/api/stream/events"
+    );
+
+    sse.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
+          loadAll(); // Reload all tasks when anything changes
+        }
+      } catch {}
+    };
+
+    sse.onerror = () => {
+      // SSE disconnected — will auto-reconnect
+      console.log("SSE disconnected, will reconnect...");
+    };
+
+    return () => sse.close();
+  }, []);
 
   const tasksByDate = tasks.reduce((acc, t) => {
     if (t.date) acc[t.date] = (acc[t.date] || 0) + 1;
