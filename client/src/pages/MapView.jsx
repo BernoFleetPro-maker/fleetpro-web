@@ -2,51 +2,61 @@ import React, { useEffect, useRef } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
-/**
- * FleetPro MapView — Enhanced with live route tracking + ETA
- *
- * Flow:
- *  1. Driver accepts task (status = inprogress)
- *     → route: vehicle → loading point + ETA
- *  2. Vehicle enters loading point radius
- *     → status label: "At loading station"
- *  3. Vehicle leaves loading point radius
- *     → route: vehicle → dropoff point + ETA
- *  4. Vehicle enters dropoff radius
- *     → status label: "Arrived at client"
- */
-
 export default function MapView() {
-  const mapRef          = useRef(null);
-  const mapInstance     = useRef(null);
-  const markersRef      = useRef({});
-  const trailsRef       = useRef({});
-  const pointOverlaysRef= useRef([]);
-  const routeLinesRef   = useRef({});   // reg → { polyline, panel }
-  const etaPanelsRef    = useRef({});   // reg → overlay div
+  const mapRef           = useRef(null);
+  const mapInstance      = useRef(null);
+  const markersRef       = useRef({});
+  const trailsRef        = useRef({});
+  const pointOverlaysRef = useRef([]);
+  const routeLinesRef    = useRef({});  // reg → google DirectionsRenderer
+  const etaPanelsRef     = useRef({});  // reg → overlay
+  const directionsCache  = useRef({});  // key → { renderer, expiry }
 
-  // ── Haversine distance (km) ──────────────────────────────────────────────
-  function haversineKm(lat1, lon1, lat2, lon2) {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2
-      + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  // ── Directions Service (road routing) ───────────────────────────────────
+  function getRoute(map, origin, destination, color, onResult) {
+    const g         = window.google;
+    const cacheKey  = `${origin.lat},${origin.lng}→${destination.lat},${destination.lng}`;
+    const now       = Date.now();
+
+    // Reuse cached renderer if fresh (< 30s)
+    if (directionsCache.current[cacheKey]?.expiry > now) {
+      onResult(directionsCache.current[cacheKey].duration, directionsCache.current[cacheKey].distance);
+      return;
+    }
+
+    const service  = new g.maps.DirectionsService();
+    const renderer = new g.maps.DirectionsRenderer({
+      map,
+      suppressMarkers: true,
+      polylineOptions: {
+        strokeColor:   color,
+        strokeOpacity: 0.85,
+        strokeWeight:  4,
+      },
+    });
+
+    service.route({
+      origin:      new g.maps.LatLng(origin.lat, origin.lng),
+      destination: new g.maps.LatLng(destination.lat, destination.lng),
+      travelMode:  g.maps.TravelMode.DRIVING,
+    }, (result, status) => {
+      if (status === "OK") {
+        renderer.setDirections(result);
+        const leg      = result.routes[0].legs[0];
+        const duration = leg.duration.text;
+        const distance = leg.distance.text;
+        directionsCache.current[cacheKey] = { renderer, duration, distance, expiry: now + 30000 };
+        onResult(duration, distance);
+      } else {
+        console.warn("Directions failed:", status);
+        onResult(null, null);
+      }
+    });
+
+    return renderer;
   }
 
-  // ── ETA string from distance + speed ────────────────────────────────────
-  function calcETA(distKm, speedKmh) {
-    const spd = Math.max(speedKmh || 0, 10); // assume 10 km/h minimum
-    const mins = Math.round((distKm / spd) * 60);
-    if (mins < 1)  return "< 1 min";
-    if (mins < 60) return `~${mins} min`;
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m > 0 ? `~${h}h ${m}min` : `~${h}h`;
-  }
-
-  // ── Format Autotrak date ─────────────────────────────────────────────────
+  // ── Format date ──────────────────────────────────────────────────────────
   function formatDate(dtValue) {
     if (!dtValue) return "Unknown";
     const num = Number(dtValue);
@@ -57,13 +67,13 @@ export default function MapView() {
       else date = new Date();
       date = new Date(date.getTime() - 2 * 60 * 60 * 1000);
       return date.toLocaleString("en-ZA", {
-        timeZone: "Africa/Johannesburg", year:"numeric", month:"2-digit",
+        timeZone:"Africa/Johannesburg", year:"numeric", month:"2-digit",
         day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false,
       });
     } catch { return "Invalid date"; }
   }
 
-  // ── Gray label overlay ───────────────────────────────────────────────────
+  // ── Gray label overlay (reg + speed below marker) ────────────────────────
   function createLabelOverlay(map, position, html) {
     const g = window.google;
     if (!g) return null;
@@ -71,7 +81,7 @@ export default function MapView() {
     LabelOverlay.prototype = new g.maps.OverlayView();
     LabelOverlay.prototype.onAdd = function () {
       const div = document.createElement("div");
-      div.style.cssText = "position:absolute;transform:translate(-50%,0);z-index:999;";
+      div.style.cssText = "position:absolute;transform:translate(-50%,0);z-index:999;pointer-events:none;";
       div.innerHTML = `<div style="background:rgba(60,60,60,0.95);padding:3px 8px;border-radius:6px;font-size:11px;text-align:center;color:#fff;font-weight:600;border:1px solid #111;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.25);">${this.content}</div>`;
       this.div = div;
       this.getPanes().overlayLayer.appendChild(div);
@@ -97,7 +107,7 @@ export default function MapView() {
     return lbl;
   }
 
-  // ── ETA panel overlay (appears above vehicle marker) ────────────────────
+  // ── ETA badge overlay (above marker) ────────────────────────────────────
   function createEtaOverlay(map, position, html) {
     const g = window.google;
     if (!g) return null;
@@ -131,28 +141,38 @@ export default function MapView() {
     return overlay;
   }
 
-  // ── Build ETA panel HTML ─────────────────────────────────────────────────
-  function etaHtml(label, destination, eta, color) {
+  // ── ETA badge HTML ───────────────────────────────────────────────────────
+  function etaBadgeHtml(topLabel, destination, duration, distance, color) {
     return `
       <div style="background:${color};border-radius:8px;padding:5px 10px;font-size:11px;color:#fff;
-                  font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);
-                  border:1px solid rgba(255,255,255,0.15);margin-bottom:4px;text-align:center;">
-        <div style="font-size:10px;opacity:0.85;">${label}</div>
-        <div>${destination}</div>
-        <div style="font-size:13px;margin-top:2px;">⏱ ${eta}</div>
+                  font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.45);
+                  border:1px solid rgba(255,255,255,0.15);margin-bottom:4px;text-align:center;min-width:120px;">
+        ${topLabel ? `<div style="font-size:10px;opacity:0.8;margin-bottom:1px;">${topLabel}</div>` : ""}
+        <div style="font-size:12px;">${destination}</div>
+        ${duration ? `<div style="font-size:13px;margin-top:2px;">⏱ ${duration}</div>` : ""}
+        ${distance ? `<div style="font-size:10px;opacity:0.75;">${distance}</div>` : ""}
       </div>`;
   }
 
-  // ── Symbol icons ─────────────────────────────────────────────────────────
+  // ── Status-only badge ────────────────────────────────────────────────────
+  function statusBadgeHtml(text, color) {
+    return `<div style="background:${color};border-radius:8px;padding:5px 12px;font-size:12px;
+                        color:#fff;font-weight:600;white-space:nowrap;
+                        box-shadow:0 2px 6px rgba(0,0,0,0.45);margin-bottom:4px;text-align:center;">
+              ${text}
+            </div>`;
+  }
+
+  // ── Vehicle icon ─────────────────────────────────────────────────────────
   function getSymbolIcon(speed, heading) {
     const g  = window.google;
     const sp = Number(speed || 0);
-    if (sp < 5) return { path: g.maps.SymbolPath.CIRCLE, scale:6, fillColor:"#ff3b30", fillOpacity:1, strokeColor:"#000", strokeWeight:1 };
+    if (sp < 5) return { path:g.maps.SymbolPath.CIRCLE, scale:6, fillColor:"#ff3b30", fillOpacity:1, strokeColor:"#000", strokeWeight:1 };
     const color = sp > 40 ? "#007bff" : "#FFA500";
-    return { path: g.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale:6, rotation:Number(heading||0), fillColor:color, fillOpacity:1, strokeColor:"#000", strokeWeight:1 };
+    return { path:g.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale:6, rotation:Number(heading||0), fillColor:color, fillOpacity:1, strokeColor:"#000", strokeWeight:1 };
   }
 
-  // ── Info popup HTML ──────────────────────────────────────────────────────
+  // ── Info popup ───────────────────────────────────────────────────────────
   function infoHtml(v) {
     const task = v.activeTask;
     let taskSection = "";
@@ -163,8 +183,7 @@ export default function MapView() {
         <div><strong>Order:</strong> ${task.orderNumber || "—"}</div>
         <div><strong>Driver:</strong> ${task.driverName || "—"}</div>
         <div><strong>Load:</strong> ${task.loadLocation || "—"}</div>
-        <div><strong>Dropoff:</strong> ${task.dropoffLocation || "—"}</div>
-        <div><strong>Status:</strong> ${task.status}</div>`;
+        <div><strong>Dropoff:</strong> ${task.dropoffLocation || "—"}</div>`;
     }
     return `
       <div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;min-width:180px;">
@@ -176,7 +195,7 @@ export default function MapView() {
       </div>`;
   }
 
-  // ── Smooth marker animation ──────────────────────────────────────────────
+  // ── Animate marker smoothly ──────────────────────────────────────────────
   function animateMarker(marker, newLatLng) {
     const g = window.google;
     if (!marker || !g) return;
@@ -194,19 +213,29 @@ export default function MapView() {
     step();
   }
 
-  // ── Draw/update route line for a vehicle with active task ────────────────
-  function updateRouteAndEta(v, marker) {
+  // ── Haversine (metres) ───────────────────────────────────────────────────
+  function haversineM(lat1, lon1, lat2, lon2) {
+    const R    = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a    = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  // ── Update road route + ETA badge for one vehicle ───────────────────────
+  function updateRouteAndEta(v) {
     const g    = window.google;
     const map  = mapInstance.current;
     const id   = v.descrip || `veh-${v.id}`;
     const task = v.activeTask;
     const pos  = new g.maps.LatLng(v.lat, v.lon);
 
-    // Remove existing route + eta for this vehicle
+    // Clear old route renderer
     if (routeLinesRef.current[id]) {
       routeLinesRef.current[id].setMap(null);
       delete routeLinesRef.current[id];
     }
+    // Clear old ETA overlay
     if (etaPanelsRef.current[id]) {
       etaPanelsRef.current[id].setMap(null);
       delete etaPanelsRef.current[id];
@@ -216,87 +245,74 @@ export default function MapView() {
 
     const loadPt = task.loadPoint;
     const dropPt = task.dropPoint;
-    const speed  = Number(v.speed || 0);
 
-    // Determine where vehicle is relative to geofences
-    const distToLoad = loadPt
-      ? haversineKm(v.lat, v.lon, loadPt.lat, loadPt.lon) * 1000  // metres
-      : Infinity;
-    const distToDrop = dropPt
-      ? haversineKm(v.lat, v.lon, dropPt.lat, dropPt.lon) * 1000
-      : Infinity;
+    const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
+    const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
 
     const atLoad = loadPt && distToLoad <= (loadPt.radius || 1000);
     const atDrop = dropPt && distToDrop <= (dropPt.radius || 1000);
 
-    let destination = null;
-    let label       = "";
-    let color       = "#1e88e5";
-    let statusText  = "";
+    const origin = { lat: v.lat, lng: v.lon };
 
     if (atDrop) {
-      // Priority: arrived at dropoff
-      statusText = "Arrived at client";
-      color      = "#43a047";
-      // No route line needed — just show status
+      // Arrived at client
+      const overlay = createEtaOverlay(map, pos, statusBadgeHtml("✅ Arrived at client", "#43a047"));
+      etaPanelsRef.current[id] = overlay;
+
     } else if (atLoad) {
-      // At loading station
-      statusText = "At loading station";
-      color      = "#fb8c00";
-      // Route to dropoff
-      if (dropPt) { destination = dropPt; label = `→ ${dropPt.title}`; }
+      // At loading station — route to dropoff (green)
+      const overlay = createEtaOverlay(map, pos, statusBadgeHtml("🏭 At loading station", "#fb8c00"));
+      etaPanelsRef.current[id] = overlay;
+
+      if (dropPt) {
+        const dest = { lat: dropPt.lat, lng: dropPt.lon };
+        const renderer = getRoute(map, origin, dest, "#43a047", (duration, distance) => {
+          if (etaPanelsRef.current[id]) {
+            etaPanelsRef.current[id].updateContent(
+              etaBadgeHtml("🏭 At loading — heading to dropoff", dropPt.title, duration, distance, "#43a047")
+            );
+          }
+        });
+        if (renderer) routeLinesRef.current[id] = renderer;
+      }
+
     } else if (loadPt) {
-      // Heading to load first
-      destination = loadPt;
-      label       = `→ ${loadPt.title}`;
-      color       = "#1e88e5";
-    } else if (dropPt) {
-      // No load point saved — route direct to dropoff
-      destination = dropPt;
-      label       = `→ ${dropPt.title}`;
-      color       = "#8e24aa";
-    }
+      // Heading to load — route is blue
+      const dest = { lat: loadPt.lat, lng: loadPt.lon };
+      const etaOverlay = createEtaOverlay(map, pos,
+        etaBadgeHtml("🚛 En route to loading", loadPt.title, "Calculating...", null, "#1e88e5")
+      );
+      etaPanelsRef.current[id] = etaOverlay;
 
-    // Draw straight-line route to destination
-    if (destination) {
-      const destLatLng = new g.maps.LatLng(destination.lat, destination.lon);
-      const polyline   = new g.maps.Polyline({
-        path:          [pos, destLatLng],
-        strokeColor:   color,
-        strokeOpacity: 0.85,
-        strokeWeight:  3,
-        geodesic:      true,
-        icons: [{
-          icon:   { path: g.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, strokeColor: color },
-          offset: "50%",
-        }],
-        map,
+      const renderer = getRoute(map, origin, dest, "#1e88e5", (duration, distance) => {
+        if (etaPanelsRef.current[id]) {
+          etaPanelsRef.current[id].updateContent(
+            etaBadgeHtml("🚛 En route to loading", loadPt.title, duration, distance, "#1e88e5")
+          );
+        }
       });
-      routeLinesRef.current[id] = polyline;
+      if (renderer) routeLinesRef.current[id] = renderer;
 
-      const distKm = haversineKm(v.lat, v.lon, destination.lat, destination.lon);
-      const eta    = calcETA(distKm, speed);
+    } else if (dropPt) {
+      // No load point — direct to dropoff (green)
+      const dest = { lat: dropPt.lat, lng: dropPt.lon };
+      const etaOverlay = createEtaOverlay(map, pos,
+        etaBadgeHtml("🚛 En route to dropoff", dropPt.title, "Calculating...", null, "#43a047")
+      );
+      etaPanelsRef.current[id] = etaOverlay;
 
-      const etaPanel = createEtaOverlay(
-        map, pos,
-        etaHtml(statusText || label, destination.title, eta, color)
-      );
-      etaPanelsRef.current[id] = etaPanel;
-    } else if (statusText) {
-      // At a geofence — show status badge only
-      const etaPanel = createEtaOverlay(
-        map, pos,
-        `<div style="background:${color};border-radius:8px;padding:5px 10px;font-size:11px;
-                     color:#fff;font-weight:600;white-space:nowrap;
-                     box-shadow:0 2px 6px rgba(0,0,0,0.4);text-align:center;margin-bottom:4px;">
-           ${statusText}
-         </div>`
-      );
-      etaPanelsRef.current[id] = etaPanel;
+      const renderer = getRoute(map, origin, dest, "#43a047", (duration, distance) => {
+        if (etaPanelsRef.current[id]) {
+          etaPanelsRef.current[id].updateContent(
+            etaBadgeHtml("🚛 En route to dropoff", dropPt.title, duration, distance, "#43a047")
+          );
+        }
+      });
+      if (renderer) routeLinesRef.current[id] = renderer;
     }
   }
 
-  // ── Draw or update all vehicles ──────────────────────────────────────────
+  // ── Draw/update all vehicles ─────────────────────────────────────────────
   function drawOrUpdateVehicles(data) {
     const g   = window.google;
     const map = mapInstance.current;
@@ -325,6 +341,8 @@ export default function MapView() {
         mk.labelOverlay.updateContent(labelHtml);
         mk.labelOverlay.updatePosition(pos);
         marker = mk.marker;
+        // Update ETA overlay position too
+        if (etaPanelsRef.current[id]) etaPanelsRef.current[id].updatePosition(pos);
         mk.marker.addListener("click", () => { activeInfo.setContent(infoHtml(v)); activeInfo.open(map, mk.marker); });
       } else {
         marker = new g.maps.Marker({ map, position: pos, icon });
@@ -333,18 +351,17 @@ export default function MapView() {
         markersRef.current[id] = { marker, labelOverlay };
       }
 
-      // Trail polyline
-      if (markersRef.current[id].trailPolyline)
-        markersRef.current[id].trailPolyline.setMap(null);
+      // Short trail polyline
+      if (markersRef.current[id].trailPolyline) markersRef.current[id].trailPolyline.setMap(null);
       const path = trailsRef.current[id].map(p => ({ lat: p.lat, lng: p.lng }));
       if (path.length > 1) {
-        const poly = new g.maps.Polyline({ path, strokeColor: icon.fillColor, strokeOpacity:0.6, strokeWeight:2, map });
+        const poly = new g.maps.Polyline({ path, strokeColor: icon.fillColor, strokeOpacity:0.5, strokeWeight:2, map });
         markersRef.current[id].trailPolyline = poly;
         setTimeout(() => poly.setMap(null), 12000);
       }
 
-      // Route + ETA
-      updateRouteAndEta(v, marker);
+      // Road route + ETA
+      updateRouteAndEta(v);
     });
   }
 
@@ -363,30 +380,23 @@ export default function MapView() {
     try {
       const res    = await fetch(`${API}/points`);
       const points = await res.json();
-
       points.forEach(p => {
         const lat    = Number(p.lat);
         const lon    = Number(p.lon);
         const radius = Number(p.radius) || 1000;
         if (isNaN(lat) || isNaN(lon)) return;
-
         const center = new g.maps.LatLng(lat, lon);
-        const color  = (p.type || "").toLowerCase() === "dropoff" ? "#8ee68e" : "#7fb3ff";
-
+        const color  = (p.type||"").toLowerCase() === "dropoff" ? "#8ee68e" : "#7fb3ff";
         const circle = new g.maps.Circle({ map, center, radius, fillColor:color, fillOpacity:0.18, strokeColor:color, strokeOpacity:0.7, strokeWeight:2 });
         const dot    = new g.maps.Marker({
           map, position: center,
-          icon: { path: g.maps.SymbolPath.CIRCLE, scale:5, fillColor:color, fillOpacity:1, strokeColor:"#111", strokeWeight:1 },
+          icon: { path:g.maps.SymbolPath.CIRCLE, scale:5, fillColor:color, fillOpacity:1, strokeColor:"#111", strokeWeight:1 },
         });
-        const info = new g.maps.InfoWindow({
-          content: `<div style="font-size:12px;color:#222;">${p.title || "Point"}<br/>Radius: ${radius} m</div>`,
-        });
+        const info = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>` });
         dot.addListener("click", () => info.open(map, dot));
         pointOverlaysRef.current.push({ circle, dot });
       });
-    } catch (err) {
-      console.error("Failed to load points:", err);
-    }
+    } catch (err) { console.error("Failed to load points:", err); }
   }
 
   // ── Main fetch loop ──────────────────────────────────────────────────────
@@ -396,7 +406,7 @@ export default function MapView() {
 
     if (!mapInstance.current && mapRef.current) {
       mapInstance.current = new g.maps.Map(mapRef.current, {
-        center: { lat: -26.1, lng: 28.1 },
+        center: { lat:-26.1, lng:28.1 },
         zoom: 8,
         streetViewControl: false,
         mapTypeControl: true,
@@ -409,9 +419,7 @@ export default function MapView() {
         const positions = await res.json();
         if (Array.isArray(positions)) drawOrUpdateVehicles(positions);
         await drawPoints();
-      } catch (err) {
-        console.error("fetchAll error:", err);
-      }
+      } catch (err) { console.error("fetchAll error:", err); }
     }
 
     fetchAll();
@@ -419,7 +427,6 @@ export default function MapView() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── Resize listener ──────────────────────────────────────────────────────
   useEffect(() => {
     const onResize = () => {
       if (mapInstance.current && window.google)
