@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 
-const API = "https://fleetpro-backend-production.up.railway.app/api";
+const API     = "https://fleetpro-backend-production.up.railway.app/api";
+const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 
 export default function MapView() {
   const mapRef           = useRef(null);
@@ -8,52 +9,74 @@ export default function MapView() {
   const markersRef       = useRef({});
   const trailsRef        = useRef({});
   const pointOverlaysRef = useRef([]);
-  const routeLinesRef    = useRef({});  // reg → google DirectionsRenderer
-  const etaPanelsRef     = useRef({});  // reg → overlay
-  const directionsCache  = useRef({});  // key → { renderer, expiry }
+  const routeLinesRef    = useRef({});
+  const etaPanelsRef     = useRef({});
+  const routeCacheRef    = useRef({});
 
-  // ── Directions Service (road routing) ───────────────────────────────────
-  function getRoute(map, origin, destination, color, onResult) {
-    const g         = window.google;
-    const cacheKey  = `${origin.lat},${origin.lng}→${destination.lat},${destination.lng}`;
-    const now       = Date.now();
+  // ── Fetch road route via Routes API (REST) ───────────────────────────────
+  async function fetchRoadRoute(originLat, originLng, destLat, destLng) {
+    const cacheKey = `${originLat.toFixed(3)},${originLng.toFixed(3)}→${destLat.toFixed(3)},${destLng.toFixed(3)}`;
+    const cached   = routeCacheRef.current[cacheKey];
+    if (cached && cached.expiry > Date.now()) return cached.data;
 
-    // Reuse cached renderer if fresh (< 30s)
-    if (directionsCache.current[cacheKey]?.expiry > now) {
-      onResult(directionsCache.current[cacheKey].duration, directionsCache.current[cacheKey].distance);
-      return;
+    try {
+      const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+        method: "POST",
+        headers: {
+          "Content-Type":            "application/json",
+          "X-Goog-Api-Key":          MAPS_KEY,
+          "X-Goog-FieldMask":        "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline",
+        },
+        body: JSON.stringify({
+          origin:      { location: { latLng: { latitude: originLat, longitude: originLng } } },
+          destination: { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
+          travelMode:  "DRIVE",
+          routingPreference: "TRAFFIC_AWARE",
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.routes?.[0]) return null;
+
+      const route       = data.routes[0];
+      const durationSec = parseInt(route.duration);
+      const distanceM   = route.distanceMeters;
+      const encoded     = route.polyline.encodedPolyline;
+
+      // Decode polyline
+      const path = decodePolyline(encoded);
+
+      const mins = Math.round(durationSec / 60);
+      const duration = mins < 60
+        ? `~${mins} min`
+        : `~${Math.floor(mins/60)}h ${mins%60 > 0 ? mins%60+"min" : ""}`;
+      const distance = distanceM < 1000
+        ? `${distanceM} m`
+        : `${(distanceM/1000).toFixed(1)} km`;
+
+      const result = { path, duration, distance };
+      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 30000 };
+      return result;
+    } catch (err) {
+      console.warn("Routes API error:", err.message);
+      return null;
     }
+  }
 
-    const service  = new g.maps.DirectionsService();
-    const renderer = new g.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: true,
-      polylineOptions: {
-        strokeColor:   color,
-        strokeOpacity: 0.85,
-        strokeWeight:  4,
-      },
-    });
-
-    service.route({
-      origin:      new g.maps.LatLng(origin.lat, origin.lng),
-      destination: new g.maps.LatLng(destination.lat, destination.lng),
-      travelMode:  g.maps.TravelMode.DRIVING,
-    }, (result, status) => {
-      if (status === "OK") {
-        renderer.setDirections(result);
-        const leg      = result.routes[0].legs[0];
-        const duration = leg.duration.text;
-        const distance = leg.distance.text;
-        directionsCache.current[cacheKey] = { renderer, duration, distance, expiry: now + 30000 };
-        onResult(duration, distance);
-      } else {
-        console.warn("Directions failed:", status);
-        onResult(null, null);
-      }
-    });
-
-    return renderer;
+  // ── Decode Google encoded polyline ───────────────────────────────────────
+  function decodePolyline(encoded) {
+    const points = [];
+    let index = 0, lat = 0, lng = 0;
+    while (index < encoded.length) {
+      let b, shift = 0, result = 0;
+      do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+      shift = 0; result = 0;
+      do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+      points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+    }
+    return points;
   }
 
   // ── Format date ──────────────────────────────────────────────────────────
@@ -73,7 +96,7 @@ export default function MapView() {
     } catch { return "Invalid date"; }
   }
 
-  // ── Gray label overlay (reg + speed below marker) ────────────────────────
+  // ── Label overlay (below marker) ─────────────────────────────────────────
   function createLabelOverlay(map, position, html) {
     const g = window.google;
     if (!g) return null;
@@ -82,7 +105,7 @@ export default function MapView() {
     LabelOverlay.prototype.onAdd = function () {
       const div = document.createElement("div");
       div.style.cssText = "position:absolute;transform:translate(-50%,0);z-index:999;pointer-events:none;";
-      div.innerHTML = `<div style="background:rgba(60,60,60,0.95);padding:3px 8px;border-radius:6px;font-size:11px;text-align:center;color:#fff;font-weight:600;border:1px solid #111;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.25);">${this.content}</div>`;
+      div.innerHTML = `<div style="background:rgba(60,60,60,0.95);padding:3px 8px;border-radius:6px;font-size:11px;text-align:center;color:#fff;font-weight:600;border:1px solid #111;white-space:nowrap;">${this.content}</div>`;
       this.div = div;
       this.getPanes().overlayLayer.appendChild(div);
     };
@@ -141,20 +164,18 @@ export default function MapView() {
     return overlay;
   }
 
-  // ── ETA badge HTML ───────────────────────────────────────────────────────
+  // ── Badge HTML ───────────────────────────────────────────────────────────
   function etaBadgeHtml(topLabel, destination, duration, distance, color) {
-    return `
-      <div style="background:${color};border-radius:8px;padding:5px 10px;font-size:11px;color:#fff;
-                  font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.45);
-                  border:1px solid rgba(255,255,255,0.15);margin-bottom:4px;text-align:center;min-width:120px;">
-        ${topLabel ? `<div style="font-size:10px;opacity:0.8;margin-bottom:1px;">${topLabel}</div>` : ""}
-        <div style="font-size:12px;">${destination}</div>
-        ${duration ? `<div style="font-size:13px;margin-top:2px;">⏱ ${duration}</div>` : ""}
-        ${distance ? `<div style="font-size:10px;opacity:0.75;">${distance}</div>` : ""}
-      </div>`;
+    return `<div style="background:${color};border-radius:8px;padding:5px 10px;font-size:11px;color:#fff;
+                        font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.45);
+                        border:1px solid rgba(255,255,255,0.15);margin-bottom:4px;text-align:center;min-width:120px;">
+              ${topLabel ? `<div style="font-size:10px;opacity:0.8;margin-bottom:1px;">${topLabel}</div>` : ""}
+              <div style="font-size:12px;">${destination}</div>
+              ${duration ? `<div style="font-size:13px;margin-top:2px;">⏱ ${duration}</div>` : ""}
+              ${distance ? `<div style="font-size:10px;opacity:0.75;">${distance}</div>` : ""}
+            </div>`;
   }
 
-  // ── Status-only badge ────────────────────────────────────────────────────
   function statusBadgeHtml(text, color) {
     return `<div style="background:${color};border-radius:8px;padding:5px 12px;font-size:12px;
                         color:#fff;font-weight:600;white-space:nowrap;
@@ -177,16 +198,14 @@ export default function MapView() {
     const task = v.activeTask;
     let taskSection = "";
     if (task) {
-      taskSection = `
-        <hr style="margin:6px 0;border-color:#eee;"/>
+      taskSection = `<hr style="margin:6px 0;border-color:#eee;"/>
         <div style="font-weight:600;color:#1e88e5;margin-bottom:4px;">📦 Active Task</div>
         <div><strong>Order:</strong> ${task.orderNumber || "—"}</div>
         <div><strong>Driver:</strong> ${task.driverName || "—"}</div>
         <div><strong>Load:</strong> ${task.loadLocation || "—"}</div>
         <div><strong>Dropoff:</strong> ${task.dropoffLocation || "—"}</div>`;
     }
-    return `
-      <div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;min-width:180px;">
+    return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;min-width:180px;">
         <div style="font-weight:700;color:#111;font-size:14px;margin-bottom:6px;">${v.descrip || "Unknown"}</div>
         <div><strong>Updated:</strong> ${formatDate(v.dt)}</div>
         <div><strong>Location:</strong> ${v.address || `${v.lat}, ${v.lon}`}</div>
@@ -195,120 +214,106 @@ export default function MapView() {
       </div>`;
   }
 
-  // ── Animate marker smoothly ──────────────────────────────────────────────
+  // ── Animate marker ───────────────────────────────────────────────────────
   function animateMarker(marker, newLatLng) {
     const g = window.google;
     if (!marker || !g) return;
     const oldPos = marker.getPosition();
     if (!oldPos) return marker.setPosition(newLatLng);
-    const steps = 25;
-    const dLat  = (newLatLng.lat() - oldPos.lat()) / steps;
-    const dLng  = (newLatLng.lng() - oldPos.lng()) / steps;
+    const steps = 25, dLat = (newLatLng.lat() - oldPos.lat()) / steps, dLng = (newLatLng.lng() - oldPos.lng()) / steps;
     let i = 0;
-    function step() {
-      i++;
-      marker.setPosition(new g.maps.LatLng(oldPos.lat() + dLat*i, oldPos.lng() + dLng*i));
-      if (i < steps) requestAnimationFrame(step);
-    }
+    function step() { i++; marker.setPosition(new g.maps.LatLng(oldPos.lat()+dLat*i, oldPos.lng()+dLng*i)); if (i < steps) requestAnimationFrame(step); }
     step();
   }
 
-  // ── Haversine (metres) ───────────────────────────────────────────────────
+  // ── Haversine metres ─────────────────────────────────────────────────────
   function haversineM(lat1, lon1, lat2, lon2) {
-    const R    = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a    = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    const R = 6371000, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
 
-  // ── Update road route + ETA badge for one vehicle ───────────────────────
-  function updateRouteAndEta(v) {
-    const g    = window.google;
-    const map  = mapInstance.current;
-    const id   = v.descrip || `veh-${v.id}`;
+  // ── Draw road route polyline ─────────────────────────────────────────────
+  function drawPolyline(map, path, color) {
+    const g = window.google;
+    return new g.maps.Polyline({
+      path,
+      strokeColor:   color,
+      strokeOpacity: 0.85,
+      strokeWeight:  4,
+      geodesic:      false,
+      icons: [{ icon: { path: g.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale:3, strokeColor:color }, offset:"50%" }],
+      map,
+    });
+  }
+
+  // ── Update route + ETA for one vehicle ──────────────────────────────────
+  async function updateRouteAndEta(v) {
+    const g   = window.google;
+    const map = mapInstance.current;
+    const id  = v.descrip || `veh-${v.id}`;
     const task = v.activeTask;
     const pos  = new g.maps.LatLng(v.lat, v.lon);
 
-    // Clear old route renderer
-    if (routeLinesRef.current[id]) {
-      routeLinesRef.current[id].setMap(null);
-      delete routeLinesRef.current[id];
-    }
-    // Clear old ETA overlay
-    if (etaPanelsRef.current[id]) {
-      etaPanelsRef.current[id].setMap(null);
-      delete etaPanelsRef.current[id];
-    }
+    // Clear old
+    if (routeLinesRef.current[id]) { routeLinesRef.current[id].setMap(null); delete routeLinesRef.current[id]; }
+    if (etaPanelsRef.current[id])  { etaPanelsRef.current[id].setMap(null);  delete etaPanelsRef.current[id];  }
 
     if (!task || task.status !== "inprogress") return;
 
     const loadPt = task.loadPoint;
     const dropPt = task.dropPoint;
-
     const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
     const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
-
     const atLoad = loadPt && distToLoad <= (loadPt.radius || 1000);
     const atDrop = dropPt && distToDrop <= (dropPt.radius || 1000);
 
-    const origin = { lat: v.lat, lng: v.lon };
-
     if (atDrop) {
-      // Arrived at client
-      const overlay = createEtaOverlay(map, pos, statusBadgeHtml("✅ Arrived at client", "#43a047"));
-      etaPanelsRef.current[id] = overlay;
+      etaPanelsRef.current[id] = createEtaOverlay(map, pos, statusBadgeHtml("✅ Arrived at client", "#43a047"));
+      return;
+    }
 
-    } else if (atLoad) {
-      // At loading station — route to dropoff (green)
-      const overlay = createEtaOverlay(map, pos, statusBadgeHtml("🏭 At loading station", "#fb8c00"));
-      etaPanelsRef.current[id] = overlay;
-
+    if (atLoad) {
+      etaPanelsRef.current[id] = createEtaOverlay(map, pos, statusBadgeHtml("🏭 At loading station", "#fb8c00"));
       if (dropPt) {
-        const dest = { lat: dropPt.lat, lng: dropPt.lon };
-        const renderer = getRoute(map, origin, dest, "#43a047", (duration, distance) => {
-          if (etaPanelsRef.current[id]) {
-            etaPanelsRef.current[id].updateContent(
-              etaBadgeHtml("🏭 At loading — heading to dropoff", dropPt.title, duration, distance, "#43a047")
-            );
-          }
-        });
-        if (renderer) routeLinesRef.current[id] = renderer;
+        const route = await fetchRoadRoute(v.lat, v.lon, dropPt.lat, dropPt.lon);
+        if (route) {
+          routeLinesRef.current[id] = drawPolyline(map, route.path, "#43a047");
+          if (etaPanelsRef.current[id]) etaPanelsRef.current[id].updateContent(
+            etaBadgeHtml("🏭 At loading — to dropoff", dropPt.title, route.duration, route.distance, "#43a047")
+          );
+        }
       }
+      return;
+    }
 
-    } else if (loadPt) {
-      // Heading to load — route is blue
-      const dest = { lat: loadPt.lat, lng: loadPt.lon };
-      const etaOverlay = createEtaOverlay(map, pos,
+    if (loadPt) {
+      // Blue route to loading
+      etaPanelsRef.current[id] = createEtaOverlay(map, pos,
         etaBadgeHtml("🚛 En route to loading", loadPt.title, "Calculating...", null, "#1e88e5")
       );
-      etaPanelsRef.current[id] = etaOverlay;
+      const route = await fetchRoadRoute(v.lat, v.lon, loadPt.lat, loadPt.lon);
+      if (route) {
+        routeLinesRef.current[id] = drawPolyline(map, route.path, "#1e88e5");
+        if (etaPanelsRef.current[id]) etaPanelsRef.current[id].updateContent(
+          etaBadgeHtml("🚛 En route to loading", loadPt.title, route.duration, route.distance, "#1e88e5")
+        );
+      }
+      return;
+    }
 
-      const renderer = getRoute(map, origin, dest, "#1e88e5", (duration, distance) => {
-        if (etaPanelsRef.current[id]) {
-          etaPanelsRef.current[id].updateContent(
-            etaBadgeHtml("🚛 En route to loading", loadPt.title, duration, distance, "#1e88e5")
-          );
-        }
-      });
-      if (renderer) routeLinesRef.current[id] = renderer;
-
-    } else if (dropPt) {
-      // No load point — direct to dropoff (green)
-      const dest = { lat: dropPt.lat, lng: dropPt.lon };
-      const etaOverlay = createEtaOverlay(map, pos,
+    if (dropPt) {
+      // Green route direct to dropoff
+      etaPanelsRef.current[id] = createEtaOverlay(map, pos,
         etaBadgeHtml("🚛 En route to dropoff", dropPt.title, "Calculating...", null, "#43a047")
       );
-      etaPanelsRef.current[id] = etaOverlay;
-
-      const renderer = getRoute(map, origin, dest, "#43a047", (duration, distance) => {
-        if (etaPanelsRef.current[id]) {
-          etaPanelsRef.current[id].updateContent(
-            etaBadgeHtml("🚛 En route to dropoff", dropPt.title, duration, distance, "#43a047")
-          );
-        }
-      });
-      if (renderer) routeLinesRef.current[id] = renderer;
+      const route = await fetchRoadRoute(v.lat, v.lon, dropPt.lat, dropPt.lon);
+      if (route) {
+        routeLinesRef.current[id] = drawPolyline(map, route.path, "#43a047");
+        if (etaPanelsRef.current[id]) etaPanelsRef.current[id].updateContent(
+          etaBadgeHtml("🚛 En route to dropoff", dropPt.title, route.duration, route.distance, "#43a047")
+        );
+      }
     }
   }
 
@@ -317,7 +322,6 @@ export default function MapView() {
     const g   = window.google;
     const map = mapInstance.current;
     if (!map) return;
-
     if (!map.activeInfoWindow) map.activeInfoWindow = new g.maps.InfoWindow();
     const activeInfo = map.activeInfoWindow;
 
@@ -326,32 +330,27 @@ export default function MapView() {
       const pos  = new g.maps.LatLng(v.lat, v.lon);
       const icon = getSymbolIcon(v.speed, v.heading);
 
-      // Trail
       trailsRef.current[id] = trailsRef.current[id] || [];
       trailsRef.current[id].push({ lat: v.lat, lng: v.lon });
       if (trailsRef.current[id].length > 6) trailsRef.current[id].shift();
 
       const labelHtml = `${v.descrip || "—"}<br/>${v.speed || 0} km/h`;
 
-      let marker;
       if (markersRef.current[id]) {
         const mk = markersRef.current[id];
         animateMarker(mk.marker, pos);
         mk.marker.setIcon(icon);
         mk.labelOverlay.updateContent(labelHtml);
         mk.labelOverlay.updatePosition(pos);
-        marker = mk.marker;
-        // Update ETA overlay position too
         if (etaPanelsRef.current[id]) etaPanelsRef.current[id].updatePosition(pos);
         mk.marker.addListener("click", () => { activeInfo.setContent(infoHtml(v)); activeInfo.open(map, mk.marker); });
       } else {
-        marker = new g.maps.Marker({ map, position: pos, icon });
+        const marker = new g.maps.Marker({ map, position: pos, icon });
         const labelOverlay = createLabelOverlay(map, pos, labelHtml);
         marker.addListener("click", () => { activeInfo.setContent(infoHtml(v)); activeInfo.open(map, marker); });
         markersRef.current[id] = { marker, labelOverlay };
       }
 
-      // Short trail polyline
       if (markersRef.current[id].trailPolyline) markersRef.current[id].trailPolyline.setMap(null);
       const path = trailsRef.current[id].map(p => ({ lat: p.lat, lng: p.lng }));
       if (path.length > 1) {
@@ -360,78 +359,55 @@ export default function MapView() {
         setTimeout(() => poly.setMap(null), 12000);
       }
 
-      // Road route + ETA
       updateRouteAndEta(v);
     });
   }
 
-  // ── Draw loading/dropoff circles ─────────────────────────────────────────
+  // ── Draw points ──────────────────────────────────────────────────────────
   async function drawPoints() {
-    const g   = window.google;
-    const map = mapInstance.current;
+    const g = window.google, map = mapInstance.current;
     if (!g || !map) return;
-
-    pointOverlaysRef.current.forEach(o => {
-      if (o.circle) o.circle.setMap(null);
-      if (o.dot)    o.dot.setMap(null);
-    });
+    pointOverlaysRef.current.forEach(o => { if (o.circle) o.circle.setMap(null); if (o.dot) o.dot.setMap(null); });
     pointOverlaysRef.current = [];
-
     try {
-      const res    = await fetch(`${API}/points`);
-      const points = await res.json();
+      const points = await fetch(`${API}/points`).then(r => r.json());
       points.forEach(p => {
-        const lat    = Number(p.lat);
-        const lon    = Number(p.lon);
-        const radius = Number(p.radius) || 1000;
+        const lat = Number(p.lat), lon = Number(p.lon), radius = Number(p.radius) || 1000;
         if (isNaN(lat) || isNaN(lon)) return;
         const center = new g.maps.LatLng(lat, lon);
         const color  = (p.type||"").toLowerCase() === "dropoff" ? "#8ee68e" : "#7fb3ff";
         const circle = new g.maps.Circle({ map, center, radius, fillColor:color, fillOpacity:0.18, strokeColor:color, strokeOpacity:0.7, strokeWeight:2 });
-        const dot    = new g.maps.Marker({
-          map, position: center,
-          icon: { path:g.maps.SymbolPath.CIRCLE, scale:5, fillColor:color, fillOpacity:1, strokeColor:"#111", strokeWeight:1 },
-        });
-        const info = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>` });
+        const dot    = new g.maps.Marker({ map, position:center, icon:{ path:g.maps.SymbolPath.CIRCLE, scale:5, fillColor:color, fillOpacity:1, strokeColor:"#111", strokeWeight:1 } });
+        const info   = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>` });
         dot.addListener("click", () => info.open(map, dot));
         pointOverlaysRef.current.push({ circle, dot });
       });
     } catch (err) { console.error("Failed to load points:", err); }
   }
 
-  // ── Main fetch loop ──────────────────────────────────────────────────────
+  // ── Main loop ────────────────────────────────────────────────────────────
   useEffect(() => {
     const g = window.google;
     if (!g) return;
-
     if (!mapInstance.current && mapRef.current) {
       mapInstance.current = new g.maps.Map(mapRef.current, {
-        center: { lat:-26.1, lng:28.1 },
-        zoom: 8,
-        streetViewControl: false,
-        mapTypeControl: true,
+        center: { lat:-26.1, lng:28.1 }, zoom:8, streetViewControl:false, mapTypeControl:true,
       });
     }
-
     async function fetchAll() {
       try {
-        const res       = await fetch(`${API}/positions`);
-        const positions = await res.json();
+        const positions = await fetch(`${API}/positions`).then(r => r.json());
         if (Array.isArray(positions)) drawOrUpdateVehicles(positions);
         await drawPoints();
       } catch (err) { console.error("fetchAll error:", err); }
     }
-
     fetchAll();
     const interval = setInterval(fetchAll, 10000);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    const onResize = () => {
-      if (mapInstance.current && window.google)
-        window.google.maps.event.trigger(mapInstance.current, "resize");
-    };
+    const onResize = () => { if (mapInstance.current && window.google) window.google.maps.event.trigger(mapInstance.current, "resize"); };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
