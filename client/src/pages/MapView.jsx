@@ -126,20 +126,8 @@ export default function MapView() {
           origin:            { location: { latLng: { latitude: originLat, longitude: originLng } } },
           destination:       { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
           travelMode:        "DRIVE",
-          routingPreference: "TRAFFIC_AWARE_OPTIMAL",
-          extraComputations: ["TRAFFIC_ON_POLYLINE"],
-          vehicleInfo: {
-            emissionType: "DIESEL",  // Heavy diesel truck
-          },
-          // Truck-specific modifiers
-          routeModifiers: {
-            avoidTolls:    false,
-            avoidHighways: false,
-            avoidFerries:  true,
-            vehicleInfo: {
-              emissionType: "DIESEL",
-            },
-          },
+          routingPreference: "TRAFFIC_AWARE",
+          routeModifiers:    { avoidFerries: true },
         }),
       });
       const data = await res.json();
