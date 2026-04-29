@@ -1,121 +1,103 @@
 // src/components/Sidebar.jsx
-import React from "react";
+import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
 
+const LINKS = [
+  { to: "/",               icon: "📍", label: "Map" },
+  { to: "/tasks",          icon: "📋", label: "Tasks" },
+  { divider: true },
+  { section: "Management" },
+  { to: "/drivers",        icon: "🧑‍✈️", label: "Drivers" },
+  { to: "/vehicles",       icon: "🚚", label: "Vehicles" },
+  { to: "/loading-points", icon: "📦", label: "Loading Points" },
+  { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points" },
+  { divider: true },
+  { to: "/settings",       icon: "⚙",  label: "Settings" },
+];
+
 export default function Sidebar() {
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("sidebar_collapsed") === "true"
+  );
+
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem("sidebar_collapsed", String(next));
+  };
+
   return (
-    <div className="w-72 bg-[#0f1724] text-white flex flex-col">
-      {/* Header */}
-      <div className="p-4 text-lg font-bold border-b border-slate-700">
-        FleetPro
+    <div
+      className="bg-[#0f1724] text-white flex flex-col transition-all duration-200 shrink-0"
+      style={{ width: collapsed ? "56px" : "230px" }}
+    >
+      {/* Header + toggle button */}
+      <div className="flex items-center justify-between border-b border-slate-700 h-14 px-3">
+        {!collapsed && (
+          <span className="text-base font-bold tracking-wide">FleetPro</span>
+        )}
+        <button
+          onClick={toggle}
+          className="ml-auto text-slate-400 hover:text-white p-1 rounded hover:bg-slate-700 transition-colors"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? "▶" : "◀"}
+        </button>
       </div>
 
-      <nav className="flex-1">
-        {/* Map */}
-        <NavLink
-          to="/"
-          className={({ isActive }) =>
-            "flex items-center gap-3 p-4 hover:bg-slate-700 " +
-            (isActive ? "bg-slate-800" : "")
-          }
-        >
-          <span>📍</span> Map
-        </NavLink>
-
-        {/* Tasks */}
-        <NavLink
-          to="/tasks"
-          className={({ isActive }) =>
-            "flex items-center gap-3 p-4 hover:bg-slate-700 " +
-            (isActive ? "bg-slate-800" : "")
-          }
-        >
-          <span>📋</span> Tasks
-        </NavLink>
-
-        {/* Divider */}
-        <div className="h-px bg-slate-700 mx-4 my-2"></div>
-
-        {/* Management Section */}
-        <div className="px-4 text-xs uppercase tracking-wider text-slate-400 mb-1">
-          Management
-        </div>
-
-        {/* Drivers */}
-        <NavLink
-          to="/drivers"
-          className={({ isActive }) =>
-            "flex items-center gap-3 p-4 hover:bg-slate-700 " +
-            (isActive ? "bg-slate-800" : "")
-          }
-        >
-          <span>🧑‍✈️</span> Drivers
-        </NavLink>
-
-        {/* Vehicles */}
-        <NavLink
-          to="/vehicles"
-          className={({ isActive }) =>
-            "flex items-center gap-3 p-4 hover:bg-slate-700 " +
-            (isActive ? "bg-slate-800" : "")
-          }
-        >
-          <span>🚚</span> Vehicles
-        </NavLink>
-
-        {/* Loading Points */}
-        <NavLink
-          to="/loading-points"
-          className={({ isActive }) =>
-            "flex items-center gap-3 p-4 hover:bg-slate-700 " +
-            (isActive ? "bg-slate-800" : "")
-          }
-        >
-          <span>📦</span> Loading Points
-        </NavLink>
-
-        {/* Dropoff Points */}
-        <NavLink
-          to="/dropoff-points"
-          className={({ isActive }) =>
-            "flex items-center gap-3 p-4 hover:bg-slate-700 " +
-            (isActive ? "bg-slate-800" : "")
-          }
-        >
-          <span>🏁</span> Dropoff Points
-        </NavLink>
-
-        {/* Divider */}
-        <div className="h-px bg-slate-700 mx-4 my-2"></div>
-
-        {/* Settings */}
-        <NavLink
-          to="/settings"
-          className={({ isActive }) =>
-            "flex items-center gap-3 p-4 hover:bg-slate-700 " +
-            (isActive ? "bg-slate-800" : "")
-          }
-        >
-          <span>⚙</span> Settings
-        </NavLink>
+      {/* Nav links */}
+      <nav className="flex-1 overflow-hidden py-1">
+        {LINKS.map((item, i) => {
+          if (item.divider) return (
+            <div key={`d-${i}`} className="h-px bg-slate-700 mx-3 my-1" />
+          );
+          if (item.section) return collapsed ? null : (
+            <div key={`s-${i}`} className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-slate-500">
+              {item.section}
+            </div>
+          );
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              title={collapsed ? item.label : undefined}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-3 hover:bg-slate-700 transition-colors ${
+                  isActive ? "bg-slate-800" : ""
+                } ${collapsed ? "justify-center" : ""}`
+              }
+            >
+              <span className="text-lg leading-none">{item.icon}</span>
+              {!collapsed && (
+                <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+              )}
+            </NavLink>
+          );
+        })}
       </nav>
 
-         <button
-  onClick={() => {
-    localStorage.removeItem("fleetpro_auth");
-    window.location.reload();
-  }}
-  className="mt-auto p-3 text-sm font-semibold text-red-600 hover:text-red-800"
->
-  Logout
-</button>
-   
+      {/* Logout */}
+      <button
+        onClick={() => {
+          localStorage.removeItem("fleetpro_auth");
+          localStorage.removeItem("fleetpro_token");
+          window.location.reload();
+        }}
+        className={`p-3 text-sm font-semibold text-red-500 hover:text-red-400 hover:bg-slate-800 transition-colors ${
+          collapsed ? "text-center" : "text-left"
+        }`}
+        title={collapsed ? "Logout" : undefined}
+      >
+        {collapsed ? "⏻" : "Logout"}
+      </button>
 
-      {/* Footer */}
-      <div className="p-4 text-sm text-slate-300 border-t border-slate-700">
-        Logged in as<br />
-        <strong>Berno Strubing</strong>
-      </div>
+      {/* Footer — only when expanded */}
+      {!collapsed && (
+        <div className="px-4 py-3 text-xs text-slate-400 border-t border-slate-700">
+          Logged in as<br />
+          <strong className="text-slate-300">Berno Strubing</strong>
+        </div>
+      )}
     </div>
   );
 }
