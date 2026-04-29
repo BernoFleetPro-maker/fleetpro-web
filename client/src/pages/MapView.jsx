@@ -119,13 +119,27 @@ export default function MapView() {
           origin:            { location: { latLng: { latitude: originLat, longitude: originLng } } },
           destination:       { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
           travelMode:        "DRIVE",
-          routingPreference: "TRAFFIC_AWARE",
+          routingPreference: "TRAFFIC_AWARE_OPTIMAL",
+          extraComputations: ["TRAFFIC_ON_POLYLINE"],
+          vehicleInfo: {
+            emissionType: "DIESEL",  // Heavy diesel truck
+          },
+          // Truck-specific modifiers
+          routeModifiers: {
+            avoidTolls:    false,
+            avoidHighways: false,
+            avoidFerries:  true,
+            vehicleInfo: {
+              emissionType: "DIESEL",
+            },
+          },
         }),
       });
       const data = await res.json();
       if (!data.routes?.[0]) return null;
-      const route  = data.routes[0];
-      const mins   = Math.round(parseInt(route.duration) / 60);
+      const route      = data.routes[0];
+      const TRUCK_FACTOR = 1.5; // Trucks limited to 80km/h vs Google's ~120km/h assumption
+      const mins         = Math.round((parseInt(route.duration) * TRUCK_FACTOR) / 60);
       const distM  = route.distanceMeters;
       const result = {
         path:     decodePolyline(route.polyline.encodedPolyline),
