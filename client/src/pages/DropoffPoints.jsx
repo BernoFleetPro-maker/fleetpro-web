@@ -42,25 +42,22 @@ export default function DropoffPoints() {
       mapInst.current   = map;
       geocoderRef.current = new window.google.maps.Geocoder();
 
-      // ── Google Places Autocomplete on search box ──
+      // ── Google Places search — legacy Autocomplete ──
       if (searchRef.current && !autocompleteRef.current) {
         const ac = new window.google.maps.places.Autocomplete(searchRef.current, {
           componentRestrictions: { country: "za" },
           fields: ["formatted_address", "geometry", "name"],
         });
         autocompleteRef.current = ac;
-
         ac.addListener("place_changed", () => {
           const place = ac.getPlace();
           if (!place.geometry?.location) return;
-          const lat = place.geometry.location.lat();
-          const lon = place.geometry.location.lng();
+          const lat     = place.geometry.location.lat();
+          const lon     = place.geometry.location.lng();
           const address = place.formatted_address || place.name || "";
           placePin(lat, lon);
           setPinned({ lat, lon, address });
-          setForm(f => ({ ...f, lat, lon, address }));
-          // Auto-fill name if empty
-          setForm(f => ({ ...f, title: f.title || place.name || "", lat, lon, address }));
+          setForm(f => ({ ...f, lat, lon, address, title: f.title || place.name || "" }));
         });
       }
 
