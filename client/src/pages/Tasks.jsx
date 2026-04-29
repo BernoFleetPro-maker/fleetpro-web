@@ -353,7 +353,12 @@ export default function Tasks() {
   useEffect(() => {
     loadAll();
 
-    // Poll every 3 seconds for reliable updates (SSE is unstable on Railway)
+    // Keepalive ping every 2 minutes to prevent Railway backend from sleeping
+    const keepalive = setInterval(() => {
+      fetch(`${API}/health`).catch(() => {});
+    }, 2 * 60 * 1000);
+
+    // Poll every 3 seconds for reliable updates
     const poll = setInterval(() => loadTasks(), 3000);
 
     // SSE as bonus — instant updates when it works
@@ -371,6 +376,7 @@ export default function Tasks() {
     } catch {}
 
     return () => {
+      clearInterval(keepalive);
       clearInterval(poll);
       if (sse) sse.close();
     };
@@ -407,30 +413,66 @@ export default function Tasks() {
     setFormError("");
     if (!form.loadLocation.trim()) { setFormError("Load location is required."); return; }
     setSaving(true);
+
+    const payload = { ...form, pickupTime: form.dropoffTime };
+    const url    = editingId ? `${API}/tasks/${editingId}` : `${API}/tasks`;
+    const method = editingId ? "PUT" : "POST";
+
+    // ── Optimistic update: update UI instantly before server responds ──
+    if (editingId) {
+      const driver = drivers.find(d => d.id === form.assignedDriverId) || null;
+      const newStatus = form.assignedDriverId && form.vehicleId ? 
+        (tasks.find(t => t.id === editingId)?.status === "unassigned" ? "todo" : tasks.find(t => t.id === editingId)?.status)
+        : "unassigned";
+      setTasks(prev => prev.map(t => t.id === editingId ? {
+        ...t, ...form, pickupTime: form.dropoffTime,
+        status: newStatus,
+        assignedDriver: driver,
+      } : t));
+    }
+    setShowForm(false);
+
     try {
-      const payload = { ...form, pickupTime: form.dropoffTime };
-      const url    = editingId ? `${API}/tasks/${editingId}` : `${API}/tasks`;
-      const method = editingId ? "PUT" : "POST";
-      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data   = await res.json();
-      if (!res.ok) { setFormError(data.error || `Error ${res.status}`); return; }
-      setShowForm(false);
+      const res  = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!res.ok) {
+        setFormError(data.error || `Error ${res.status}`);
+        setShowForm(true);
+        await loadTasks(); // Revert on error
+        return;
+      }
+      // Sync with real server response
+      if (editingId) {
+        const task = data.task || data;
+        if (task?.id) setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...task } : t));
+      } else {
+        await loadTasks(); // New task — reload to get server ID
+      }
+    } catch {
+      setFormError("Network error — please try again.");
+      setShowForm(true);
       await loadTasks();
-    } catch { setFormError("Network error — please try again."); }
+    }
     finally { setSaving(false); }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this task?")) return;
+    // Optimistic: remove instantly
+    setTasks(prev => prev.filter(t => t.id !== id));
+    _cachedTasks = (_cachedTasks || []).filter(t => t.id !== id);
     await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
-    loadTasks();
   };
 
   const setStatus = async (id, status) => {
+    // Optimistic: update status instantly
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+    _cachedTasks = (_cachedTasks || []).map(t => t.id === id ? { ...t, status } : t);
     await fetch(`${API}/tasks/${id}/status`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    // Sync with server after
     loadTasks();
   };
 
