@@ -292,6 +292,7 @@ export default function Tasks() {
   const [formError,     setFormError]     = useState("");
   const [podTask,       setPodTask]       = useState(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
+  const lastOptimisticRef = useRef(0); // timestamp of last optimistic update
 
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
@@ -320,9 +321,10 @@ export default function Tasks() {
   }, []);
 
   // ── Load tasks only (called on SSE updates) ──────────────────────────────
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (force = false) => {
     try {
-      // Show cached data instantly while fetching fresh
+      // Skip poll if optimistic update was recent (within 4 seconds)
+      if (!force && Date.now() - lastOptimisticRef.current < 4000) return;
       if (_cachedTasks) setTasks(_cachedTasks);
       const res = await fetch(`${API}/tasks`);
       const t   = await res.json();
@@ -419,6 +421,7 @@ export default function Tasks() {
     const method = editingId ? "PUT" : "POST";
 
     // ── Optimistic update: update UI instantly before server responds ──
+    lastOptimisticRef.current = Date.now();
     if (editingId) {
       const driver = drivers.find(d => d.id === form.assignedDriverId) || null;
       const newStatus = form.assignedDriverId && form.vehicleId ? 
@@ -441,12 +444,12 @@ export default function Tasks() {
         await loadTasks(); // Revert on error
         return;
       }
-      // Sync with real server response
+      // Sync with real server response (force=true bypasses optimistic block)
       if (editingId) {
         const task = data.task || data;
         if (task?.id) setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...task } : t));
       } else {
-        await loadTasks(); // New task — reload to get server ID
+        await loadTasks(true); // New task — reload to get server ID
       }
     } catch {
       setFormError("Network error — please try again.");
@@ -459,6 +462,7 @@ export default function Tasks() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this task?")) return;
     // Optimistic: remove instantly
+    lastOptimisticRef.current = Date.now();
     setTasks(prev => prev.filter(t => t.id !== id));
     _cachedTasks = (_cachedTasks || []).filter(t => t.id !== id);
     await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
@@ -466,14 +470,15 @@ export default function Tasks() {
 
   const setStatus = async (id, status) => {
     // Optimistic: update status instantly
+    lastOptimisticRef.current = Date.now();
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
     _cachedTasks = (_cachedTasks || []).map(t => t.id === id ? { ...t, status } : t);
     await fetch(`${API}/tasks/${id}/status`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    // Sync with server after
-    loadTasks();
+    // Sync with server after (force=true to get confirmed data)
+    loadTasks(true);
   };
 
   return (
