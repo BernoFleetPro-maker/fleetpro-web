@@ -312,8 +312,11 @@ export default function Tasks() {
   }, []);
 
   const loadAll = useCallback(async () => {
-    await Promise.all([loadTasks(), loadStatic()]);
+    // Load tasks first so kanban appears immediately
+    await loadTasks();
     setInitialLoaded(true);
+    // Load static data in background (drivers, vehicles, points)
+    loadStatic();
   }, [loadTasks, loadStatic]);
 
   useEffect(() => {
