@@ -16,7 +16,7 @@ export default function MapView() {
   const trailsRef        = useRef({});
   const pointOverlaysRef = useRef([]);
   const routeLinesRef    = useRef({});
-  const routeCacheRef    = useRef({});
+  const routeCacheRef    = useRef(_routeCache); // module-level: survives navigation
   const vehiclePhaseRef  = useRef(_phaseCache); // module-level: survives navigation
   const vehicleRouteRef  = useRef({}); // reg → { duration, distance, dest } for popup
 
@@ -28,6 +28,7 @@ export default function MapView() {
 
     // Reset if new task
     if (!current || current.taskId !== taskId) {
+      console.log(`🔄 Phase reset for ${id}: taskId changed from ${current?.taskId} to ${taskId}`);
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
       vehiclePhaseRef.current[id] = {
         phase, taskId,
