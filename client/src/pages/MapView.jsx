@@ -15,60 +15,77 @@ export default function MapView() {
   const vehicleRouteRef  = useRef({}); // reg → { duration, distance, dest } for popup
 
   // ── Phase logic ──────────────────────────────────────────────────────────
+  // Uses direction-of-travel to detect loading, not just radius
   // Phases: to_load → at_load → to_drop → at_drop
-  // Rules:
-  //   - Always start at to_load if load point exists
-  //   - Advance to at_load only when vehicle enters loading radius
-  //   - Advance to to_drop when:
-  //       a) Vehicle leaves loading radius (2 consecutive checks outside), OR
-  //       b) Vehicle was inside radius before AND is now > 2x radius away (drove through between polls)
-  //   - Advance to at_drop when vehicle enters dropoff radius
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = vehiclePhaseRef.current[id];
 
-    // Reset if new task — always start with to_load
+    // Reset if new task
     if (!current || current.taskId !== taskId) {
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      vehiclePhaseRef.current[id] = { phase, taskId, outsideLoadCount: 0, wasInsideLoad: false };
+      vehiclePhaseRef.current[id] = {
+        phase, taskId,
+        prevDistToLoad:   distToLoad,  // track distance history
+        closestToLoad:    distToLoad,  // closest the vehicle got to loading point
+        outsideLoadCount: 0,
+        wasInsideLoad:    false,
+      };
       return phase;
     }
 
-    const phase = current.phase;
+    const phase      = current.phase;
+    const prevDist   = current.prevDistToLoad || distToLoad;
+    const closest    = Math.min(current.closestToLoad || distToLoad, distToLoad);
 
-    // to_load → at_load: vehicle enters loading radius
-    if (phase === "to_load" && atLoad) {
-      vehiclePhaseRef.current[id].phase        = "at_load";
-      vehiclePhaseRef.current[id].wasInsideLoad = true;
-      vehiclePhaseRef.current[id].outsideLoadCount = 0;
-      return "at_load";
+    // Always update tracking data
+    vehiclePhaseRef.current[id].prevDistToLoad = distToLoad;
+    vehiclePhaseRef.current[id].closestToLoad  = closest;
+
+    // ── to_load phase ──────────────────────────────────────────────────────
+    if (phase === "to_load") {
+
+      // Entered radius → at_load
+      if (atLoad) {
+        vehiclePhaseRef.current[id].phase        = "at_load";
+        vehiclePhaseRef.current[id].wasInsideLoad = true;
+        vehiclePhaseRef.current[id].outsideLoadCount = 0;
+        return "at_load";
+      }
+
+      // Direction-of-travel detection:
+      // Vehicle was approaching (got within 2x radius) then started moving away → loaded and left
+      const wasApproaching = closest <= loadRadius * 2;
+      const nowMovingAway  = distToLoad > prevDist && distToLoad > closest * 1.3;
+      if (wasApproaching && nowMovingAway && hasDropPt) {
+        console.log(`🚛 ${id}: Direction change detected near loading → switching to dropoff`);
+        vehiclePhaseRef.current[id].phase = "to_drop";
+        return "to_drop";
+      }
+
+      // Fallback: was inside radius before, now far away
+      if (current.wasInsideLoad && distToLoad > loadRadius * 2 && hasDropPt) {
+        vehiclePhaseRef.current[id].phase = "to_drop";
+        return "to_drop";
+      }
     }
 
-    // at_load → to_drop: vehicle leaves loading radius
+    // ── at_load phase ─────────────────────────────────────────────────────
     if (phase === "at_load") {
       if (!atLoad) {
         const count = (current.outsideLoadCount || 0) + 1;
         vehiclePhaseRef.current[id].outsideLoadCount = count;
-        // Require 2 consecutive checks outside to avoid GPS drift
         if (count >= 2) {
           vehiclePhaseRef.current[id].phase = hasDropPt ? "to_drop" : null;
           return vehiclePhaseRef.current[id].phase;
         }
-        return "at_load"; // Stay for one more check
+        return "at_load";
       } else {
-        // Back inside — reset counter
         vehiclePhaseRef.current[id].outsideLoadCount = 0;
         vehiclePhaseRef.current[id].wasInsideLoad    = true;
       }
     }
 
-    // to_load: if vehicle WAS inside the radius before and is now 2x away
-    // (handles fast drive-through between 10s polls)
-    if (phase === "to_load" && current.wasInsideLoad && hasLoadPt && distToLoad > loadRadius * 2 && hasDropPt) {
-      vehiclePhaseRef.current[id].phase = "to_drop";
-      return "to_drop";
-    }
-
-    // to_drop → at_drop: vehicle enters dropoff radius
+    // ── to_drop phase ─────────────────────────────────────────────────────
     if (phase === "to_drop" && atDrop) {
       vehiclePhaseRef.current[id].phase = "at_drop";
       return "at_drop";
