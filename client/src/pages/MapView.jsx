@@ -283,10 +283,6 @@ export default function MapView() {
       const pos  = new g.maps.LatLng(v.lat, v.lon);
       const icon = getSymbolIcon(v.speed, v.heading);
 
-      trailsRef.current[id] = trailsRef.current[id] || [];
-      trailsRef.current[id].push({ lat:v.lat, lng:v.lon });
-      if (trailsRef.current[id].length > 6) trailsRef.current[id].shift();
-
       const labelHtml = `${v.descrip||"—"}<br/>${v.speed||0} km/h`;
 
       if (markersRef.current[id]) {
@@ -303,13 +299,7 @@ export default function MapView() {
         markersRef.current[id] = { marker, labelOverlay };
       }
 
-      if (markersRef.current[id].trailPolyline) markersRef.current[id].trailPolyline.setMap(null);
-      const path = trailsRef.current[id].map(p => ({ lat:p.lat, lng:p.lng }));
-      if (path.length > 1) {
-        const poly = new g.maps.Polyline({ path, strokeColor:icon.fillColor, strokeOpacity:0.5, strokeWeight:2, map });
-        markersRef.current[id].trailPolyline = poly;
-        setTimeout(() => poly.setMap(null), 12000);
-      }
+      // Trail polylines removed
 
       updateRouteAndEta(v);
     });
