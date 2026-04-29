@@ -353,18 +353,27 @@ export default function Tasks() {
   useEffect(() => {
     loadAll();
 
-    // SSE — only reload tasks on updates, not all data
-    const sse = new EventSource(`${API}/stream/events`);
-    sse.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
-          loadTasks(); // Only reload tasks, not drivers/vehicles/points
-        }
-      } catch {}
+    // Poll every 3 seconds for reliable updates (SSE is unstable on Railway)
+    const poll = setInterval(() => loadTasks(), 3000);
+
+    // SSE as bonus — instant updates when it works
+    let sse;
+    try {
+      sse = new EventSource(`${API}/stream/events`);
+      sse.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
+            loadTasks();
+          }
+        } catch {}
+      };
+    } catch {}
+
+    return () => {
+      clearInterval(poll);
+      if (sse) sse.close();
     };
-    sse.onerror = () => console.log("SSE disconnected, will reconnect...");
-    return () => sse.close();
   }, []);
 
   const tasksByDate = tasks.reduce((acc, t) => {
