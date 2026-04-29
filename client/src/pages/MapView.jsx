@@ -41,6 +41,17 @@ export default function MapView() {
     vehiclePhaseRef.current[id].prevDistToLoad = distToLoad;
     vehiclePhaseRef.current[id].closestToLoad  = closest;
 
+    // Phase order — never go backward
+    const PHASE_ORDER = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
+    const currentOrder = PHASE_ORDER[phase] ?? 0;
+    const guardPhase = (newPhase) => {
+      if ((PHASE_ORDER[newPhase] ?? 0) > currentOrder) {
+        vehiclePhaseRef.current[id].phase = newPhase;
+        return newPhase;
+      }
+      return phase; // Ignore backward transitions
+    };
+
     // ── to_load phase ──────────────────────────────────────────────────────
     if (phase === "to_load") {
 
@@ -58,8 +69,7 @@ export default function MapView() {
       const nowMovingAway  = distToLoad > prevDist && distToLoad > closest * 1.3;
       if (wasApproaching && nowMovingAway && hasDropPt) {
         console.log(`🚛 ${id}: Direction change detected near loading → switching to dropoff`);
-        vehiclePhaseRef.current[id].phase = "to_drop";
-        return "to_drop";
+        return guardPhase("to_drop");
       }
 
       // Fallback: was inside radius before, now far away
@@ -75,8 +85,7 @@ export default function MapView() {
         const count = (current.outsideLoadCount || 0) + 1;
         vehiclePhaseRef.current[id].outsideLoadCount = count;
         if (count >= 2) {
-          vehiclePhaseRef.current[id].phase = hasDropPt ? "to_drop" : null;
-          return vehiclePhaseRef.current[id].phase;
+          return guardPhase(hasDropPt ? "to_drop" : phase);
         }
         return "at_load";
       } else {
@@ -87,8 +96,7 @@ export default function MapView() {
 
     // ── to_drop phase ─────────────────────────────────────────────────────
     if (phase === "to_drop" && atDrop) {
-      vehiclePhaseRef.current[id].phase = "at_drop";
-      return "at_drop";
+      return guardPhase("at_drop");
     }
 
     return phase;
