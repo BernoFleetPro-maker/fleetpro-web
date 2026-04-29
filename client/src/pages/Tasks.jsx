@@ -360,10 +360,7 @@ export default function Tasks() {
       fetch(`${API}/health`).catch(() => {});
     }, 2 * 60 * 1000);
 
-    // Poll every 3 seconds for reliable updates
-    const poll = setInterval(() => loadTasks(), 3000);
-
-    // SSE as bonus — instant updates when it works
+    // SSE for updates from OTHER users/devices
     let sse;
     try {
       sse = new EventSource(`${API}/stream/events`);
@@ -371,7 +368,10 @@ export default function Tasks() {
         try {
           const msg = JSON.parse(e.data);
           if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
-            loadTasks();
+            // Only reload if no recent optimistic update (another user made this change)
+            if (Date.now() - lastOptimisticRef.current > 5000) {
+              loadTasks(true);
+            }
           }
         } catch {}
       };
@@ -379,7 +379,6 @@ export default function Tasks() {
 
     return () => {
       clearInterval(keepalive);
-      clearInterval(poll);
       if (sse) sse.close();
     };
   }, []);
@@ -477,8 +476,8 @@ export default function Tasks() {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    // Sync with server after (force=true to get confirmed data)
-    loadTasks(true);
+    // Force reload 1 second after server confirms (gives server time to commit)
+    setTimeout(() => loadTasks(true), 1000);
   };
 
   return (
