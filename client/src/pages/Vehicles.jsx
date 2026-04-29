@@ -97,7 +97,16 @@ export default function Vehicles() {
 
   return (
     <div className="p-6 max-w-3xl">
-      <h2 className="text-xl font-bold mb-4 text-gray-800">Fleet Vehicles</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-gray-800">Fleet Vehicles</h2>
+        <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+          <span className="text-2xl font-bold text-blue-600">{vehicles.length}</span>
+          <div className="text-xs text-blue-500 leading-tight">
+            <div className="font-semibold">Vehicles</div>
+            <div>in fleet</div>
+          </div>
+        </div>
+      </div>
 
       {/* ── Form ── */}
       <div className="bg-white border rounded-lg p-5 mb-6 shadow-sm">
