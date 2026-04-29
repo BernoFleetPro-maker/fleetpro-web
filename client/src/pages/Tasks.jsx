@@ -320,33 +320,27 @@ export default function Tasks() {
     } catch (err) { console.error("Static load error:", err); }
   }, []);
 
-  // ── Load tasks only (called on SSE updates) ──────────────────────────────
-  const loadTasks = useCallback(async (force = false) => {
+  // ── Load tasks from server ───────────────────────────────────────────────
+  const loadTasks = useCallback(async () => {
     try {
-      // Skip poll if optimistic update was recent (within 4 seconds)
-      if (!force && Date.now() - lastOptimisticRef.current < 4000) return;
-      if (_cachedTasks) setTasks(_cachedTasks);
-      const res = await fetch(`${API}/tasks`);
-      const t   = await res.json();
-      const tasks = Array.isArray(t) ? t : [];
-      _cachedTasks = tasks;
-      setTasks(tasks);
+      const res   = await fetch(`${API}/tasks`);
+      const t     = await res.json();
+      const fresh = Array.isArray(t) ? t : [];
+      _cachedTasks = fresh;
+      setTasks(fresh);
     } catch (err) { console.error("Tasks load error:", err); }
   }, []);
 
   const loadAll = useCallback(async () => {
-    // Show cached data instantly before any fetch
-    if (_cachedTasks) {
-      setTasks(_cachedTasks);
-      setInitialLoaded(true);
-    }
+    // Show cached data instantly if available
+    if (_cachedTasks)    { setTasks(_cachedTasks); setInitialLoaded(true); }
     if (_cachedDrivers)  setDrivers(_cachedDrivers);
     if (_cachedVehicles) setVehicles(_cachedVehicles);
     if (_cachedPoints) {
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
     }
-    // Then fetch fresh data
+    // Fetch fresh in parallel
     await loadTasks();
     setInitialLoaded(true);
     loadStatic();
@@ -419,19 +413,6 @@ export default function Tasks() {
     const url    = editingId ? `${API}/tasks/${editingId}` : `${API}/tasks`;
     const method = editingId ? "PUT" : "POST";
 
-    // ── Optimistic update: update UI instantly before server responds ──
-    lastOptimisticRef.current = Date.now();
-    if (editingId) {
-      const driver = drivers.find(d => d.id === form.assignedDriverId) || null;
-      const newStatus = form.assignedDriverId && form.vehicleId ? 
-        (tasks.find(t => t.id === editingId)?.status === "unassigned" ? "todo" : tasks.find(t => t.id === editingId)?.status)
-        : "unassigned";
-      setTasks(prev => prev.map(t => t.id === editingId ? {
-        ...t, ...form, pickupTime: form.dropoffTime,
-        status: newStatus,
-        assignedDriver: driver,
-      } : t));
-    }
     setShowForm(false);
 
     try {
@@ -440,44 +421,59 @@ export default function Tasks() {
       if (!res.ok) {
         setFormError(data.error || `Error ${res.status}`);
         setShowForm(true);
-        await loadTasks(); // Revert on error
+        setSaving(false);
         return;
       }
-      // Sync with real server response (force=true bypasses optimistic block)
+      // Update UI with confirmed server data — single source of truth
       if (editingId) {
         const task = data.task || data;
-        if (task?.id) setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...task } : t));
+        if (task?.id) {
+          setTasks(prev => {
+            const updated = prev.map(t => t.id === task.id ? { ...t, ...task } : t);
+            _cachedTasks = updated;
+            return updated;
+          });
+        }
       } else {
-        await loadTasks(true); // New task — reload to get server ID
+        // New task — add it directly from server response
+        const task = data.task || data;
+        if (task?.id) {
+          setTasks(prev => {
+            const updated = [task, ...prev];
+            _cachedTasks = updated;
+            return updated;
+          });
+        }
       }
     } catch {
       setFormError("Network error — please try again.");
       setShowForm(true);
-      await loadTasks();
     }
     finally { setSaving(false); }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this task?")) return;
-    // Optimistic: remove instantly
-    lastOptimisticRef.current = Date.now();
-    setTasks(prev => prev.filter(t => t.id !== id));
-    _cachedTasks = (_cachedTasks || []).filter(t => t.id !== id);
+    setTasks(prev => {
+      const updated = prev.filter(t => t.id !== id);
+      _cachedTasks = updated;
+      return updated;
+    });
     await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
   };
 
   const setStatus = async (id, status) => {
-    // Optimistic: update status instantly
-    lastOptimisticRef.current = Date.now();
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
-    _cachedTasks = (_cachedTasks || []).map(t => t.id === id ? { ...t, status } : t);
+    // Optimistic: move card instantly
+    setTasks(prev => {
+      const updated = prev.map(t => t.id === id ? { ...t, status } : t);
+      _cachedTasks = updated;
+      return updated;
+    });
+    // Save to server — no reload needed, optimistic is correct
     await fetch(`${API}/tasks/${id}/status`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    // Force reload 1 second after server confirms (gives server time to commit)
-    setTimeout(() => loadTasks(true), 1000);
   };
 
   return (
