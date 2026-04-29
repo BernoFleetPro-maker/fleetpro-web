@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
@@ -44,9 +44,9 @@ function TaskCalendar({ selectedDate, onSelect, tasksByDate }) {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const prevMonth = () => setView(v => v.month === 0 ? { year: v.year-1, month: 11 } : { ...v, month: v.month-1 });
-  const nextMonth = () => setView(v => v.month === 11 ? { year: v.year+1, month: 0 } : { ...v, month: v.month+1 });
-  const todayYMD  = toYMD(today.getFullYear(), today.getMonth(), today.getDate());
+  const prevMonth  = () => setView(v => v.month === 0 ? { year: v.year-1, month: 11 } : { ...v, month: v.month-1 });
+  const nextMonth  = () => setView(v => v.month === 11 ? { year: v.year+1, month: 0 } : { ...v, month: v.month+1 });
+  const todayYMD   = toYMD(today.getFullYear(), today.getMonth(), today.getDate());
   const selDisplay = selectedDate
     ? new Date(selectedDate + "T00:00:00").toLocaleDateString("en-ZA", { day:"2-digit", month:"short", year:"numeric" })
     : "All dates";
@@ -95,7 +95,6 @@ function TaskCalendar({ selectedDate, onSelect, tasksByDate }) {
   );
 }
 
-// ── Full-screen image lightbox ────────────────────────────────────────────────
 function Lightbox({ photos, startIndex, onClose }) {
   const [current, setCurrent] = useState(startIndex);
   useEffect(() => {
@@ -103,54 +102,29 @@ function Lightbox({ photos, startIndex, onClose }) {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, []);
-
   return (
-    <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center"
-      onClick={onClose}>
-      {/* Close */}
-      <button className="absolute top-4 right-4 text-white text-3xl hover:text-gray-300 z-10"
-        onClick={onClose}>×</button>
-
-      {/* Navigation */}
+    <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center" onClick={onClose}>
+      <button className="absolute top-4 right-4 text-white text-3xl hover:text-gray-300 z-10" onClick={onClose}>×</button>
       {photos.length > 1 && (
         <>
-          <button
-            className="absolute left-4 text-white text-4xl hover:text-gray-300 z-10 px-3 py-2"
-            onClick={(e) => { e.stopPropagation(); setCurrent(c => Math.max(0, c - 1)); }}
-          >‹</button>
-          <button
-            className="absolute right-4 text-white text-4xl hover:text-gray-300 z-10 px-3 py-2"
-            onClick={(e) => { e.stopPropagation(); setCurrent(c => Math.min(photos.length - 1, c + 1)); }}
-          >›</button>
+          <button className="absolute left-4 text-white text-4xl hover:text-gray-300 z-10 px-3 py-2"
+            onClick={(e) => { e.stopPropagation(); setCurrent(c => Math.max(0, c-1)); }}>‹</button>
+          <button className="absolute right-4 text-white text-4xl hover:text-gray-300 z-10 px-3 py-2"
+            onClick={(e) => { e.stopPropagation(); setCurrent(c => Math.min(photos.length-1, c+1)); }}>›</button>
         </>
       )}
-
-      {/* Image */}
-      <img
-        src={photos[current]}
-        alt={`POD ${current + 1}`}
-        className="max-w-[90vw] max-h-[85vh] object-contain rounded"
-        onClick={(e) => e.stopPropagation()}
-      />
-
-      {/* Counter */}
-      <div className="text-white text-sm mt-3 opacity-60">
-        Photo {current + 1} of {photos.length}
-      </div>
+      <img src={photos[current]} alt={`POD ${current+1}`} className="max-w-[90vw] max-h-[85vh] object-contain rounded" onClick={e => e.stopPropagation()} />
+      <div className="text-white text-sm mt-3 opacity-60">Photo {current+1} of {photos.length}</div>
     </div>
   );
 }
 
-// ── POD Modal ─────────────────────────────────────────────────────────────────
 function PodModal({ task, drivers, vehicles, onClose }) {
   const [lightboxIndex, setLightboxIndex] = useState(null);
   if (!task) return null;
-
   const driver  = drivers.find(d => d.id === task.assignedDriverId);
   const vehicle = vehicles.find(v => v.id === task.vehicleId);
-  const photos  = task.photoUrls?.length > 0 ? task.photoUrls
-                : task.photoUrl ? [task.photoUrl] : [];
-
+  const photos  = task.photoUrls?.length > 0 ? task.photoUrls : task.photoUrl ? [task.photoUrl] : [];
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -164,50 +138,25 @@ function PodModal({ task, drivers, vehicles, onClose }) {
               <span className="text-xs font-semibold">
                 {task.result === "failed"
                   ? <span className="text-red-400">❌ Failed — {task.completedAt && new Date(task.completedAt).toLocaleString("en-ZA")}</span>
-                  : <span className="text-green-400">✅ Completed — {task.completedAt && new Date(task.completedAt).toLocaleString("en-ZA")}</span>
-                }
+                  : <span className="text-green-400">✅ Completed — {task.completedAt && new Date(task.completedAt).toLocaleString("en-ZA")}</span>}
               </span>
             </div>
             <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
           </div>
-
           <div className="p-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-800 rounded-lg p-3">
-                <div className="text-xs text-slate-400 mb-1">📍 Load Location</div>
-                <div className="text-white text-sm font-medium">{task.loadLocation || "—"}</div>
-              </div>
-              <div className="bg-slate-800 rounded-lg p-3">
-                <div className="text-xs text-slate-400 mb-1">🏁 Dropoff Location</div>
-                <div className="text-white text-sm font-medium">{task.dropoffLocation || "—"}</div>
-              </div>
+              <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">📍 Load Location</div><div className="text-white text-sm font-medium">{task.loadLocation || "—"}</div></div>
+              <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">🏁 Dropoff Location</div><div className="text-white text-sm font-medium">{task.dropoffLocation || "—"}</div></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-800 rounded-lg p-3">
-                <div className="text-xs text-slate-400 mb-1">👤 Driver</div>
-                <div className="text-white text-sm">{driver?.name || "—"}</div>
-              </div>
-              <div className="bg-slate-800 rounded-lg p-3">
-                <div className="text-xs text-slate-400 mb-1">🚛 Vehicle</div>
-                <div className="text-white text-sm">{vehicle?.registration || "—"}</div>
-              </div>
+              <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">👤 Driver</div><div className="text-white text-sm">{driver?.name || "—"}</div></div>
+              <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">🚛 Vehicle</div><div className="text-white text-sm">{vehicle?.registration || "—"}</div></div>
             </div>
-            {task.notes && (
-              <div className="bg-slate-800 rounded-lg p-3">
-                <div className="text-xs text-slate-400 mb-1">📝 Driver Notes</div>
-                <div className="text-white text-sm">{task.notes}</div>
-              </div>
-            )}
-
-            {/* POD Photos */}
+            {task.notes && <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">📝 Driver Notes</div><div className="text-white text-sm">{task.notes}</div></div>}
             <div>
-              <div className="text-sm font-semibold text-slate-300 mb-2">
-                📷 Proof of Delivery {photos.length > 0 ? `(${photos.length} photo${photos.length !== 1 ? "s" : ""})` : ""}
-              </div>
+              <div className="text-sm font-semibold text-slate-300 mb-2">📷 Proof of Delivery {photos.length > 0 ? `(${photos.length} photo${photos.length !== 1 ? "s" : ""})` : ""}</div>
               {photos.length === 0 ? (
-                <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">
-                  No photos uploaded for this task
-                </div>
+                <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">No photos uploaded for this task</div>
               ) : (
                 <>
                   <p className="text-xs text-slate-500 mb-2">Click any photo to view full screen</p>
@@ -215,16 +164,12 @@ function PodModal({ task, drivers, vehicles, onClose }) {
                     {photos.map((url, i) => (
                       <div key={i} className="cursor-pointer group" onClick={() => setLightboxIndex(i)}>
                         <div className="relative overflow-hidden rounded-lg border border-slate-700 group-hover:border-blue-400 transition-colors">
-                          <img
-                            src={url}
-                            alt={`POD ${i + 1}`}
-                            className="w-full object-cover aspect-video group-hover:scale-105 transition-transform duration-200"
-                          />
+                          <img src={url} alt={`POD ${i+1}`} className="w-full object-cover aspect-video group-hover:scale-105 transition-transform duration-200" />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                             <span className="text-white text-2xl opacity-0 group-hover:opacity-100 transition-opacity">🔍</span>
                           </div>
                         </div>
-                        <div className="text-xs text-slate-500 text-center mt-1">Photo {i + 1}</div>
+                        <div className="text-xs text-slate-500 text-center mt-1">Photo {i+1}</div>
                       </div>
                     ))}
                   </div>
@@ -234,12 +179,96 @@ function PodModal({ task, drivers, vehicles, onClose }) {
           </div>
         </div>
       </div>
-
-      {/* Lightbox */}
-      {lightboxIndex !== null && (
-        <Lightbox photos={photos} startIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
-      )}
+      {lightboxIndex !== null && <Lightbox photos={photos} startIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />}
     </>
+  );
+}
+
+// ── Smart location input: saved points first, Google Places fallback ──────────
+function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
+  const [suggestions, setSuggestions]   = useState([]);
+  const [showDrop, setShowDrop]         = useState(false);
+  const [googleReady, setGoogleReady]   = useState(false);
+  const acService = useRef(null);
+  const wrapRef   = useRef(null);
+
+  useEffect(() => {
+    const check = setInterval(() => {
+      if (window.google?.maps?.places?.AutocompleteService) {
+        acService.current = new window.google.maps.places.AutocompleteService();
+        setGoogleReady(true);
+        clearInterval(check);
+      }
+    }, 300);
+    return () => clearInterval(check);
+  }, []);
+
+  useEffect(() => {
+    const h = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setShowDrop(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const handleInput = (val) => {
+    onChange(val);
+    if (!val.trim()) { setSuggestions([]); setShowDrop(false); return; }
+
+    // Filter saved points first
+    const saved = savedPoints
+      .filter(p => p.title.toLowerCase().includes(val.toLowerCase()))
+      .map(p => ({ label: p.title, value: p.title, type: "saved" }));
+
+    setSuggestions(saved);
+    setShowDrop(true);
+
+    // Google Places predictions as fallback
+    if (googleReady && acService.current) {
+      acService.current.getPlacePredictions(
+        { input: val, componentRestrictions: { country: "za" } },
+        (predictions, status) => {
+          if (status === "OK" && predictions) {
+            const googleSugs = predictions
+              .filter(p => !saved.some(s => s.label.toLowerCase() === p.description.toLowerCase()))
+              .slice(0, 4)
+              .map(p => ({ label: p.description, value: p.description, type: "google", placeId: p.place_id }));
+            setSuggestions([...saved, ...googleSugs]);
+          }
+        }
+      );
+    }
+  };
+
+  const select = (sug) => {
+    onChange(sug.value);
+    setSuggestions([]);
+    setShowDrop(false);
+  };
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <input
+        id={id}
+        className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+        value={value}
+        onChange={e => handleInput(e.target.value)}
+        onFocus={() => value && suggestions.length > 0 && setShowDrop(true)}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {showDrop && suggestions.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-[#1e293b] border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+          {suggestions.map((s, i) => (
+            <button key={i} type="button"
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-700 flex items-center gap-2"
+              onMouseDown={() => select(s)}>
+              <span>{s.type === "saved" ? "📍" : "🔍"}</span>
+              <span className="text-white truncate">{s.label}</span>
+              {s.type === "saved" && <span className="text-[10px] text-green-400 ml-auto shrink-0">Saved</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -256,45 +285,51 @@ export default function Tasks() {
   const [saving,        setSaving]        = useState(false);
   const [formError,     setFormError]     = useState("");
   const [podTask,       setPodTask]       = useState(null);
+  const [initialLoaded, setInitialLoaded] = useState(false);
 
-  const loadAll = async () => {
+  // ── Load static data once (drivers, vehicles, points) ───────────────────
+  const loadStatic = useCallback(async () => {
     try {
-      const [tRes, dRes, vRes, pRes] = await Promise.all([
-        fetch(`${API}/tasks`), fetch(`${API}/drivers`),
-        fetch(`${API}/vehicles`), fetch(`${API}/points`),
+      const [dRes, vRes, pRes] = await Promise.all([
+        fetch(`${API}/drivers`), fetch(`${API}/vehicles`), fetch(`${API}/points`),
       ]);
-      const [t, d, v, p] = await Promise.all([tRes.json(), dRes.json(), vRes.json(), pRes.json()]);
-      setTasks(   Array.isArray(t) ? t : []);
+      const [d, v, p] = await Promise.all([dRes.json(), vRes.json(), pRes.json()]);
       setDrivers( Array.isArray(d) ? d : []);
       setVehicles(Array.isArray(v) ? v : []);
       const pts = Array.isArray(p) ? p : [];
       setLoadingPoints(pts.filter(x => x.type === "loading"));
       setDropoffPoints(pts.filter(x => x.type === "dropoff"));
-    } catch (err) { console.error("Load error:", err); }
-  };
+    } catch (err) { console.error("Static load error:", err); }
+  }, []);
+
+  // ── Load tasks only (called on SSE updates) ──────────────────────────────
+  const loadTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/tasks`);
+      const t   = await res.json();
+      setTasks(Array.isArray(t) ? t : []);
+    } catch (err) { console.error("Tasks load error:", err); }
+  }, []);
+
+  const loadAll = useCallback(async () => {
+    await Promise.all([loadTasks(), loadStatic()]);
+    setInitialLoaded(true);
+  }, [loadTasks, loadStatic]);
 
   useEffect(() => {
     loadAll();
 
-    // Connect to SSE for real-time updates
-    const sse = new EventSource(
-      "https://fleetpro-backend-production.up.railway.app/api/stream/events"
-    );
-
+    // SSE — only reload tasks on updates, not all data
+    const sse = new EventSource(`${API}/stream/events`);
     sse.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
         if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
-          loadAll(); // Reload all tasks when anything changes
+          loadTasks(); // Only reload tasks, not drivers/vehicles/points
         }
       } catch {}
     };
-
-    sse.onerror = () => {
-      // SSE disconnected — will auto-reconnect
-      console.log("SSE disconnected, will reconnect...");
-    };
-
+    sse.onerror = () => console.log("SSE disconnected, will reconnect...");
     return () => sse.close();
   }, []);
 
@@ -303,8 +338,8 @@ export default function Tasks() {
     return acc;
   }, {});
 
-  const driverName = (id) => drivers.find(d => d.id === id)?.name || "—";
-  const vehicleReg = (id) => vehicles.find(v => v.id === id)?.registration || "—";
+  const driverName    = (id) => drivers.find(d => d.id === id)?.name || "—";
+  const vehicleReg    = (id) => vehicles.find(v => v.id === id)?.registration || "—";
   const tasksForStatus = (status) =>
     tasks.filter(t => t.status === status && (!selectedDate || !t.date || t.date === selectedDate));
 
@@ -337,7 +372,7 @@ export default function Tasks() {
       const data   = await res.json();
       if (!res.ok) { setFormError(data.error || `Error ${res.status}`); return; }
       setShowForm(false);
-      await loadAll();
+      await loadTasks();
     } catch { setFormError("Network error — please try again."); }
     finally { setSaving(false); }
   };
@@ -345,7 +380,7 @@ export default function Tasks() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this task?")) return;
     await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
-    loadAll();
+    loadTasks();
   };
 
   const setStatus = async (id, status) => {
@@ -353,7 +388,7 @@ export default function Tasks() {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    loadAll();
+    loadTasks();
   };
 
   return (
@@ -373,6 +408,10 @@ export default function Tasks() {
           </span>
           <button onClick={() => setSelectedDate("")} className="ml-3 text-blue-400 hover:text-blue-300">Show all</button>
         </div>
+      )}
+
+      {!initialLoaded && (
+        <div className="text-center text-slate-400 text-sm py-8">Loading tasks...</div>
       )}
 
       <div className="grid grid-cols-4 gap-3">
@@ -404,51 +443,35 @@ export default function Tasks() {
                         {task.title || task.loadLocation || "Untitled"}
                         {task.orderNumber && <span className="ml-1 text-slate-400 font-normal">#{task.orderNumber}</span>}
                       </div>
-                      <div className="text-slate-400 truncate mt-0.5">
-                        📍{task.loadLocation || "—"} → 🏁{task.dropoffLocation || "—"}
-                      </div>
+                      <div className="text-slate-400 truncate mt-0.5">📍{task.loadLocation || "—"} → 🏁{task.dropoffLocation || "—"}</div>
                       <div className="text-slate-400 truncate mt-0.5">
                         👤 {task.assignedDriverId ? driverName(task.assignedDriverId) : <span className="italic text-slate-500">Unassigned</span>}
                         {"  "}🚛 {task.vehicleId ? vehicleReg(task.vehicleId) : <span className="italic text-slate-500">—</span>}
                       </div>
                       {(task.date || task.pickupTime) && (
-                        <div className="text-slate-500 text-[10px] mt-0.5">
-                          {task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}
-                        </div>
+                        <div className="text-slate-500 text-[10px] mt-0.5">{task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}</div>
                       )}
                       {task.status === "completed" && (
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          {task.result === "failed" ? (
-                            <span className="text-[10px] bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded font-medium">❌ Failed</span>
-                          ) : (
-                            <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded font-medium">✅ Success</span>
-                          )}
-                          <span className="text-[10px] text-green-400">
-                            📷 {photoCount} photo{photoCount !== 1 ? "s" : ""}
-                          </span>
+                          {task.result === "failed"
+                            ? <span className="text-[10px] bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded font-medium">❌ Failed</span>
+                            : <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded font-medium">✅ Success</span>}
+                          <span className="text-[10px] text-green-400">📷 {photoCount} photo{photoCount !== 1 ? "s" : ""}</span>
                         </div>
                       )}
                       <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
                         {task.status === "completed" && (
-                          <button onClick={() => setPodTask(task)}
-                            className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">
-                            👁 View POD
-                          </button>
+                          <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
                         )}
-                        <button onClick={() => openEdit(task)}
-                          className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
-                        <button onClick={() => handleDelete(task.id)}
-                          className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
+                        <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
+                        <button onClick={() => handleDelete(task.id)} className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
                         {task.status === "todo" && (
-                          <button onClick={() => setStatus(task.id, "inprogress")}
-                            className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]">▶ Accept</button>
+                          <button onClick={() => setStatus(task.id, "inprogress")} className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]">▶ Accept</button>
                         )}
                         {task.status === "inprogress" && (
                           <>
-                            <button onClick={() => setStatus(task.id, "completed")}
-                              className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
-                            <button onClick={() => setStatus(task.id, "completed")}
-                              className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
+                            <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
+                            <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
                           </>
                         )}
                       </div>
@@ -477,23 +500,35 @@ export default function Tasks() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Load Location *</label>
-                <input list="load-pts" className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
-                  value={form.loadLocation} onChange={e => setForm({...form, loadLocation: e.target.value})} placeholder="Select or type" />
-                <datalist id="load-pts">{loadingPoints.map(p => <option key={p.id} value={p.title} />)}</datalist>
+                <LocationInput
+                  value={form.loadLocation}
+                  onChange={v => setForm({...form, loadLocation: v})}
+                  savedPoints={loadingPoints}
+                  placeholder="Search saved points or type a location..."
+                  id="load-loc"
+                />
                 {loadingPoints.length > 0 && <p className="text-[10px] text-slate-500 mt-0.5">{loadingPoints.length} saved points</p>}
               </div>
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Dropoff Location</label>
-                <input list="drop-pts" className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
-                  value={form.dropoffLocation} onChange={e => setForm({...form, dropoffLocation: e.target.value})} placeholder="Select or type" />
-                <datalist id="drop-pts">{dropoffPoints.map(p => <option key={p.id} value={p.title} />)}</datalist>
+                <LocationInput
+                  value={form.dropoffLocation}
+                  onChange={v => setForm({...form, dropoffLocation: v})}
+                  savedPoints={dropoffPoints}
+                  placeholder="Search saved points or type a location..."
+                  id="drop-loc"
+                />
                 {dropoffPoints.length > 0 && <p className="text-[10px] text-slate-500 mt-0.5">{dropoffPoints.length} saved points</p>}
               </div>
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Additional Dropoff</label>
-                <input list="drop-pts-2" className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
-                  value={form.additionalDropoff} onChange={e => setForm({...form, additionalDropoff: e.target.value})} placeholder="Optional" />
-                <datalist id="drop-pts-2">{dropoffPoints.map(p => <option key={p.id} value={p.title} />)}</datalist>
+                <LocationInput
+                  value={form.additionalDropoff}
+                  onChange={v => setForm({...form, additionalDropoff: v})}
+                  savedPoints={dropoffPoints}
+                  placeholder="Optional"
+                  id="add-drop"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
