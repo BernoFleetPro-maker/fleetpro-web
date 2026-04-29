@@ -3,6 +3,9 @@ import React, { useEffect, useRef } from "react";
 const API      = "https://fleetpro-backend-production.up.railway.app/api";
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 
+// Module-level phase cache — survives React navigation/remounting
+const _phaseCache = {};
+
 export default function MapView() {
   const mapRef           = useRef(null);
   const mapInstance      = useRef(null);
