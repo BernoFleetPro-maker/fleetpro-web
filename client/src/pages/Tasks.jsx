@@ -2,6 +2,12 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
+// Module-level cache — persists across page navigations within the same session
+let _cachedTasks    = null;
+let _cachedDrivers  = null;
+let _cachedVehicles = null;
+let _cachedPoints   = null;
+
 const STATUSES = [
   { key: "unassigned", label: "Unassigned",  color: "border-gray-400",   badge: "bg-gray-100 text-gray-600" },
   { key: "todo",       label: "To Do",        color: "border-blue-400",   badge: "bg-blue-100 text-blue-700" },
@@ -290,32 +296,57 @@ export default function Tasks() {
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
     try {
+      // Show cached static data instantly
+      if (_cachedDrivers)  setDrivers(_cachedDrivers);
+      if (_cachedVehicles) setVehicles(_cachedVehicles);
+      if (_cachedPoints) {
+        setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
+        setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
+      }
+      // Only fetch if no cache yet
+      if (_cachedDrivers && _cachedVehicles && _cachedPoints) return;
       const [dRes, vRes, pRes] = await Promise.all([
         fetch(`${API}/drivers`), fetch(`${API}/vehicles`), fetch(`${API}/points`),
       ]);
       const [d, v, p] = await Promise.all([dRes.json(), vRes.json(), pRes.json()]);
-      setDrivers( Array.isArray(d) ? d : []);
-      setVehicles(Array.isArray(v) ? v : []);
-      const pts = Array.isArray(p) ? p : [];
-      setLoadingPoints(pts.filter(x => x.type === "loading"));
-      setDropoffPoints(pts.filter(x => x.type === "dropoff"));
+      _cachedDrivers  = Array.isArray(d) ? d : [];
+      _cachedVehicles = Array.isArray(v) ? v : [];
+      _cachedPoints   = Array.isArray(p) ? p : [];
+      setDrivers(_cachedDrivers);
+      setVehicles(_cachedVehicles);
+      setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
+      setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
     } catch (err) { console.error("Static load error:", err); }
   }, []);
 
   // ── Load tasks only (called on SSE updates) ──────────────────────────────
   const loadTasks = useCallback(async () => {
     try {
+      // Show cached data instantly while fetching fresh
+      if (_cachedTasks) setTasks(_cachedTasks);
       const res = await fetch(`${API}/tasks`);
       const t   = await res.json();
-      setTasks(Array.isArray(t) ? t : []);
+      const tasks = Array.isArray(t) ? t : [];
+      _cachedTasks = tasks;
+      setTasks(tasks);
     } catch (err) { console.error("Tasks load error:", err); }
   }, []);
 
   const loadAll = useCallback(async () => {
-    // Load tasks first so kanban appears immediately
+    // Show cached data instantly before any fetch
+    if (_cachedTasks) {
+      setTasks(_cachedTasks);
+      setInitialLoaded(true);
+    }
+    if (_cachedDrivers)  setDrivers(_cachedDrivers);
+    if (_cachedVehicles) setVehicles(_cachedVehicles);
+    if (_cachedPoints) {
+      setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
+      setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
+    }
+    // Then fetch fresh data
     await loadTasks();
     setInitialLoaded(true);
-    // Load static data in background (drivers, vehicles, points)
     loadStatic();
   }, [loadTasks, loadStatic]);
 
