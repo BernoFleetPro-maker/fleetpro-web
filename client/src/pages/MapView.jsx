@@ -15,17 +15,55 @@ export default function MapView() {
   const vehicleRouteRef  = useRef({}); // reg → { duration, distance, dest } for popup
 
   // ── Phase logic ──────────────────────────────────────────────────────────
-  function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt) {
+  function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = vehiclePhaseRef.current[id];
+
+    // Reset if new task
     if (!current || current.taskId !== taskId) {
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      vehiclePhaseRef.current[id] = { phase, taskId };
+      vehiclePhaseRef.current[id] = { phase, taskId, outsideLoadCount: 0 };
       return phase;
     }
+
     const phase = current.phase;
-    if (phase === "to_load" && atLoad)  { vehiclePhaseRef.current[id].phase = "at_load";  return "at_load";  }
-    if (phase === "at_load" && !atLoad) { vehiclePhaseRef.current[id].phase = hasDropPt ? "to_drop" : null; return vehiclePhaseRef.current[id].phase; }
-    if (phase === "to_drop" && atDrop)  { vehiclePhaseRef.current[id].phase = "at_drop";  return "at_drop";  }
+
+    // Advance to_load → at_load when inside radius
+    if (phase === "to_load" && atLoad) {
+      vehiclePhaseRef.current[id].phase = "at_load";
+      vehiclePhaseRef.current[id].outsideLoadCount = 0;
+      return "at_load";
+    }
+
+    // Force advance if vehicle is clearly past loading point (> 2x radius away)
+    // This handles the case where vehicle drove through radius between polls
+    if (phase === "to_load" && hasLoadPt && distToLoad > loadRadius * 2 && hasDropPt) {
+      console.log(`📍 ${id}: Skipped loading radius (too far away now) → forcing to_drop`);
+      vehiclePhaseRef.current[id].phase = "to_drop";
+      return "to_drop";
+    }
+
+    // at_load → to_drop when outside radius (require 2 consecutive checks to avoid GPS drift)
+    if (phase === "at_load" && !atLoad) {
+      const count = (current.outsideLoadCount || 0) + 1;
+      vehiclePhaseRef.current[id].outsideLoadCount = count;
+      if (count >= 2) {
+        vehiclePhaseRef.current[id].phase = hasDropPt ? "to_drop" : null;
+        return vehiclePhaseRef.current[id].phase;
+      }
+      return "at_load"; // Stay at_load for one more check
+    }
+
+    // Reset outside count if back inside
+    if (phase === "at_load" && atLoad) {
+      vehiclePhaseRef.current[id].outsideLoadCount = 0;
+    }
+
+    // to_drop → at_drop
+    if (phase === "to_drop" && atDrop) {
+      vehiclePhaseRef.current[id].phase = "at_drop";
+      return "at_drop";
+    }
+
     return phase;
   }
 
@@ -210,9 +248,11 @@ export default function MapView() {
 
     const loadPt = task.loadPoint;
     const dropPt = task.dropPoint;
-    const atLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) <= (loadPt.radius || 1000) : false;
-    const atDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) <= (dropPt.radius || 1000) : false;
-    const phase  = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt);
+    const loadRadius = loadPt?.radius || 1000;
+    const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
+    const atLoad     = loadPt ? distToLoad <= loadRadius : false;
+    const atDrop     = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) <= (dropPt.radius || 1000) : false;
+    const phase      = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
 
     if (!phase || phase === "at_drop") return;
 
