@@ -6,6 +6,9 @@ const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 // Module-level phase cache — survives React navigation/remounting
 const _phaseCache = {};
 
+// Version stamp — change this to bust route cache after code updates
+const ROUTE_CACHE_VERSION = "v2-truck-1.5";
+
 export default function MapView() {
   const mapRef           = useRef(null);
   const mapInstance      = useRef(null);
@@ -14,7 +17,7 @@ export default function MapView() {
   const pointOverlaysRef = useRef([]);
   const routeLinesRef    = useRef({});
   const routeCacheRef    = useRef({});
-  const vehiclePhaseRef  = useRef({});
+  const vehiclePhaseRef  = useRef(_phaseCache); // module-level: survives navigation
   const vehicleRouteRef  = useRef({}); // reg → { duration, distance, dest } for popup
 
   // ── Phase logic ──────────────────────────────────────────────────────────
@@ -107,7 +110,7 @@ export default function MapView() {
 
   // ── Routes API ───────────────────────────────────────────────────────────
   async function fetchRoadRoute(originLat, originLng, destLat, destLng) {
-    const cacheKey = `${originLat.toFixed(3)},${originLng.toFixed(3)}→${destLat.toFixed(3)},${destLng.toFixed(3)}`;
+    const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(3)},${originLng.toFixed(3)}→${destLat.toFixed(3)},${destLng.toFixed(3)}`;
     const cached   = routeCacheRef.current[cacheKey];
     if (cached && cached.expiry > Date.now()) return cached.data;
     try {
