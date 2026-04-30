@@ -403,18 +403,28 @@ export default function Tasks() {
         const dropPt = task.dropPoint;
         if (!loadPt && !dropPt) return;
 
-        // Read persisted phase from localStorage (same as MapView uses)
+        // Read persisted phase from localStorage using vehicle registration
         let phase = "to_load";
         try {
           const phaseCache = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-          const vehicleReg = positions.find(p => p.activeTask?.id === task.id)?.descrip;
+          const vehicleReg = v.descrip; // already have this from the position
           if (vehicleReg && phaseCache[vehicleReg]?.taskId === task.id) {
             phase = phaseCache[vehicleReg].phase;
           }
         } catch {}
-        const dest = (phase === "to_load" || phase === "at_load") && loadPt ? loadPt : dropPt || loadPt;
 
-        const route = await fetchRoadETA(v.lat, v.lon, dest.lat, dest.lon);
+        // Determine destination based on phase
+        let dest = null;
+        if ((phase === "to_load" || phase === "at_load") && loadPt) {
+          dest = loadPt;
+        } else if (dropPt) {
+          dest = dropPt;
+        } else if (loadPt) {
+          dest = loadPt;
+        }
+        if (!dest) return;
+
+        const route = await fetchRoadETA(v.lat, v.lon, Number(dest.lat), Number(dest.lon));
         if (!route) return;
 
         etaMap[task.id] = {
@@ -640,7 +650,7 @@ export default function Tasks() {
                       )}
                       {task.status === "inprogress" && vehicleETAs[task.id] && (
                         <div className={`flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-[10px] font-semibold ${
-                          vehicleETAs[task.id].phase === "to_load" 
+                          vehicleETAs[task.id].phase === "to_load" || vehicleETAs[task.id].phase === "at_load"
                             ? "bg-blue-900/50 text-blue-300" 
                             : "bg-green-900/50 text-green-300"
                         }`}>
