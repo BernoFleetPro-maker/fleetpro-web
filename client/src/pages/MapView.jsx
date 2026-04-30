@@ -25,9 +25,17 @@ export default function MapView() {
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = vehiclePhaseRef.current[id];
 
-    // Reset if new task
+    // Reset only if genuinely new task (different taskId)
     if (!current || current.taskId !== taskId) {
-      console.log(`🔄 Phase reset for ${id}: taskId changed from ${current?.taskId} to ${taskId}`);
+      // Check if we have a persisted phase for this exact taskId in localStorage
+      // This handles logout/login — cache survives but vehiclePhaseRef resets
+      const persisted = _phaseCache[id];
+      if (persisted && persisted.taskId === taskId) {
+        // Restore from localStorage cache — don't reset phase
+        vehiclePhaseRef.current[id] = { ...persisted };
+        return persisted.phase;
+      }
+      // Genuinely new task — start from to_load
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
       vehiclePhaseRef.current[id] = {
         phase, taskId,
