@@ -123,11 +123,9 @@ export default function MapView() {
           "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline",
         },
         body: JSON.stringify({
-          origin:            { location: { latLng: { latitude: originLat, longitude: originLng } } },
-          destination:       { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
-          travelMode:        "DRIVE",
-          routingPreference: "TRAFFIC_AWARE",
-          routeModifiers:    { avoidFerries: true },
+          origin:      { location: { latLng: { latitude: originLat, longitude: originLng } } },
+          destination: { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
+          travelMode:  "DRIVE",
         }),
       });
       const data = await res.json();
