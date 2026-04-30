@@ -36,7 +36,7 @@ export default function MapView() {
         outsideLoadCount: 0,
         wasInsideLoad:    false,
       };
-      savePhaseCache();
+      window._savePhaseCache();
       return phase;
     }
 
@@ -401,7 +401,7 @@ export default function MapView() {
         outsideLoadCount: 0,
         wasInsideLoad:    newPhase === "to_drop" || newPhase === "at_drop",
       };
-      savePhaseCache();
+      window._savePhaseCache();
       console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
 
       // Immediately redraw route and update open InfoWindow

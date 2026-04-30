@@ -284,7 +284,29 @@ export default function Tasks() {
   const [vehicles,      setVehicles]      = useState([]);
   const [loadingPoints, setLoadingPoints] = useState([]);
   const [dropoffPoints, setDropoffPoints] = useState([]);
-  const [selectedDate,  setSelectedDate]  = useState(new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(() => {
+    try {
+      const stored = localStorage.getItem("fleetpro_task_date");
+      if (stored) {
+        // Check if stored date is still today or in the past — reset to today at midnight
+        const storedDay = new Date(stored + "T00:00:00").toDateString();
+        const today     = new Date().toDateString();
+        // Only keep stored date if it was saved today (same calendar day)
+        const savedOn = localStorage.getItem("fleetpro_task_date_saved");
+        if (savedOn === today) return stored;
+      }
+    } catch {}
+    return new Date().toISOString().slice(0, 10);
+  });
+
+  // Persist selected date — auto-resets at midnight via the savedOn check above
+  const handleDateSelect = (date) => {
+    setSelectedDate(date);
+    try {
+      localStorage.setItem("fleetpro_task_date", date);
+      localStorage.setItem("fleetpro_task_date_saved", new Date().toDateString());
+    } catch {}
+  };
   const [showForm,      setShowForm]      = useState(false);
   const [editingId,     setEditingId]     = useState(null);
   const [form,          setForm]          = useState(EMPTY_FORM);
@@ -561,7 +583,7 @@ export default function Tasks() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
-          <TaskCalendar selectedDate={selectedDate} onSelect={setSelectedDate} tasksByDate={tasksByDate} />
+          <TaskCalendar selectedDate={selectedDate} onSelect={handleDateSelect} tasksByDate={tasksByDate} />
           <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>
         </div>
       </div>
@@ -571,7 +593,7 @@ export default function Tasks() {
           Showing: <span className="text-white font-medium">
             {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-ZA", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
           </span>
-          <button onClick={() => setSelectedDate("")} className="ml-3 text-blue-400 hover:text-blue-300">Show all</button>
+          <button onClick={() => handleDateSelect("")} className="ml-3 text-blue-400 hover:text-blue-300">Show all</button>
         </div>
       )}
 
