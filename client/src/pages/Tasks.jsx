@@ -390,6 +390,27 @@ export default function Tasks() {
     } catch { return null; }
   };
 
+  // Geocode cache to avoid re-geocoding the same address on every ETA refresh
+  const _geocodeCache = useRef({});
+
+  const geocodeAddress = async (address) => {
+    if (!address?.trim()) return null;
+    const key = address.trim().toLowerCase();
+    if (_geocodeCache.current[key]) return _geocodeCache.current[key];
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&region=za&key=${MAPS_KEY}`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      if (data.status === "OK" && data.results?.[0]) {
+        const { lat, lng } = data.results[0].geometry.location;
+        const result = { lat, lon: lng, title: address };
+        _geocodeCache.current[key] = result;
+        return result;
+      }
+    } catch {}
+    return null;
+  };
+
   const loadETAs = useCallback(async () => {
     try {
       const positions = await fetch(`${API}/positions`).then(r => r.json());
@@ -400,14 +421,27 @@ export default function Tasks() {
         if (!v.activeTask) return;
         const task   = v.activeTask;
         const loadPt = task.loadPoint;
-        const dropPt = task.dropPoint;
-        if (!loadPt && !dropPt) return;
+        let   dropPt = task.dropPoint;
+
+        // ── Geocoding fallback for unsaved dropoff addresses ──────────────
+        // dropPoint is only set when the address is a saved point.
+        // If it's null but we have a dropoffLocation string, geocode it.
+        if (!dropPt && task.dropoffLocation) {
+          dropPt = await geocodeAddress(task.dropoffLocation);
+        }
+        // Same fallback for load point (defensive, in case needed later)
+        let resolvedLoadPt = loadPt;
+        if (!resolvedLoadPt && task.loadLocation) {
+          resolvedLoadPt = await geocodeAddress(task.loadLocation);
+        }
+
+        if (!resolvedLoadPt && !dropPt) return;
 
         // Read persisted phase from localStorage using vehicle registration
         let phase = "to_load";
         try {
           const phaseCache = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-          const vehicleReg = v.descrip; // already have this from the position
+          const vehicleReg = v.descrip;
           if (vehicleReg && phaseCache[vehicleReg]?.taskId === task.id) {
             phase = phaseCache[vehicleReg].phase;
           }
@@ -415,12 +449,12 @@ export default function Tasks() {
 
         // Determine destination based on phase
         let dest = null;
-        if ((phase === "to_load" || phase === "at_load") && loadPt) {
-          dest = loadPt;
+        if ((phase === "to_load" || phase === "at_load") && resolvedLoadPt) {
+          dest = resolvedLoadPt;
         } else if (dropPt) {
           dest = dropPt;
-        } else if (loadPt) {
-          dest = loadPt;
+        } else if (resolvedLoadPt) {
+          dest = resolvedLoadPt;
         }
         if (!dest) return;
 
