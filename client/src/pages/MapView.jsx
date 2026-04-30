@@ -73,6 +73,15 @@ export default function MapView() {
       const nowMovingAway  = distToLoad > prevDist && distToLoad > closest * 1.3;
       if (wasApproaching && nowMovingAway && hasDropPt) return advanceTo("to_drop");
       if (current.wasInsideLoad && distToLoad > loadRadius * 2 && hasDropPt) return advanceTo("to_drop");
+
+      // Fallback for unsaved/free-text load locations where the geocoded pin
+      // may not be precise enough to trigger wasApproaching (radius too small).
+      // If the vehicle ever got within 5 km of the load point AND is now
+      // more than 8 km away AND still moving away — assume it loaded and switch.
+      const gotClose   = closest <= 5000;
+      const nowFarAway = distToLoad > 8000;
+      const movingAway = distToLoad > prevDist;
+      if (gotClose && nowFarAway && movingAway && hasDropPt) return advanceTo("to_drop");
     }
 
     if (phase === "at_load") {
