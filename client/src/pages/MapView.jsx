@@ -251,8 +251,24 @@ export default function MapView() {
 
     if (!task || task.status !== "inprogress") return;
 
-    const loadPt     = task.loadPoint;
-    const dropPt     = task.dropPoint;
+    let loadPt     = task.loadPoint;
+    let dropPt     = task.dropPoint;
+
+    // Geocode unsaved locations using Google Maps Geocoder
+    const geocoder = new window.google.maps.Geocoder();
+    const geocode  = (address) => new Promise((resolve) => {
+      if (!address) return resolve(null);
+      geocoder.geocode({ address, componentRestrictions: { country: "za" } }, (results, status) => {
+        if (status === "OK" && results[0]) {
+          const loc = results[0].geometry.location;
+          resolve({ lat: loc.lat(), lon: loc.lng(), radius: 500, title: address });
+        } else resolve(null);
+      });
+    });
+
+    if (!loadPt && task.loadLocation) loadPt = await geocode(task.loadLocation);
+    if (!dropPt && task.dropoffLocation) dropPt = await geocode(task.dropoffLocation);
+
     const loadRadius = loadPt?.radius || 1000;
     const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
     const atLoad     = loadPt ? distToLoad <= loadRadius : false;
