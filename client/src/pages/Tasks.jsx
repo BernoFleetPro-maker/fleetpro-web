@@ -381,9 +381,16 @@ export default function Tasks() {
         const dropPt = task.dropPoint;
         if (!loadPt && !dropPt) return;
 
-        // Use same phase logic as MapView — default to loading first
-        const dest  = loadPt || dropPt;
-        const phase = loadPt ? "to_load" : "to_drop";
+        // Read persisted phase from localStorage (same as MapView uses)
+        let phase = "to_load";
+        try {
+          const phaseCache = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
+          const vehicleReg = positions.find(p => p.activeTask?.id === task.id)?.descrip;
+          if (vehicleReg && phaseCache[vehicleReg]?.taskId === task.id) {
+            phase = phaseCache[vehicleReg].phase;
+          }
+        } catch {}
+        const dest = (phase === "to_load" || phase === "at_load") && loadPt ? loadPt : dropPt || loadPt;
 
         const route = await fetchRoadETA(v.lat, v.lon, dest.lat, dest.lon);
         if (!route) return;

@@ -31,11 +31,12 @@ export default function MapView() {
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
       vehiclePhaseRef.current[id] = {
         phase, taskId,
-        prevDistToLoad:   distToLoad,  // track distance history
-        closestToLoad:    distToLoad,  // closest the vehicle got to loading point
+        prevDistToLoad:   distToLoad,
+        closestToLoad:    distToLoad,
         outsideLoadCount: 0,
         wasInsideLoad:    false,
       };
+      savePhaseCache();
       return phase;
     }
 
@@ -400,6 +401,7 @@ export default function MapView() {
         outsideLoadCount: 0,
         wasInsideLoad:    newPhase === "to_drop" || newPhase === "at_drop",
       };
+      savePhaseCache();
       console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
 
       // Immediately redraw route and update open InfoWindow
