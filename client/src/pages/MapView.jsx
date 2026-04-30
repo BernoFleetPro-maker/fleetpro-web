@@ -36,7 +36,7 @@ export default function MapView() {
         outsideLoadCount: 0,
         wasInsideLoad:    false,
       };
-      window._savePhaseCache();
+      try { localStorage.setItem("fleetpro_phase_cache", JSON.stringify(_phaseCache)); } catch {}
       return phase;
     }
 
@@ -401,7 +401,7 @@ export default function MapView() {
         outsideLoadCount: 0,
         wasInsideLoad:    newPhase === "to_drop" || newPhase === "at_drop",
       };
-      window._savePhaseCache();
+      try { localStorage.setItem("fleetpro_phase_cache", JSON.stringify(_phaseCache)); } catch {}
       console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
 
       // Immediately redraw route and update open InfoWindow
