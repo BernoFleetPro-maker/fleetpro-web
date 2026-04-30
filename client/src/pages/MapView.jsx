@@ -13,10 +13,9 @@ export default function MapView() {
   const mapRef           = useRef(null);
   const mapInstance      = useRef(null);
   const markersRef       = useRef({});
-  const trailsRef        = useRef({});
   const pointOverlaysRef = useRef([]);
   const routeLinesRef    = useRef({});
-  const routeCacheRef    = useRef(_routeCache); // module-level: survives navigation
+  const routeCacheRef    = useRef({});
   const vehiclePhaseRef  = useRef(_phaseCache); // module-level: survives navigation
   const vehicleRouteRef  = useRef({}); // reg → { duration, distance, dest } for popup
 
