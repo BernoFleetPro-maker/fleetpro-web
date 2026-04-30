@@ -293,6 +293,7 @@ export default function Tasks() {
   const [podTask,       setPodTask]       = useState(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const lastOptimisticRef = useRef(0); // timestamp of last optimistic update
+  const [vehicleETAs, setVehicleETAs] = useState({}); // vehicleId → { duration, distance, phase, dest }
 
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
@@ -331,6 +332,73 @@ export default function Tasks() {
     } catch (err) { console.error("Tasks load error:", err); }
   }, []);
 
+  // ── Fetch live ETAs using same Routes API as MapView ────────────────────
+  const MAPS_KEY    = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
+  const TRUCK_FACTOR = 1.5;
+  const _etaRouteCache = {};
+
+  const fetchRoadETA = async (originLat, originLng, destLat, destLng) => {
+    const key = `${originLat.toFixed(3)},${originLng.toFixed(3)}→${destLat.toFixed(3)},${destLng.toFixed(3)}`;
+    if (_etaRouteCache[key] && _etaRouteCache[key].expiry > Date.now()) return _etaRouteCache[key].data;
+    try {
+      const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+        method: "POST",
+        headers: {
+          "Content-Type":     "application/json",
+          "X-Goog-Api-Key":   MAPS_KEY,
+          "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
+        },
+        body: JSON.stringify({
+          origin:      { location: { latLng: { latitude: originLat, longitude: originLng } } },
+          destination: { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
+          travelMode:  "DRIVE",
+        }),
+      });
+      const data = await res.json();
+      if (!data.routes?.[0]) return null;
+      const route  = data.routes[0];
+      const mins   = Math.round((parseInt(route.duration) * TRUCK_FACTOR) / 60);
+      const distM  = route.distanceMeters;
+      const result = {
+        duration: mins < 60 ? `~${mins} min` : `~${Math.floor(mins/60)}h ${mins%60>0?mins%60+"min":""}`,
+        distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
+      };
+      _etaRouteCache[key] = { data: result, expiry: Date.now() + 30000 };
+      return result;
+    } catch { return null; }
+  };
+
+  const loadETAs = useCallback(async () => {
+    try {
+      const positions = await fetch(`${API}/positions`).then(r => r.json());
+      if (!Array.isArray(positions)) return;
+
+      const etaMap = {};
+      await Promise.all(positions.map(async (v) => {
+        if (!v.activeTask) return;
+        const task   = v.activeTask;
+        const loadPt = task.loadPoint;
+        const dropPt = task.dropPoint;
+        if (!loadPt && !dropPt) return;
+
+        // Use same phase logic as MapView — default to loading first
+        const dest  = loadPt || dropPt;
+        const phase = loadPt ? "to_load" : "to_drop";
+
+        const route = await fetchRoadETA(v.lat, v.lon, dest.lat, dest.lon);
+        if (!route) return;
+
+        etaMap[task.id] = {
+          duration: route.duration,
+          distance: route.distance,
+          dest:     dest.title,
+          phase,
+        };
+      }));
+      setVehicleETAs(etaMap);
+    } catch (err) { console.error("ETA load error:", err); }
+  }, []);
+
   const loadAll = useCallback(async () => {
     // Show cached data instantly if available
     if (_cachedTasks)    { setTasks(_cachedTasks); setInitialLoaded(true); }
@@ -354,6 +422,10 @@ export default function Tasks() {
       fetch(`${API}/health`).catch(() => {});
     }, 2 * 60 * 1000);
 
+    // Load ETAs every 15 seconds
+    loadETAs();
+    const etaInterval = setInterval(loadETAs, 15000);
+
     // SSE for updates from OTHER users/devices
     let sse;
     try {
@@ -373,6 +445,7 @@ export default function Tasks() {
 
     return () => {
       clearInterval(keepalive);
+      clearInterval(etaInterval);
       if (sse) sse.close();
     };
   }, []);
@@ -535,6 +608,20 @@ export default function Tasks() {
                       </div>
                       {(task.date || task.pickupTime) && (
                         <div className="text-slate-500 text-[10px] mt-0.5">{task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}</div>
+                      )}
+                      {task.status === "inprogress" && vehicleETAs[task.id] && (
+                        <div className={`flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-[10px] font-semibold ${
+                          vehicleETAs[task.id].phase === "to_load" 
+                            ? "bg-blue-900/50 text-blue-300" 
+                            : "bg-green-900/50 text-green-300"
+                        }`}>
+                          <span>⏱</span>
+                          <span>{vehicleETAs[task.id].duration}</span>
+                          <span className="opacity-60">·</span>
+                          <span>{vehicleETAs[task.id].distance}</span>
+                          <span className="opacity-60">·</span>
+                          <span className="truncate">{vehicleETAs[task.id].dest}</span>
+                        </div>
                       )}
                       {task.status === "completed" && (
                         <div className="flex items-center gap-1.5 mt-0.5">
