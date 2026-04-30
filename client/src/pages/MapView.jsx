@@ -390,18 +390,35 @@ export default function MapView() {
     // Global manual override — called from popup buttons
     window._fleetproOverride = (vehicleId, newPhase) => {
       const current = vehiclePhaseRef.current[vehicleId];
-      if (current) {
-        vehiclePhaseRef.current[vehicleId] = {
-          ...current,
-          phase:            newPhase,
-          prevDistToLoad:   Infinity,
-          closestToLoad:    Infinity,
-          outsideLoadCount: 0,
-          wasInsideLoad:    newPhase === "to_drop" || newPhase === "at_drop",
-        };
-        console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
-        fetchAll();
-      }
+      if (!current) return;
+
+      vehiclePhaseRef.current[vehicleId] = {
+        ...current,
+        phase:            newPhase,
+        prevDistToLoad:   Infinity,
+        closestToLoad:    Infinity,
+        outsideLoadCount: 0,
+        wasInsideLoad:    newPhase === "to_drop" || newPhase === "at_drop",
+      };
+      console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
+
+      // Immediately redraw route and update open InfoWindow
+      fetchAll().then(() => {
+        const mk = markersRef.current[vehicleId];
+        const activeInfo = mapInstance.current?.activeInfoWindow;
+        if (mk && activeInfo && activeInfo.getMap()) {
+          // Find the latest vehicle data and rebuild popup
+          fetch(`${API}/positions`)
+            .then(r => r.json())
+            .then(positions => {
+              const v = positions.find(p => (p.descrip || `veh-${p.id}`) === vehicleId);
+              if (v) {
+                activeInfo.setContent(buildInfoHtml(v));
+              }
+            })
+            .catch(() => {});
+        }
+      });
     };
 
     async function fetchAll() {
@@ -411,7 +428,7 @@ export default function MapView() {
         await drawPoints();
       } catch (err) { console.error("fetchAll error:", err); }
     }
-    fetchAll();
+    fetchAll(); // returns promise
     const interval = setInterval(fetchAll, 10000);
     return () => { clearInterval(interval); delete window._fleetproOverride; };
   }, []);
