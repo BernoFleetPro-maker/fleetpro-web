@@ -229,7 +229,20 @@ export default function MapView() {
           </div>
         </div>
         <div style="font-size:10px;color:#aaa;text-align:center;margin-top:3px;">to ${routeInfo.dest}</div>
-        ` : ""}`;
+        ` : ""}
+        ${t ? `
+        <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
+        <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Manual override</div>
+        <div style="display:flex;gap:6px;justify-content:center;">
+          <button onclick="window._fleetproOverride('${id}','to_load')"
+            style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">
+            📦 → Loading
+          </button>
+          <button onclick="window._fleetproOverride('${id}','to_drop')"
+            style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">
+            🏁 → Dropoff
+          </button>
+        </div>` : ""}`;
     }
 
     return `
@@ -374,6 +387,23 @@ export default function MapView() {
     if (!mapInstance.current && mapRef.current) {
       mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1}, zoom:8, streetViewControl:false, mapTypeControl:true });
     }
+    // Global manual override — called from popup buttons
+    window._fleetproOverride = (vehicleId, newPhase) => {
+      const current = vehiclePhaseRef.current[vehicleId];
+      if (current) {
+        vehiclePhaseRef.current[vehicleId] = {
+          ...current,
+          phase:            newPhase,
+          prevDistToLoad:   Infinity,
+          closestToLoad:    Infinity,
+          outsideLoadCount: 0,
+          wasInsideLoad:    newPhase === "to_drop" || newPhase === "at_drop",
+        };
+        console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
+        fetchAll();
+      }
+    };
+
     async function fetchAll() {
       try {
         const positions = await fetch(`${API}/positions`).then(r => r.json());
@@ -383,7 +413,7 @@ export default function MapView() {
     }
     fetchAll();
     const interval = setInterval(fetchAll, 10000);
-    return () => clearInterval(interval);
+    return () => { clearInterval(interval); delete window._fleetproOverride; };
   }, []);
 
   useEffect(() => {
