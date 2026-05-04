@@ -222,8 +222,7 @@ export default function MapView() {
       <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
       <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Share location</div>
       <div style="display:flex;gap:6px;justify-content:center;">
-        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;flex:1;">📋 Copy Link</button>
-        <button onclick="window._fleetproWhatsApp(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#25D366;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;flex:1;">💬 WhatsApp</button>
+        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:${['to_drop','at_drop'].includes(phase)?'#43a047':'#1e88e5'};color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;width:100%;">📋 Copy Link</button>
       </div>
       ${taskSection}
     </div>`;
@@ -374,11 +373,6 @@ export default function MapView() {
       }
     };
 
-    window._fleetproWhatsApp = (lat, lon, reg) => {
-      const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
-      const text    = encodeURIComponent(`📍 *${reg}* current location:\n${mapsUrl}`);
-      window.open(`https://wa.me/?text=${text}`, "_blank");
-    };
 
     window._fleetproOverride = (vehicleId, newPhase) => {
       const current = getPhase(vehicleId);
