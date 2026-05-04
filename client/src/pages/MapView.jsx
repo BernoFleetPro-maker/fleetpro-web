@@ -219,6 +219,12 @@ export default function MapView() {
       <div style="color:#555;font-size:12px;"><strong>Updated:</strong> ${formatDate(v.dt)}</div>
       <div style="color:#555;font-size:12px;"><strong>Location:</strong> ${v.address || `${v.lat}, ${v.lon}`}</div>
       <div style="color:#555;font-size:12px;"><strong>Speed:</strong> ${v.speed || 0} km/h</div>
+      <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
+      <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Share location</div>
+      <div style="display:flex;gap:6px;justify-content:center;">
+        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;flex:1;">📋 Copy Link</button>
+        <button onclick="window._fleetproWhatsApp(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#25D366;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;flex:1;">💬 WhatsApp</button>
+      </div>
       ${taskSection}
     </div>`;
   }
@@ -354,6 +360,25 @@ export default function MapView() {
     if (!mapInstance.current && mapRef.current) {
       mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1},zoom:8,streetViewControl:false,mapTypeControl:true });
     }
+
+    window._fleetproShareLocation = (lat, lon, reg) => {
+      const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+      const text    = `📍 ${reg} current location:\n${mapsUrl}`;
+      if (navigator.share) {
+        navigator.share({ title: `${reg} Location`, text, url: mapsUrl }).catch(() => {});
+      } else {
+        navigator.clipboard.writeText(text).then(() => {
+          const btn = document.getElementById("fleetpro-share-btn");
+          if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy Link"; }, 2000); }
+        }).catch(() => { window.prompt("Copy this link:", mapsUrl); });
+      }
+    };
+
+    window._fleetproWhatsApp = (lat, lon, reg) => {
+      const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+      const text    = encodeURIComponent(`📍 *${reg}* current location:\n${mapsUrl}`);
+      window.open(`https://wa.me/?text=${text}`, "_blank");
+    };
 
     window._fleetproOverride = (vehicleId, newPhase) => {
       const current = getPhase(vehicleId);
