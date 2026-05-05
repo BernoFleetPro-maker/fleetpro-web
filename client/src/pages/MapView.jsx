@@ -128,6 +128,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         path:     decodePolyline(route.polyline.encodedPolyline),
         duration: mins < 60 ? `~${mins} min` : `~${Math.floor(mins/60)}h ${mins%60>0?mins%60+"min":""}`,
         distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
+        mins,
       };
       routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 30000 };
       return result;
@@ -206,6 +207,11 @@ export default function MapView({ role = "admin", clientId = null }) {
         <div style="display:flex;gap:12px;justify-content:center;margin-top:4px;">
           <div style="text-align:center;"><div style="font-size:10px;color:#888;">ETA</div><div style="font-size:14px;font-weight:700;color:#333;">⏱ ${routeInfo.duration}</div></div>
           <div style="text-align:center;"><div style="font-size:10px;color:#888;">Distance</div><div style="font-size:14px;font-weight:700;color:#333;">📍 ${routeInfo.distance}</div></div>
+        </div>
+        <div style="text-align:center;margin-top:4px;">
+          <span style="font-size:12px;font-weight:700;color:#1e88e5;background:#e3f2fd;padding:2px 10px;border-radius:12px;">
+            🕐 Arrival ≈ ${(() => { const a = new Date(Date.now() + (routeInfo.mins||0)*60000); return a.toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Africa/Johannesburg'}); })()}
+          </span>
         </div>
         <div style="font-size:10px;color:#aaa;text-align:center;margin-top:3px;">to ${routeInfo.dest}</div>` : ""}
         <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
@@ -301,7 +307,7 @@ export default function MapView({ role = "admin", clientId = null }) {
     const route = await fetchRoadRoute(v.lat, v.lon, destPt.lat, destPt.lon);
     if (route) {
       routeLinesRef.current[id] = drawPolyline(map, route.path, color);
-      vehicleRouteRef.current[id] = { duration: route.duration, distance: route.distance, dest: destPt.title };
+      vehicleRouteRef.current[id] = { duration: route.duration, distance: route.distance, dest: destPt.title, mins: route.mins };
     }
   }
 
