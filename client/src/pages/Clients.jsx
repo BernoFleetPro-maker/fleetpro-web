@@ -125,8 +125,12 @@ export default function Clients() {
                   <td className="px-4 py-3 font-semibold text-slate-800">{client.name}</td>
                   <td className="px-4 py-3 text-slate-600 font-mono text-xs">{client.username}</td>
                   <td className="px-4 py-3">
-                    <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                      View Only
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      client.permission === "full"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-blue-100 text-blue-700"
+                    }`}>
+                      {client.permission === "full" ? "Full Access" : "View Only"}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate-400 text-xs">
