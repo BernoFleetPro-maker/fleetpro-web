@@ -355,10 +355,17 @@ export default function MapView() {
   }
 
   useEffect(() => {
-    const g = window.google; if (!g) return;
-    if (!mapInstance.current && mapRef.current) {
-      mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1},zoom:8,streetViewControl:false,mapTypeControl:true });
-    }
+    // Poll until Google Maps script is ready (fixes blank map on first load)
+    let pollTimer = null;
+    function initWhenReady() {
+      const g = window.google;
+      if (!g || !g.maps) {
+        pollTimer = setTimeout(initWhenReady, 200);
+        return;
+      }
+      if (!mapInstance.current && mapRef.current) {
+        mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1},zoom:8,streetViewControl:false,mapTypeControl:true });
+      }
 
     window._fleetproShareLocation = (lat, lon, reg) => {
       const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
@@ -406,7 +413,10 @@ export default function MapView() {
     }
     fetchAll();
     const interval = setInterval(fetchAll, 10000);
-    return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
+      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
+    }
+    initWhenReady();
+    return () => { if (pollTimer) clearTimeout(pollTimer); };
   }, []);
 
   useEffect(() => {
