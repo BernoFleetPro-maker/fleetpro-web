@@ -7,6 +7,7 @@ let _cachedTasks    = null;
 let _cachedDrivers  = null;
 let _cachedVehicles = null;
 let _cachedPoints   = null;
+let _cachedClients  = null;
 
 const STATUSES = [
   { key: "unassigned", label: "Unassigned",  color: "border-gray-400",   badge: "bg-gray-100 text-gray-600" },
@@ -17,6 +18,7 @@ const STATUSES = [
 
 const EMPTY_FORM = {
   title: "", loadLocation: "", dropoffLocation: "", additionalDropoff: "",
+  clientId: "",
   orderNumber: "", date: "", dropoffTime: "", notes: "",
   assignedDriverId: "", vehicleId: "",
 };
@@ -278,12 +280,14 @@ function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
   );
 }
 
-export default function Tasks() {
+export default function Tasks({ role = "admin", clientId = null }) {
+  const isAdmin = role === "admin";
   const [tasks,         setTasks]         = useState([]);
   const [drivers,       setDrivers]       = useState([]);
   const [vehicles,      setVehicles]      = useState([]);
   const [loadingPoints, setLoadingPoints] = useState([]);
   const [dropoffPoints, setDropoffPoints] = useState([]);
+  const [clients,       setClients]       = useState([]);
   const [selectedDate, setSelectedDate] = useState(() => {
     try {
       const stored = localStorage.getItem("fleetpro_task_date");
@@ -328,18 +332,21 @@ export default function Tasks() {
         setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
       }
       // Only fetch if no cache yet
-      if (_cachedDrivers && _cachedVehicles && _cachedPoints) return;
-      const [dRes, vRes, pRes] = await Promise.all([
-        fetch(`${API}/drivers`), fetch(`${API}/vehicles`), fetch(`${API}/points`),
+      if (_cachedClients) setClients(_cachedClients);
+      if (_cachedDrivers && _cachedVehicles && _cachedPoints && _cachedClients) return;
+      const [dRes, vRes, pRes, cRes] = await Promise.all([
+        fetch(`${API}/drivers`), fetch(`${API}/vehicles`), fetch(`${API}/points`), fetch(`${API}/clients`),
       ]);
-      const [d, v, p] = await Promise.all([dRes.json(), vRes.json(), pRes.json()]);
+      const [d, v, p, c] = await Promise.all([dRes.json(), vRes.json(), pRes.json(), cRes.json()]);
       _cachedDrivers  = Array.isArray(d) ? d : [];
       _cachedVehicles = Array.isArray(v) ? v : [];
       _cachedPoints   = Array.isArray(p) ? p : [];
+      _cachedClients  = Array.isArray(c) ? c : [];
       setDrivers(_cachedDrivers);
       setVehicles(_cachedVehicles);
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
+      setClients(_cachedClients);
     } catch (err) { console.error("Static load error:", err); }
   }, []);
 
@@ -348,11 +355,15 @@ export default function Tasks() {
     try {
       const res   = await fetch(`${API}/tasks`);
       const t     = await res.json();
-      const fresh = Array.isArray(t) ? t : [];
+      let fresh = Array.isArray(t) ? t : [];
+      // Client role: only show tasks assigned to their clientId
+      if (!isAdmin && clientId) {
+        fresh = fresh.filter(task => task.clientId === clientId);
+      }
       _cachedTasks = fresh;
       setTasks(fresh);
     } catch (err) { console.error("Tasks load error:", err); }
-  }, []);
+  }, [isAdmin, clientId]);
 
   // ── Fetch live ETAs using same Routes API as MapView ────────────────────
   const MAPS_KEY    = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
@@ -542,6 +553,7 @@ export default function Tasks() {
     setForm({
       title: task.title || "", loadLocation: task.loadLocation || "",
       dropoffLocation: task.dropoffLocation || "", additionalDropoff: task.additionalDropoff || "",
+      clientId: task.clientId || "",
       orderNumber: task.orderNumber || "", date: task.date || selectedDate,
       dropoffTime: task.pickupTime || "", notes: task.notes || "",
       assignedDriverId: task.assignedDriverId || "", vehicleId: task.vehicleId || "",
@@ -628,7 +640,7 @@ export default function Tasks() {
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
           <TaskCalendar selectedDate={selectedDate} onSelect={handleDateSelect} tasksByDate={tasksByDate} />
-          <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>
+          {isAdmin && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
         </div>
       </div>
 
@@ -708,7 +720,7 @@ export default function Tasks() {
                         {task.status === "completed" && (
                           <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
                         )}
-                        <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
+                        {isAdmin && <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>}
                         <button onClick={() => handleDelete(task.id)} className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
                         {task.status === "todo" && (
                           <button onClick={() => setStatus(task.id, "inprogress")} className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]">▶ Accept</button>
@@ -766,14 +778,12 @@ export default function Tasks() {
                 {dropoffPoints.length > 0 && <p className="text-[10px] text-slate-500 mt-0.5">{dropoffPoints.length} saved points</p>}
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Additional Dropoff</label>
-                <LocationInput
-                  value={form.additionalDropoff}
-                  onChange={v => setForm({...form, additionalDropoff: v})}
-                  savedPoints={dropoffPoints}
-                  placeholder="Optional"
-                  id="add-drop"
-                />
+                <label className="text-xs text-slate-400 block mb-1">Client</label>
+                <select className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white"
+                  value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value})}>
+                  <option value="">— No Client —</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
 
-const LINKS = [
+const ADMIN_LINKS = [
   { to: "/",               icon: "📍", label: "Map" },
   { to: "/tasks",          icon: "📋", label: "Tasks" },
   { divider: true },
@@ -11,11 +11,18 @@ const LINKS = [
   { to: "/vehicles",       icon: "🚚", label: "Vehicles" },
   { to: "/loading-points", icon: "📦", label: "Loading Points" },
   { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points" },
+  { to: "/clients",        icon: "🏢", label: "Clients" },
   { divider: true },
   { to: "/settings",       icon: "⚙",  label: "Settings" },
 ];
 
-export default function Sidebar() {
+const CLIENT_LINKS = [
+  { to: "/",     icon: "📍", label: "Map" },
+  { to: "/tasks", icon: "📋", label: "Tasks" },
+];
+
+export default function Sidebar({ role = "admin", user = {} }) {
+  const LINKS = role === "admin" ? ADMIN_LINKS : CLIENT_LINKS;
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("sidebar_collapsed") === "true"
   );
@@ -95,7 +102,8 @@ export default function Sidebar() {
       {!collapsed && (
         <div className="px-4 py-3 text-xs text-slate-400 border-t border-slate-700">
           Logged in as<br />
-          <strong className="text-slate-300">Berno Strubing</strong>
+          <strong className="text-slate-300">{user.clientName || user.username || "Admin"}</strong>
+          {role === "client" && <span className="ml-1 text-blue-400">(Client)</span>}
         </div>
       )}
     </div>
