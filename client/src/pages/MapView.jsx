@@ -29,7 +29,8 @@ function setPhase(id, data) {
   } catch {}
 }
 
-export default function MapView() {
+export default function MapView({ role = "admin", clientId = null }) {
+  const isAdmin = role === "admin";
   const mapRef           = useRef(null);
   const mapInstance      = useRef(null);
   const markersRef       = useRef({});
@@ -406,8 +407,15 @@ export default function MapView() {
 
     async function fetchAll() {
       try {
-        const positions = await fetch(`${API}/positions`).then(r=>r.json());
-        if (Array.isArray(positions)) drawOrUpdateVehicles(positions);
+        let positions = await fetch(`${API}/positions`).then(r=>r.json());
+        if (!Array.isArray(positions)) positions = [];
+        // Client role: only show vehicles that have an active task assigned to their clientId
+        if (!isAdmin && clientId) {
+          positions = positions.filter(v =>
+            v.activeTask && v.activeTask.clientId === clientId
+          );
+        }
+        drawOrUpdateVehicles(positions);
         await drawPoints();
       } catch(err) { console.error("fetchAll error:",err); }
     }
