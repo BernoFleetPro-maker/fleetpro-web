@@ -317,6 +317,7 @@ export default function Tasks({ role = "admin", clientId = null }) {
   const [saving,        setSaving]        = useState(false);
   const [formError,     setFormError]     = useState("");
   const [podTask,       setPodTask]       = useState(null);
+  const [viewTask,      setViewTask]      = useState(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const lastOptimisticRef = useRef(0); // timestamp of last optimistic update
   const [vehicleETAs, setVehicleETAs] = useState({}); // vehicleId → { duration, distance, phase, dest }
@@ -717,18 +718,25 @@ export default function Tasks({ role = "admin", clientId = null }) {
                         </div>
                       )}
                       <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
-                        {task.status === "completed" && (
-                          <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
-                        )}
-                        {isAdmin && <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>}
-                        <button onClick={() => handleDelete(task.id)} className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
-                        {task.status === "todo" && (
-                          <button onClick={() => setStatus(task.id, "inprogress")} className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]">▶ Accept</button>
-                        )}
-                        {task.status === "inprogress" && (
+                        {/* Client role: only show View button */}
+                        {!isAdmin ? (
+                          <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
+                        ) : (
                           <>
-                            <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
-                            <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
+                            {task.status === "completed" && (
+                              <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
+                            )}
+                            <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
+                            <button onClick={() => handleDelete(task.id)} className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
+                            {task.status === "todo" && (
+                              <button onClick={() => setStatus(task.id, "inprogress")} className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]">▶ Accept</button>
+                            )}
+                            {task.status === "inprogress" && (
+                              <>
+                                <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
+                                <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
+                              </>
+                            )}
                           </>
                         )}
                       </div>
@@ -742,6 +750,55 @@ export default function Tasks({ role = "admin", clientId = null }) {
       </div>
 
       {podTask && <PodModal task={podTask} drivers={drivers} vehicles={vehicles} onClose={() => setPodTask(null)} />}
+
+      {/* Client View Task Modal */}
+      {viewTask && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setViewTask(null)}>
+          <div className="bg-[#1e293b] rounded-xl shadow-2xl w-full max-w-md p-6 border border-slate-700" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">📋 Task Details</h3>
+              <button onClick={() => setViewTask(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+            </div>
+            {viewTask.title && <p className="text-slate-300 font-semibold mb-3">{viewTask.title}</p>}
+            <div className="space-y-3 text-sm">
+              <div className="bg-[#0f1724] rounded-lg p-3">
+                <p className="text-[10px] text-slate-500 uppercase font-semibold mb-1">📍 Load Location</p>
+                <p className="text-slate-200">{viewTask.loadLocation || "—"}</p>
+              </div>
+              <div className="bg-[#0f1724] rounded-lg p-3">
+                <p className="text-[10px] text-slate-500 uppercase font-semibold mb-1">🏁 Dropoff Location</p>
+                <p className="text-slate-200">{viewTask.dropoffLocation || "—"}</p>
+              </div>
+              {viewTask.date && (
+                <div className="bg-[#0f1724] rounded-lg p-3">
+                  <p className="text-[10px] text-slate-500 uppercase font-semibold mb-1">📅 Dropoff Date</p>
+                  <p className="text-slate-200">{viewTask.date}{viewTask.pickupTime ? ` at ${viewTask.pickupTime}` : ""}</p>
+                </div>
+              )}
+              {viewTask.orderNumber && (
+                <div className="bg-[#0f1724] rounded-lg p-3">
+                  <p className="text-[10px] text-slate-500 uppercase font-semibold mb-1">🔢 Order Number</p>
+                  <p className="text-slate-200">{viewTask.orderNumber}</p>
+                </div>
+              )}
+              <div className="bg-[#0f1724] rounded-lg p-3">
+                <p className="text-[10px] text-slate-500 uppercase font-semibold mb-1">🚦 Status</p>
+                <p className="text-slate-200 capitalize">{viewTask.status}</p>
+              </div>
+              {viewTask.notes && (
+                <div className="bg-[#0f1724] rounded-lg p-3">
+                  <p className="text-[10px] text-slate-500 uppercase font-semibold mb-1">📝 Notes</p>
+                  <p className="text-slate-200">{viewTask.notes}</p>
+                </div>
+              )}
+            </div>
+            <button onClick={() => setViewTask(null)}
+              className="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
