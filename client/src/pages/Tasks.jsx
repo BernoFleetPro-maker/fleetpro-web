@@ -280,8 +280,10 @@ function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
   );
 }
 
-export default function Tasks({ role = "admin", clientId = null }) {
-  const isAdmin = role === "admin";
+export default function Tasks({ role = "admin", clientId = null, permission = "view" }) {
+  const isAdmin  = role === "admin";
+  // Full access clients can create/edit tasks linked to their own clientId
+  const canEdit  = isAdmin || permission === "full";
   const [tasks,         setTasks]         = useState([]);
   const [drivers,       setDrivers]       = useState([]);
   const [vehicles,      setVehicles]      = useState([]);
@@ -546,7 +548,8 @@ export default function Tasks({ role = "admin", clientId = null }) {
     tasks.filter(t => t.status === status && (!selectedDate || !t.date || t.date === selectedDate));
 
   const openCreate = () => {
-    setForm({ ...EMPTY_FORM, date: selectedDate });
+    // Pre-fill clientId for client users so their tasks are always linked to them
+    setForm({ ...EMPTY_FORM, date: selectedDate, clientId: isAdmin ? "" : (clientId || "") });
     setEditingId(null); setFormError(""); setShowForm(true);
   };
 
@@ -641,7 +644,7 @@ export default function Tasks({ role = "admin", clientId = null }) {
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
           <TaskCalendar selectedDate={selectedDate} onSelect={handleDateSelect} tasksByDate={tasksByDate} />
-          {isAdmin && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
+          {canEdit && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
         </div>
       </div>
 
@@ -718,10 +721,8 @@ export default function Tasks({ role = "admin", clientId = null }) {
                         </div>
                       )}
                       <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
-                        {/* Client role: only show View button */}
-                        {!isAdmin ? (
-                          <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
-                        ) : (
+                        {/* Buttons based on role/permission */}
+                        {isAdmin ? (
                           <>
                             {task.status === "completed" && (
                               <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
@@ -738,6 +739,15 @@ export default function Tasks({ role = "admin", clientId = null }) {
                               </>
                             )}
                           </>
+                        ) : canEdit ? (
+                          // Full-access client: View + Edit only (no delete/status changes)
+                          <>
+                            <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
+                            <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
+                          </>
+                        ) : (
+                          // View-only client: View button only
+                          <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
                         )}
                       </div>
                     </div>

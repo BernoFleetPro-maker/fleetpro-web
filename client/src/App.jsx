@@ -46,7 +46,7 @@ export default function App() {
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"               element={<MapView role={role} clientId={payload.clientId} />} />
-          <Route path="/tasks"          element={<Tasks role={role} clientId={payload.clientId} />} />
+          <Route path="/tasks"          element={<Tasks role={role} clientId={payload.clientId} permission={payload.permission || "view"} />} />
           {isAdmin && <Route path="/drivers"        element={<Drivers />} />}
           {isAdmin && <Route path="/vehicles"       element={<Vehicles />} />}
           {isAdmin && <Route path="/loading-points" element={<LoadingPoints />} />}
