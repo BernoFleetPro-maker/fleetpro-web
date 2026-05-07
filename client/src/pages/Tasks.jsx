@@ -329,25 +329,28 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
     try {
-      // Show cached static data instantly
-      if (_cachedDrivers)  setDrivers(_cachedDrivers);
+      // Drivers always fetched fresh — new drivers must appear immediately
+      const dRes = await fetch(`${API}/drivers`);
+      const d    = await dRes.json();
+      _cachedDrivers = Array.isArray(d) ? d : [];
+      setDrivers(_cachedDrivers);
+
+      // Vehicles, points, clients use cache (change less frequently)
       if (_cachedVehicles) setVehicles(_cachedVehicles);
       if (_cachedPoints) {
         setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
         setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
       }
-      // Only fetch if no cache yet
       if (_cachedClients) setClients(_cachedClients);
-      if (_cachedDrivers && _cachedVehicles && _cachedPoints && _cachedClients) return;
-      const [dRes, vRes, pRes, cRes] = await Promise.all([
-        fetch(`${API}/drivers`), fetch(`${API}/vehicles`), fetch(`${API}/points`), fetch(`${API}/clients`),
+      if (_cachedVehicles && _cachedPoints && _cachedClients) return;
+
+      const [vRes, pRes, cRes] = await Promise.all([
+        fetch(`${API}/vehicles`), fetch(`${API}/points`), fetch(`${API}/clients`),
       ]);
-      const [d, v, p, c] = await Promise.all([dRes.json(), vRes.json(), pRes.json(), cRes.json()]);
-      _cachedDrivers  = Array.isArray(d) ? d : [];
+      const [v, p, c] = await Promise.all([vRes.json(), pRes.json(), cRes.json()]);
       _cachedVehicles = Array.isArray(v) ? v : [];
       _cachedPoints   = Array.isArray(p) ? p : [];
       _cachedClients  = Array.isArray(c) ? c : [];
-      setDrivers(_cachedDrivers);
       setVehicles(_cachedVehicles);
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
