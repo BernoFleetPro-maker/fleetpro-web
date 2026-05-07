@@ -329,31 +329,29 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
     try {
-      // Drivers always fetched fresh — new drivers must appear immediately
-      const dRes = await fetch(`${API}/drivers`);
-      const d    = await dRes.json();
-      _cachedDrivers = Array.isArray(d) ? d : [];
-      setDrivers(_cachedDrivers);
-
-      // Vehicles, points, clients use cache (change less frequently)
-      if (_cachedVehicles) setVehicles(_cachedVehicles);
-      if (_cachedPoints) {
-        setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
-        setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
-      }
-      if (_cachedClients) setClients(_cachedClients);
-      if (_cachedVehicles && _cachedPoints && _cachedClients) return;
-
-      const [vRes, pRes, cRes] = await Promise.all([
-        fetch(`${API}/vehicles`), fetch(`${API}/points`), fetch(`${API}/clients`),
+      // Drivers and points always fetched fresh — new ones must appear immediately
+      const [dRes, pRes] = await Promise.all([
+        fetch(`${API}/drivers`), fetch(`${API}/points`),
       ]);
-      const [v, p, c] = await Promise.all([vRes.json(), pRes.json(), cRes.json()]);
-      _cachedVehicles = Array.isArray(v) ? v : [];
-      _cachedPoints   = Array.isArray(p) ? p : [];
-      _cachedClients  = Array.isArray(c) ? c : [];
-      setVehicles(_cachedVehicles);
+      const [d, p] = await Promise.all([dRes.json(), pRes.json()]);
+      _cachedDrivers = Array.isArray(d) ? d : [];
+      _cachedPoints  = Array.isArray(p) ? p : [];
+      setDrivers(_cachedDrivers);
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
+
+      // Vehicles and clients use cache (change less frequently)
+      if (_cachedVehicles) setVehicles(_cachedVehicles);
+      if (_cachedClients)  setClients(_cachedClients);
+      if (_cachedVehicles && _cachedClients) return;
+
+      const [vRes, cRes] = await Promise.all([
+        fetch(`${API}/vehicles`), fetch(`${API}/clients`),
+      ]);
+      const [v, c] = await Promise.all([vRes.json(), cRes.json()]);
+      _cachedVehicles = Array.isArray(v) ? v : [];
+      _cachedClients  = Array.isArray(c) ? c : [];
+      setVehicles(_cachedVehicles);
       setClients(_cachedClients);
     } catch (err) { console.error("Static load error:", err); }
   }, []);
