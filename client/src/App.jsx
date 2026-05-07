@@ -14,6 +14,7 @@ import DropoffPoints from "./pages/DropoffPoints";
 import Settings from "./pages/Settings";
 
 import Clients from "./pages/Clients";
+import Controllers from "./pages/Controllers";
 
 function getAuthPayload() {
   const token = localStorage.getItem("fleetpro_token");
@@ -37,22 +38,26 @@ export default function App() {
     return <LoginPage onLogin={() => window.location.reload()} />;
   }
 
-  const role = payload.role || "admin";
-  const isAdmin = role === "admin";
+  const role           = payload.role || "admin";
+  const isAdmin        = role === "admin";
+  const isController   = role === "controller";
+  const hasFullAccess  = isAdmin || isController;
+  const displayName    = payload.controllerName || payload.clientName || payload.username || "Admin";
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={payload} />
+      <Sidebar role={role} user={{ ...payload, displayName }} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"               element={<MapView role={role} clientId={payload.clientId} />} />
-          <Route path="/tasks"          element={<Tasks role={role} clientId={payload.clientId} permission={payload.permission || "view"} />} />
-          {isAdmin && <Route path="/drivers"        element={<Drivers />} />}
-          {isAdmin && <Route path="/vehicles"       element={<Vehicles />} />}
-          {isAdmin && <Route path="/loading-points" element={<LoadingPoints />} />}
-          {isAdmin && <Route path="/dropoff-points" element={<DropoffPoints />} />}
-          {isAdmin && <Route path="/clients"        element={<Clients />} />}
-          {isAdmin && <Route path="/settings"       element={<Settings />} />}
+          <Route path="/tasks"          element={<Tasks role={role} clientId={payload.clientId} permission={payload.permission || "view"} userName={displayName} />} />
+          {hasFullAccess && <Route path="/drivers"        element={<Drivers />} />}
+          {hasFullAccess && <Route path="/vehicles"       element={<Vehicles />} />}
+          {hasFullAccess && <Route path="/loading-points" element={<LoadingPoints />} />}
+          {hasFullAccess && <Route path="/dropoff-points" element={<DropoffPoints />} />}
+          {hasFullAccess && <Route path="/clients"        element={<Clients />} />}
+          {hasFullAccess && <Route path="/controllers"    element={<Controllers />} />}
+          {hasFullAccess && <Route path="/settings"       element={<Settings />} />}
           <Route path="*" element={<MapView role={role} clientId={payload.clientId} />} />
         </Routes>
       </div>
