@@ -280,10 +280,12 @@ function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
   );
 }
 
-export default function Tasks({ role = "admin", clientId = null, permission = "view" }) {
-  const isAdmin  = role === "admin";
+export default function Tasks({ role = "admin", clientId = null, permission = "view", userName = "" }) {
+  const isAdmin      = role === "admin";
+  const isController = role === "controller";
+  const hasFullAccess = isAdmin || isController;
   // Full access clients can create/edit tasks linked to their own clientId
-  const canEdit  = isAdmin || permission === "full";
+  const canEdit  = hasFullAccess || permission === "full";
   const [tasks,         setTasks]         = useState([]);
   const [drivers,       setDrivers]       = useState([]);
   const [vehicles,      setVehicles]      = useState([]);
@@ -359,8 +361,9 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       const res   = await fetch(`${API}/tasks`);
       const t     = await res.json();
       let fresh = Array.isArray(t) ? t : [];
-      // Client role: only show tasks assigned to their clientId
-      if (!isAdmin && clientId) {
+      // Client role only: filter tasks by clientId
+      // Admin and controllers see all tasks
+      if (!hasFullAccess && clientId) {
         fresh = fresh.filter(task => task.clientId === clientId);
       }
       _cachedTasks = fresh;
@@ -549,7 +552,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
 
   const openCreate = () => {
     // Pre-fill clientId for client users so their tasks are always linked to them
-    setForm({ ...EMPTY_FORM, date: selectedDate, clientId: isAdmin ? "" : (clientId || "") });
+    setForm({ ...EMPTY_FORM, date: selectedDate, clientId: hasFullAccess ? "" : (clientId || "") });
     setEditingId(null); setFormError(""); setShowForm(true);
   };
 
@@ -644,7 +647,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
           <TaskCalendar selectedDate={selectedDate} onSelect={handleDateSelect} tasksByDate={tasksByDate} />
-          {canEdit && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
+          {(hasFullAccess || canEdit) && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
         </div>
       </div>
 
@@ -722,7 +725,8 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                       )}
                       <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
                         {/* Buttons based on role/permission */}
-                        {isAdmin ? (
+                        {hasFullAccess ? (
+                          // Admin + Controller: full buttons
                           <>
                             {task.status === "completed" && (
                               <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
@@ -740,13 +744,13 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                             )}
                           </>
                         ) : canEdit ? (
-                          // Full-access client: View + Edit only (no delete/status changes)
+                          // Full-access client: View + Edit only
                           <>
                             <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
                             <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
                           </>
                         ) : (
-                          // View-only client: View button only
+                          // View-only client
                           <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
                         )}
                       </div>
