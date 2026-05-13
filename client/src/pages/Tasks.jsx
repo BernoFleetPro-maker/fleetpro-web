@@ -687,7 +687,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
               <div className="flex flex-col gap-1.5 p-2 flex-1 overflow-y-auto max-h-[75vh]">
                 {col.length === 0 && <p className="text-slate-500 text-[11px] italic text-center mt-3">No tasks</p>}
                 {col.map((task) => {
-                  const photoCount = task.photoUrls?.length || (task.photoUrl ? 1 : 0);
+                  const photoCount = task.photoCount ?? task.photoUrls?.filter(p => p && !p.startsWith("photo_")).length ?? (task.photoUrl && task.photoUrl !== "has_photo" ? 1 : 0);
                   return (
                     <div key={task.id} className="bg-[#0b1220] border border-slate-700 rounded p-2 text-[11px] leading-snug">
                       <div className="font-semibold text-[12px] truncate">
