@@ -1,6 +1,9 @@
 import React, { useEffect, useRef } from "react";
 
 const API      = "https://fleetpro-backend-production.up.railway.app/api";
+// Module-level geocode cache — persists for entire browser session
+const _geocodeSessionCache = {};
+
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 const TRUCK_FACTOR = 1.5;
 const ROUTE_CACHE_VERSION = "v3";
@@ -102,7 +105,7 @@ export default function MapView({ role = "admin", clientId = null }) {
 
   // ── Routes API ─────────────────────────────────────────────────────────────
   async function fetchRoadRoute(originLat, originLng, destLat, destLng) {
-    const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(3)},${originLng.toFixed(3)}→${destLat.toFixed(3)},${destLng.toFixed(3)}`;
+    const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(2)},${originLng.toFixed(2)}→${destLat.toFixed(2)},${destLng.toFixed(2)}`; // 1km grid
     const cached   = routeCacheRef.current[cacheKey];
     if (cached && cached.expiry > Date.now()) return cached.data;
     try {
@@ -130,7 +133,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
         mins,
       };
-      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 30000 };
+      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 300000 }; // 5 min cache
       return result;
     } catch (err) { console.warn("Routes API error:", err.message); return null; }
   }
@@ -426,7 +429,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       } catch(err) { console.error("fetchAll error:",err); }
     }
     fetchAll();
-    const interval = setInterval(fetchAll, 10000);
+    const interval = setInterval(fetchAll, 30000); // 30s — reduces API calls 3x
       return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
     }
     initWhenReady();
