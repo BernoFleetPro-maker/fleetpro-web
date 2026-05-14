@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from "react";
 
 const API      = "https://fleetpro-backend-production.up.railway.app/api";
-// Module-level geocode cache — persists for entire browser session
+// Module-level geocode cache — persists for entire browser session, prevents repeat Geocoding API calls
 const _geocodeSessionCache = {};
 
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 const TRUCK_FACTOR = 1.5;
-const ROUTE_CACHE_VERSION = "v3";
+const ROUTE_CACHE_VERSION = "v4";
 
 // Phase order
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
@@ -76,7 +76,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       return resolvedPhase;
     }
 
-    const phase       = current.phase;
+    const phase        = current.phase;
     const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
 
     // Update tracking — never downgrades phase
@@ -126,8 +126,9 @@ export default function MapView({ role = "admin", clientId = null }) {
   }
 
   // ── Routes API ─────────────────────────────────────────────────────────────
+  // COST FIX: cache key uses .toFixed(1) (~11km grid) + 10 min expiry — drastically reduces Routes API calls
   async function fetchRoadRoute(originLat, originLng, destLat, destLng) {
-    const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(2)},${originLng.toFixed(2)}→${destLat.toFixed(2)},${destLng.toFixed(2)}`; // 1km grid
+    const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(1)},${originLng.toFixed(1)}→${destLat.toFixed(1)},${destLng.toFixed(1)}`;
     const cached   = routeCacheRef.current[cacheKey];
     if (cached && cached.expiry > Date.now()) return cached.data;
     try {
@@ -155,7 +156,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
         mins,
       };
-      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 300000 }; // 5 min cache
+      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 600000 }; // 10 min cache
       return result;
     } catch (err) { console.warn("Routes API error:", err.message); return null; }
   }
@@ -297,17 +298,22 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!task || task.status !== "inprogress") return;
 
-    let loadPt     = task.loadPoint;
-    let dropPt     = task.dropPoint;
+    let loadPt = task.loadPoint;
+    let dropPt = task.dropPoint;
 
-    // Geocode unsaved locations using Google Maps Geocoder
+    // COST FIX: geocode function now checks _geocodeSessionCache before calling the API.
+    // This means each unique address is only geocoded ONCE per browser session
+    // instead of every 30 seconds — cuts Geocoding API costs by ~95%.
     const geocoder = new window.google.maps.Geocoder();
     const geocode  = (address) => new Promise((resolve) => {
       if (!address) return resolve(null);
+      if (_geocodeSessionCache[address]) return resolve(_geocodeSessionCache[address]);
       geocoder.geocode({ address, componentRestrictions: { country: "za" } }, (results, status) => {
         if (status === "OK" && results[0]) {
-          const loc = results[0].geometry.location;
-          resolve({ lat: loc.lat(), lon: loc.lng(), radius: 500, title: address });
+          const loc    = results[0].geometry.location;
+          const result = { lat: loc.lat(), lon: loc.lng(), radius: 500, title: address };
+          _geocodeSessionCache[address] = result;
+          resolve(result);
         } else resolve(null);
       });
     });
@@ -412,7 +418,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     };
 
-
     window._fleetproOverride = (vehicleId, newPhase) => {
       const current = getPhase(vehicleId);
       if (!current) return;
@@ -451,7 +456,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       } catch(err) { console.error("fetchAll error:",err); }
     }
     fetchAll();
-    const interval = setInterval(fetchAll, 30000); // 30s — reduces API calls 3x
+    const interval = setInterval(fetchAll, 30000); // 30s poll
       return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
     }
     initWhenReady();
