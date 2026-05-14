@@ -48,10 +48,32 @@ export default function MapView({ role = "admin", clientId = null }) {
     const prevDist = current?.prevDistToLoad || distToLoad;
     const closest  = Math.min(current?.closestToLoad || distToLoad, distToLoad);
 
+    // FIX: When taskId changes (or no cache exists), never blindly reset to to_load.
+    // If the driver was already at to_drop or at_drop, preserve that phase.
+    // Only reset to to_load if this is a genuinely fresh start (no prior cache at all,
+    // or the prior phase was still in the loading stage).
     if (!current || current.taskId !== taskId) {
-      const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, wasInsideLoad: false });
-      return phase;
+      const defaultPhase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
+      let resolvedPhase = defaultPhase;
+
+      if (current) {
+        // There is a prior cache entry for this vehicle — task ID changed but
+        // driver may already be past loading. Preserve phase if it was to_drop or at_drop.
+        const priorOrder = PHASE_ORDER_MAP[current.phase] ?? 0;
+        if (priorOrder >= PHASE_ORDER_MAP["to_drop"]) {
+          resolvedPhase = current.phase; // keep to_drop / at_drop — never regress
+        }
+      }
+
+      setPhase(id, {
+        phase: resolvedPhase,
+        taskId,
+        prevDistToLoad: distToLoad,
+        closestToLoad: distToLoad,
+        outsideLoadCount: 0,
+        wasInsideLoad: resolvedPhase === "to_drop" || resolvedPhase === "at_drop",
+      });
+      return resolvedPhase;
     }
 
     const phase       = current.phase;
