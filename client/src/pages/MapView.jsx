@@ -6,7 +6,7 @@ const _geocodeSessionCache = {};
 
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 const TRUCK_FACTOR = 1.5;
-const ROUTE_CACHE_VERSION = "v4";
+const ROUTE_CACHE_VERSION = "v5";
 
 // Phase order
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
@@ -43,25 +43,32 @@ export default function MapView({ role = "admin", clientId = null }) {
   const vehicleRouteRef  = useRef({});
 
   // ── Phase logic ────────────────────────────────────────────────────────────
+  //
+  // IRON RULE: A driver only advances from to_load → to_drop when they have
+  // PHYSICALLY been inside the loading zone (wasInsideLoad = true).
+  // Distance-based guessing is removed entirely — it caused premature advances.
+  //
+  // Flow:
+  //   to_load  → atLoad triggers → at_load
+  //   at_load  → driver leaves zone (outsideLoadCount >= 2) → to_drop
+  //   to_drop  → atDrop triggers → at_drop
+  //   Manual override by controller can set any phase at any time.
+  //
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
-    const current  = getPhase(id);
-    const prevDist = current?.prevDistToLoad || distToLoad;
-    const closest  = Math.min(current?.closestToLoad || distToLoad, distToLoad);
+    const current = getPhase(id);
+    const closest = Math.min(current?.closestToLoad || distToLoad, distToLoad);
 
-    // FIX: When taskId changes (or no cache exists), never blindly reset to to_load.
-    // If the driver was already at to_drop or at_drop, preserve that phase.
-    // Only reset to to_load if this is a genuinely fresh start (no prior cache at all,
-    // or the prior phase was still in the loading stage).
+    // New task or new vehicle — always start at to_load.
+    // Exception: if prior cache exists at to_drop or at_drop, preserve it
+    // (handles task ID refresh without regressing an already-progressed driver).
     if (!current || current.taskId !== taskId) {
       const defaultPhase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      let resolvedPhase = defaultPhase;
+      let resolvedPhase  = defaultPhase;
 
       if (current) {
-        // There is a prior cache entry for this vehicle — task ID changed but
-        // driver may already be past loading. Preserve phase if it was to_drop or at_drop.
         const priorOrder = PHASE_ORDER_MAP[current.phase] ?? 0;
         if (priorOrder >= PHASE_ORDER_MAP["to_drop"]) {
-          resolvedPhase = current.phase; // keep to_drop / at_drop — never regress
+          resolvedPhase = current.phase; // preserve to_drop / at_drop — never regress
         }
       }
 
@@ -79,7 +86,7 @@ export default function MapView({ role = "admin", clientId = null }) {
     const phase        = current.phase;
     const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
 
-    // Update tracking — never downgrades phase
+    // Always update closest approach distance
     setPhase(id, { ...current, prevDistToLoad: distToLoad, closestToLoad: closest });
 
     const advanceTo = (newPhase) => {
@@ -90,43 +97,41 @@ export default function MapView({ role = "admin", clientId = null }) {
       return phase;
     };
 
+    // ── to_load: waiting to enter loading zone ─────────────────────────────
     if (phase === "to_load") {
       if (atLoad) {
+        // Driver entered the loading zone — mark wasInsideLoad and advance
         setPhase(id, { ...current, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
         return "at_load";
       }
-      const wasApproaching = closest <= loadRadius * 2;
-      const nowMovingAway  = distToLoad > prevDist && distToLoad > closest * 1.3;
-      if (wasApproaching && nowMovingAway && hasDropPt) return advanceTo("to_drop");
-      if (current.wasInsideLoad && distToLoad > loadRadius * 2 && hasDropPt) return advanceTo("to_drop");
-
-      // Fallback for unsaved/free-text load locations where the geocoded pin
-      // may not be precise enough to trigger wasApproaching (radius too small).
-      // If the vehicle ever got within 5 km of the load point AND is now
-      // more than 8 km away AND still moving away — assume it loaded and switch.
-      const gotClose   = closest <= 5000;
-      const nowFarAway = distToLoad > 8000;
-      const movingAway = distToLoad > prevDist;
-      if (gotClose && nowFarAway && movingAway && hasDropPt) return advanceTo("to_drop");
+      // Stay at to_load until the driver physically enters the zone.
+      // NO distance-based fallback — that was causing premature advances.
+      return "to_load";
     }
 
+    // ── at_load: driver is inside loading zone ─────────────────────────────
     if (phase === "at_load") {
       if (!atLoad) {
+        // Driver left the zone — count consecutive readings outside
         const count = (current.outsideLoadCount || 0) + 1;
         setPhase(id, { ...current, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
+        // Need 2 consecutive readings outside before advancing (avoids GPS jitter)
         if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase);
         return "at_load";
       } else {
+        // Still inside — reset jitter counter
         setPhase(id, { ...current, outsideLoadCount: 0, wasInsideLoad: true, prevDistToLoad: distToLoad, closestToLoad: closest });
       }
     }
 
+    // ── to_drop: heading to dropoff ────────────────────────────────────────
     if (phase === "to_drop" && atDrop) return advanceTo("at_drop");
+
     return phase;
   }
 
   // ── Routes API ─────────────────────────────────────────────────────────────
-  // COST FIX: cache key uses .toFixed(1) (~11km grid) + 10 min expiry — drastically reduces Routes API calls
+  // Cache key uses .toFixed(1) (~11km grid) + 10 min expiry — reduces Routes API calls significantly
   async function fetchRoadRoute(originLat, originLng, destLat, destLng) {
     const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(1)},${originLng.toFixed(1)}→${destLat.toFixed(1)},${destLng.toFixed(1)}`;
     const cached   = routeCacheRef.current[cacheKey];
@@ -301,9 +306,7 @@ export default function MapView({ role = "admin", clientId = null }) {
     let loadPt = task.loadPoint;
     let dropPt = task.dropPoint;
 
-    // COST FIX: geocode function now checks _geocodeSessionCache before calling the API.
-    // This means each unique address is only geocoded ONCE per browser session
-    // instead of every 30 seconds — cuts Geocoding API costs by ~95%.
+    // Geocode checks session cache first — each address geocoded once per session only
     const geocoder = new window.google.maps.Geocoder();
     const geocode  = (address) => new Promise((resolve) => {
       if (!address) return resolve(null);
@@ -393,7 +396,6 @@ export default function MapView({ role = "admin", clientId = null }) {
   }
 
   useEffect(() => {
-    // Poll until Google Maps script is ready (fixes blank map on first load)
     let pollTimer = null;
     function initWhenReady() {
       const g = window.google;
@@ -421,9 +423,16 @@ export default function MapView({ role = "admin", clientId = null }) {
     window._fleetproOverride = (vehicleId, newPhase) => {
       const current = getPhase(vehicleId);
       if (!current) return;
-      // Manual override bypasses the downgrade protection
+      // Manual override bypasses all automatic phase logic
       const all = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-      all[vehicleId] = { ...current, phase: newPhase, prevDistToLoad: Infinity, closestToLoad: Infinity, outsideLoadCount: 0, wasInsideLoad: newPhase==="to_drop"||newPhase==="at_drop" };
+      all[vehicleId] = {
+        ...current,
+        phase: newPhase,
+        prevDistToLoad: Infinity,
+        closestToLoad: Infinity,
+        outsideLoadCount: 0,
+        wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
+      };
       localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
       console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
       fetchAll().then(() => {
@@ -445,7 +454,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       try {
         let positions = await fetch(`${API}/positions`).then(r=>r.json());
         if (!Array.isArray(positions)) positions = [];
-        // Client role: only show vehicles that have an active task assigned to their clientId
         if (!isAdmin && clientId) {
           positions = positions.filter(v =>
             v.activeTask && v.activeTask.clientId === clientId
@@ -456,7 +464,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       } catch(err) { console.error("fetchAll error:",err); }
     }
     fetchAll();
-    const interval = setInterval(fetchAll, 30000); // 30s poll
+    const interval = setInterval(fetchAll, 30000);
       return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
     }
     initWhenReady();

@@ -221,7 +221,6 @@ function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
     onChange(val);
     if (!val.trim()) { setSuggestions([]); setShowDrop(false); return; }
 
-    // Filter saved points first
     const saved = savedPoints
       .filter(p => p.title.toLowerCase().includes(val.toLowerCase()))
       .map(p => ({ label: p.title, value: p.title, type: "saved" }));
@@ -229,7 +228,6 @@ function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
     setSuggestions(saved);
     setShowDrop(true);
 
-    // Google Places predictions as fallback
     if (googleReady && acService.current) {
       acService.current.getPlacePredictions(
         { input: val, componentRestrictions: { country: "za" } },
@@ -284,7 +282,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   const isAdmin      = role === "admin";
   const isController = role === "controller";
   const hasFullAccess = isAdmin || isController;
-  // Full access clients can create/edit tasks linked to their own clientId
   const canEdit  = hasFullAccess || permission === "full";
   const [tasks,         setTasks]         = useState([]);
   const [drivers,       setDrivers]       = useState([]);
@@ -296,10 +293,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     try {
       const stored = localStorage.getItem("fleetpro_task_date");
       if (stored) {
-        // Check if stored date is still today or in the past — reset to today at midnight
-        const storedDay = new Date(stored + "T00:00:00").toDateString();
-        const today     = new Date().toDateString();
-        // Only keep stored date if it was saved today (same calendar day)
+        const today  = new Date().toDateString();
         const savedOn = localStorage.getItem("fleetpro_task_date_saved");
         if (savedOn === today) return stored;
       }
@@ -307,7 +301,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     return new Date().toISOString().slice(0, 10);
   });
 
-  // Persist selected date — auto-resets at midnight via the savedOn check above
   const handleDateSelect = (date) => {
     setSelectedDate(date);
     try {
@@ -315,6 +308,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       localStorage.setItem("fleetpro_task_date_saved", new Date().toDateString());
     } catch {}
   };
+
   const [showForm,      setShowForm]      = useState(false);
   const [editingId,     setEditingId]     = useState(null);
   const [form,          setForm]          = useState(EMPTY_FORM);
@@ -323,13 +317,12 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   const [podTask,       setPodTask]       = useState(null);
   const [viewTask,      setViewTask]      = useState(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
-  const lastOptimisticRef = useRef(0); // timestamp of last optimistic update
-  const [vehicleETAs, setVehicleETAs] = useState({}); // vehicleId → { duration, distance, phase, dest }
+  const lastOptimisticRef = useRef(0);
+  const [vehicleETAs, setVehicleETAs] = useState({});
 
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
     try {
-      // Drivers and points always fetched fresh — new ones must appear immediately
       const [dRes, pRes] = await Promise.all([
         fetch(`${API}/drivers`), fetch(`${API}/points`),
       ]);
@@ -340,7 +333,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
 
-      // Vehicles and clients use cache (change less frequently)
       if (_cachedVehicles) setVehicles(_cachedVehicles);
       if (_cachedClients)  setClients(_cachedClients);
       if (_cachedVehicles && _cachedClients) return;
@@ -362,8 +354,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       const res   = await fetch(`${API}/tasks`);
       const t     = await res.json();
       let fresh = Array.isArray(t) ? t : [];
-      // Client role only: filter tasks by clientId
-      // Admin and controllers see all tasks
       if (!hasFullAccess && clientId) {
         fresh = fresh.filter(task => task.clientId === clientId);
       }
@@ -378,7 +368,8 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   const _etaRouteCache = {};
 
   const fetchRoadETA = async (originLat, originLng, destLat, destLng) => {
-    const key = `${originLat.toFixed(3)},${originLng.toFixed(3)}→${destLat.toFixed(3)},${destLng.toFixed(3)}`;
+    // Use .toFixed(1) grid (~11km) to match MapView cache and reduce API calls
+    const key = `${originLat.toFixed(1)},${originLng.toFixed(1)}→${destLat.toFixed(1)},${destLng.toFixed(1)}`;
     if (_etaRouteCache[key] && _etaRouteCache[key].expiry > Date.now()) return _etaRouteCache[key].data;
     try {
       const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
@@ -403,12 +394,12 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
         duration: mins < 60 ? `~${mins} min` : `~${Math.floor(mins/60)}h ${mins%60>0?mins%60+"min":""}`,
         distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
       };
-      _etaRouteCache[key] = { data: result, expiry: Date.now() + 30000 };
+      _etaRouteCache[key] = { data: result, expiry: Date.now() + 600000 }; // 10 min cache
       return result;
     } catch { return null; }
   };
 
-  // Geocode cache to avoid re-geocoding the same address on every ETA refresh
+  // Geocode cache — avoids re-geocoding same address on every ETA refresh
   const _geocodeCache = useRef({});
 
   const geocodeAddress = async (address) => {
@@ -441,13 +432,9 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
         const loadPt = task.loadPoint;
         let   dropPt = task.dropPoint;
 
-        // ── Geocoding fallback for unsaved dropoff addresses ──────────────
-        // dropPoint is only set when the address is a saved point.
-        // If it's null but we have a dropoffLocation string, geocode it.
         if (!dropPt && task.dropoffLocation) {
           dropPt = await geocodeAddress(task.dropoffLocation);
         }
-        // Same fallback for load point (defensive, in case needed later)
         let resolvedLoadPt = loadPt;
         if (!resolvedLoadPt && task.loadLocation) {
           resolvedLoadPt = await geocodeAddress(task.loadLocation);
@@ -455,24 +442,35 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
 
         if (!resolvedLoadPt && !dropPt) return;
 
-        // Read persisted phase from localStorage using vehicle registration
+        // FIX: Read phase from localStorage — same source of truth as MapView.
+        // If no cache entry exists for this vehicle+task, default to to_load
+        // (correct starting state) but do NOT assume to_drop prematurely.
         let phase = "to_load";
         try {
           const phaseCache = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
           const vehicleReg = v.descrip;
-          if (vehicleReg && phaseCache[vehicleReg]?.taskId === task.id) {
-            phase = phaseCache[vehicleReg].phase;
+          if (vehicleReg && phaseCache[vehicleReg]) {
+            const cached = phaseCache[vehicleReg];
+            // Only use cached phase if it belongs to this exact task
+            if (cached.taskId === task.id && cached.phase) {
+              phase = cached.phase;
+            }
+            // If task ID doesn't match, this vehicle is on a new task — start at to_load
           }
         } catch {}
 
-        // Determine destination based on phase
+        // Determine destination based on phase — mirrors MapView logic exactly
         let dest = null;
-        if ((phase === "to_load" || phase === "at_load") && resolvedLoadPt) {
+        if (phase === "to_load" && resolvedLoadPt) {
           dest = resolvedLoadPt;
-        } else if (dropPt) {
+        } else if (phase === "at_load" && resolvedLoadPt) {
+          // Still at loading — show route to dropoff if available, else stay on load
+          dest = dropPt || resolvedLoadPt;
+        } else if ((phase === "to_drop" || phase === "at_drop") && dropPt) {
           dest = dropPt;
-        } else if (resolvedLoadPt) {
-          dest = resolvedLoadPt;
+        } else {
+          // Fallback: go to wherever we have a point
+          dest = resolvedLoadPt || dropPt;
         }
         if (!dest) return;
 
@@ -491,7 +489,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   }, []);
 
   const loadAll = useCallback(async () => {
-    // Show cached data instantly if available
     if (_cachedTasks)    { setTasks(_cachedTasks); setInitialLoaded(true); }
     if (_cachedDrivers)  setDrivers(_cachedDrivers);
     if (_cachedVehicles) setVehicles(_cachedVehicles);
@@ -499,7 +496,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
     }
-    // Fetch fresh in parallel
     await loadTasks();
     setInitialLoaded(true);
     loadStatic();
@@ -508,16 +504,13 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   useEffect(() => {
     loadAll();
 
-    // Keepalive ping every 2 minutes to prevent Railway backend from sleeping
     const keepalive = setInterval(() => {
       fetch(`${API}/health`).catch(() => {});
     }, 2 * 60 * 1000);
 
-    // Load ETAs every 15 seconds
     loadETAs();
     const etaInterval = setInterval(loadETAs, 15000);
 
-    // SSE for updates from OTHER users/devices
     let sse;
     try {
       sse = new EventSource(`${API}/stream/events`);
@@ -525,7 +518,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
         try {
           const msg = JSON.parse(e.data);
           if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
-            // Only reload if no recent optimistic update (another user made this change)
             if (Date.now() - lastOptimisticRef.current > 5000) {
               loadTasks(true);
             }
@@ -552,7 +544,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     tasks.filter(t => t.status === status && (!selectedDate || !t.date || t.date === selectedDate));
 
   const openCreate = () => {
-    // Pre-fill clientId for client users so their tasks are always linked to them
     setForm({ ...EMPTY_FORM, date: selectedDate, clientId: hasFullAccess ? "" : (clientId || "") });
     setEditingId(null); setFormError(""); setShowForm(true);
   };
@@ -590,7 +581,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
         setSaving(false);
         return;
       }
-      // Update UI with confirmed server data — single source of truth
       if (editingId) {
         const task = data.task || data;
         if (task?.id) {
@@ -601,7 +591,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
           });
         }
       } else {
-        // New task — add it directly from server response
         const task = data.task || data;
         if (task?.id) {
           setTasks(prev => {
@@ -629,13 +618,11 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   };
 
   const setStatus = async (id, status) => {
-    // Optimistic: move card instantly
     setTasks(prev => {
       const updated = prev.map(t => t.id === id ? { ...t, status } : t);
       _cachedTasks = updated;
       return updated;
     });
-    // Save to server — no reload needed, optimistic is correct
     await fetch(`${API}/tasks/${id}/status`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -705,7 +692,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                       {task.status === "inprogress" && vehicleETAs[task.id] && (
                         <div className={`flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-[10px] font-semibold ${
                           vehicleETAs[task.id].phase === "to_load" || vehicleETAs[task.id].phase === "at_load"
-                            ? "bg-blue-900/50 text-blue-300" 
+                            ? "bg-blue-900/50 text-blue-300"
                             : "bg-green-900/50 text-green-300"
                         }`}>
                           <span>⏱</span>
@@ -725,9 +712,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                         </div>
                       )}
                       <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
-                        {/* Buttons based on role/permission */}
                         {hasFullAccess ? (
-                          // Admin + Controller: full buttons
                           <>
                             {task.status === "completed" && (
                               <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
@@ -745,13 +730,11 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                             )}
                           </>
                         ) : canEdit ? (
-                          // Full-access client: View + Edit only
                           <>
                             <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
                             <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
                           </>
                         ) : (
-                          // View-only client
                           <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
                         )}
                       </div>
@@ -766,7 +749,6 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
 
       {podTask && <PodModal task={podTask} drivers={drivers} vehicles={vehicles} onClose={() => setPodTask(null)} />}
 
-      {/* Client View Task Modal */}
       {viewTask && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setViewTask(null)}>
           <div className="bg-[#1e293b] rounded-xl shadow-2xl w-full max-w-md p-6 border border-slate-700" onClick={e => e.stopPropagation()}>
