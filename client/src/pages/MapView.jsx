@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from "react";
 
 const API      = "https://fleetpro-backend-production.up.railway.app/api";
-// Module-level geocode cache — persists for entire browser session, prevents repeat Geocoding API calls
+// Module-level geocode cache — persists for entire browser session
 const _geocodeSessionCache = {};
 
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 const TRUCK_FACTOR = 1.5;
-const ROUTE_CACHE_VERSION = "v5";
+const ROUTE_CACHE_VERSION = "v6";
 
 // Phase order
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
@@ -44,22 +44,20 @@ export default function MapView({ role = "admin", clientId = null }) {
 
   // ── Phase logic ────────────────────────────────────────────────────────────
   //
-  // IRON RULE: A driver only advances from to_load → to_drop when they have
-  // PHYSICALLY been inside the loading zone (wasInsideLoad = true).
-  // Distance-based guessing is removed entirely — it caused premature advances.
-  //
-  // Flow:
-  //   to_load  → atLoad triggers → at_load
-  //   at_load  → driver leaves zone (outsideLoadCount >= 2) → to_drop
-  //   to_drop  → atDrop triggers → at_drop
-  //   Manual override by controller can set any phase at any time.
+  // IRON RULES:
+  // 1. Driver only advances to_load → at_load by physically entering the load zone.
+  // 2. Driver only advances to_drop → at_drop by physically entering the drop zone
+  //    AND staying there for 2 consecutive readings (prevents drive-through false triggers).
+  // 3. atDrop is ALWAYS computed from the geocoded task.dropoffLocation text —
+  //    NEVER from task.dropPoint (saved point) which can match unrelated circles.
+  // 4. Manual override by controller can set any phase at any time.
   //
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = getPhase(id);
     const closest = Math.min(current?.closestToLoad || distToLoad, distToLoad);
 
-    // New task or new vehicle — always start at to_load.
-    // Exception: if prior cache exists at to_drop or at_drop, preserve it
+    // New task or new vehicle — start at to_load.
+    // Exception: preserve to_drop/at_drop if prior cache exists at that level
     // (handles task ID refresh without regressing an already-progressed driver).
     if (!current || current.taskId !== taskId) {
       const defaultPhase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
@@ -78,6 +76,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         prevDistToLoad: distToLoad,
         closestToLoad: distToLoad,
         outsideLoadCount: 0,
+        insideDropCount: 0,
         wasInsideLoad: resolvedPhase === "to_drop" || resolvedPhase === "at_drop",
       });
       return resolvedPhase;
@@ -89,9 +88,9 @@ export default function MapView({ role = "admin", clientId = null }) {
     // Always update closest approach distance
     setPhase(id, { ...current, prevDistToLoad: distToLoad, closestToLoad: closest });
 
-    const advanceTo = (newPhase) => {
+    const advanceTo = (newPhase, extraData = {}) => {
       if ((PHASE_ORDER_MAP[newPhase] ?? 0) > currentOrder) {
-        setPhase(id, { ...current, phase: newPhase, prevDistToLoad: distToLoad, closestToLoad: closest });
+        setPhase(id, { ...current, phase: newPhase, prevDistToLoad: distToLoad, closestToLoad: closest, ...extraData });
         return newPhase;
       }
       return phase;
@@ -100,38 +99,46 @@ export default function MapView({ role = "admin", clientId = null }) {
     // ── to_load: waiting to enter loading zone ─────────────────────────────
     if (phase === "to_load") {
       if (atLoad) {
-        // Driver entered the loading zone — mark wasInsideLoad and advance
-        setPhase(id, { ...current, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
+        setPhase(id, { ...current, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
         return "at_load";
       }
-      // Stay at to_load until the driver physically enters the zone.
-      // NO distance-based fallback — that was causing premature advances.
       return "to_load";
     }
 
     // ── at_load: driver is inside loading zone ─────────────────────────────
     if (phase === "at_load") {
       if (!atLoad) {
-        // Driver left the zone — count consecutive readings outside
         const count = (current.outsideLoadCount || 0) + 1;
         setPhase(id, { ...current, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
-        // Need 2 consecutive readings outside before advancing (avoids GPS jitter)
-        if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase);
+        if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase, { insideDropCount: 0 });
         return "at_load";
       } else {
-        // Still inside — reset jitter counter
         setPhase(id, { ...current, outsideLoadCount: 0, wasInsideLoad: true, prevDistToLoad: distToLoad, closestToLoad: closest });
       }
     }
 
-    // ── to_drop: heading to dropoff ────────────────────────────────────────
-    if (phase === "to_drop" && atDrop) return advanceTo("at_drop");
+    // ── to_drop: heading to assigned dropoff ───────────────────────────────
+    // FIX: requires 2 consecutive readings inside the drop zone before advancing.
+    // This prevents a truck driving THROUGH another client's saved point circle
+    // from being falsely marked as arrived.
+    if (phase === "to_drop") {
+      if (atDrop) {
+        const insideCount = (current.insideDropCount || 0) + 1;
+        setPhase(id, { ...current, insideDropCount: insideCount, prevDistToLoad: distToLoad, closestToLoad: closest });
+        if (insideCount >= 2) return advanceTo("at_drop");
+        return "to_drop"; // wait for second reading
+      } else {
+        // Reset drop count if they left the zone (GPS jitter or wrong circle)
+        if ((current.insideDropCount || 0) > 0) {
+          setPhase(id, { ...current, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
+        }
+      }
+    }
 
     return phase;
   }
 
   // ── Routes API ─────────────────────────────────────────────────────────────
-  // Cache key uses .toFixed(1) (~11km grid) + 10 min expiry — reduces Routes API calls significantly
   async function fetchRoadRoute(originLat, originLng, destLat, destLng) {
     const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(1)},${originLng.toFixed(1)}→${destLat.toFixed(1)},${destLng.toFixed(1)}`;
     const cached   = routeCacheRef.current[cacheKey];
@@ -303,10 +310,10 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!task || task.status !== "inprogress") return;
 
-    let loadPt = task.loadPoint;
-    let dropPt = task.dropPoint;
-
-    // Geocode checks session cache first — each address geocoded once per session only
+    // FIX: Always geocode from the task's assigned location TEXT strings.
+    // NEVER use task.loadPoint or task.dropPoint (saved point objects from backend)
+    // because task.dropPoint matches the nearest saved point which can be a completely
+    // different client's circle that the truck drives through en route.
     const geocoder = new window.google.maps.Geocoder();
     const geocode  = (address) => new Promise((resolve) => {
       if (!address) return resolve(null);
@@ -321,14 +328,22 @@ export default function MapView({ role = "admin", clientId = null }) {
       });
     });
 
-    if (!loadPt && task.loadLocation) loadPt = await geocode(task.loadLocation);
-    if (!dropPt && task.dropoffLocation) dropPt = await geocode(task.dropoffLocation);
+    // Always resolve from text — ignore task.loadPoint and task.dropPoint entirely
+    const loadPt = await geocode(task.loadLocation);
+    const dropPt = await geocode(task.dropoffLocation);
 
-    const loadRadius = loadPt?.radius || 1000;
+    const loadRadius = loadPt?.radius || 500;
+    // Drop radius for at_drop detection: use 500m for geocoded addresses (tight).
+    // The visual circles on the map are for display only and have NO effect here.
+    const dropRadius = 500;
+
     const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
+    const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
     const atLoad     = loadPt ? distToLoad <= loadRadius : false;
-    const atDrop     = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) <= (dropPt.radius || 1000) : false;
-    const phase      = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
+    // atDrop ONLY checks the geocoded assigned dropoff — nothing else
+    const atDrop     = dropPt ? distToDrop <= dropRadius : false;
+
+    const phase = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
 
     if (!phase || phase === "at_drop") return;
 
@@ -423,7 +438,6 @@ export default function MapView({ role = "admin", clientId = null }) {
     window._fleetproOverride = (vehicleId, newPhase) => {
       const current = getPhase(vehicleId);
       if (!current) return;
-      // Manual override bypasses all automatic phase logic
       const all = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
       all[vehicleId] = {
         ...current,
@@ -431,6 +445,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         prevDistToLoad: Infinity,
         closestToLoad: Infinity,
         outsideLoadCount: 0,
+        insideDropCount: 0,
         wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
       };
       localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
@@ -447,7 +462,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       });
     };
 
-    // Keepalive ping every 2 minutes
     const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
 
     async function fetchAll() {
