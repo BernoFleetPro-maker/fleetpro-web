@@ -6,27 +6,41 @@ const _geocodeSessionCache = {};
 
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 const TRUCK_FACTOR = 1.5;
-const ROUTE_CACHE_VERSION = "v6";
+const ROUTE_CACHE_VERSION = "v7";
 
-// Phase order
+// Phase order — higher number = further along the journey
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
 
-// Read phase from localStorage
+// ── Read phase from localStorage ───────────────────────────────────────────
 function getPhase(id) {
   try { return JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}")[id] || null; }
   catch { return null; }
 }
 
-// Write phase — never downgrades for same task
+// ── Write phase — ABSOLUTE protection: never downgrades under any circumstance ──
+// The only way to go backwards is _forceSetPhase (used by manual override only).
 function setPhase(id, data) {
   try {
     const all     = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
     const current = all[id];
-    if (current && current.taskId === data.taskId && data.phase) {
-      const curOrder = PHASE_ORDER_MAP[current.phase] ?? 0;
-      const newOrder = PHASE_ORDER_MAP[data.phase]    ?? 0;
-      if (newOrder < curOrder) data = { ...data, phase: current.phase };
+    if (current && data.phase) {
+      const curOrder = PHASE_ORDER_MAP[current.phase] ?? -1;
+      const newOrder = PHASE_ORDER_MAP[data.phase]    ?? -1;
+      // NEVER write a lower phase — regardless of task ID, cache miss, or anything else
+      if (newOrder < curOrder) {
+        // Keep the higher phase but update all other tracking fields
+        data = { ...data, phase: current.phase };
+      }
     }
+    all[id] = data;
+    localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
+  } catch {}
+}
+
+// ── Force write — ONLY used by manual controller override ──────────────────
+function _forceSetPhase(id, data) {
+  try {
+    const all = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
     all[id] = data;
     localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
   } catch {}
@@ -44,36 +58,39 @@ export default function MapView({ role = "admin", clientId = null }) {
 
   // ── Phase logic ────────────────────────────────────────────────────────────
   //
-  // IRON RULES:
-  // 1. Driver only advances to_load → at_load by physically entering the load zone.
-  // 2. Driver only advances to_drop → at_drop by physically entering the drop zone
-  //    AND staying for 2 consecutive readings (prevents drive-through false triggers).
-  // 3. atDrop is ALWAYS computed from geocoded task.dropoffLocation text —
-  //    NEVER from task.dropPoint (saved point) which can match unrelated circles.
-  // 4. Manual override by controller can set any phase at any time.
+  // IRON RULES — enforced at the setPhase level, not just here:
+  // 1. Phase NEVER goes backwards automatically. Ever. For any reason.
+  // 2. Driver advances to_load → at_load only by physically entering load zone.
+  // 3. Driver advances at_load → to_drop only after 2 consecutive readings outside load zone.
+  // 4. Driver advances to_drop → at_drop only after 2 consecutive readings inside drop zone.
+  // 5. atDrop uses ONLY geocoded task.dropoffLocation text — never task.dropPoint saved object.
+  // 6. Only a manual controller override (_forceSetPhase) can move phase backwards.
   //
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = getPhase(id);
-    const closest = Math.min(current?.closestToLoad || distToLoad, distToLoad);
+    const closest = Math.min(current?.closestToLoad ?? distToLoad, distToLoad);
 
-    if (!current || current.taskId !== taskId) {
-      const defaultPhase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      let resolvedPhase  = defaultPhase;
-      if (current) {
-        const priorOrder = PHASE_ORDER_MAP[current.phase] ?? 0;
-        if (priorOrder >= PHASE_ORDER_MAP["to_drop"]) resolvedPhase = current.phase;
-      }
-      setPhase(id, {
-        phase: resolvedPhase, taskId,
-        prevDistToLoad: distToLoad, closestToLoad: distToLoad,
-        outsideLoadCount: 0, insideDropCount: 0,
-        wasInsideLoad: resolvedPhase === "to_drop" || resolvedPhase === "at_drop",
-      });
-      return resolvedPhase;
+    // No cache at all — genuinely first time seeing this vehicle
+    if (!current) {
+      const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
+      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
+      return phase;
+    }
+
+    // Task ID changed — new task assigned to this vehicle.
+    // setPhase will prevent any downgrade so even if defaultPhase is to_load,
+    // if the vehicle was at at_drop it will stay there until task is completed.
+    if (current.taskId !== taskId) {
+      const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
+      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
+      // setPhase will have kept the higher phase if applicable — re-read it
+      return getPhase(id)?.phase ?? phase;
     }
 
     const phase        = current.phase;
     const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
+
+    // Update tracking fields without changing phase
     setPhase(id, { ...current, prevDistToLoad: distToLoad, closestToLoad: closest });
 
     const advanceTo = (newPhase, extraData = {}) => {
@@ -84,7 +101,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       return phase;
     };
 
-    // ── to_load ────────────────────────────────────────────────────────────
+    // ── to_load: waiting to physically enter loading zone ──────────────────
     if (phase === "to_load") {
       if (atLoad) {
         setPhase(id, { ...current, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
@@ -93,11 +110,12 @@ export default function MapView({ role = "admin", clientId = null }) {
       return "to_load";
     }
 
-    // ── at_load ────────────────────────────────────────────────────────────
+    // ── at_load: inside loading zone, waiting to leave ─────────────────────
     if (phase === "at_load") {
       if (!atLoad) {
         const count = (current.outsideLoadCount || 0) + 1;
         setPhase(id, { ...current, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
+        // 2 consecutive readings outside = driver has left loading zone
         if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase, { insideDropCount: 0 });
         return "at_load";
       } else {
@@ -105,9 +123,9 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     }
 
-    // ── to_drop: requires 2 consecutive readings inside drop zone ──────────
-    // Prevents a truck driving THROUGH another client's saved point circle
-    // from being falsely marked as arrived.
+    // ── to_drop: heading to assigned dropoff ───────────────────────────────
+    // Requires 2 consecutive readings inside drop zone — prevents drive-through
+    // false triggers from other clients' saved point circles on the map.
     if (phase === "to_drop") {
       if (atDrop) {
         const insideCount = (current.insideDropCount || 0) + 1;
@@ -121,6 +139,8 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     }
 
+    // ── at_drop: arrived — stay here until task completed or manual override ─
+    // Nothing auto-advances or reverts from at_drop.
     return phase;
   }
 
@@ -207,9 +227,6 @@ export default function MapView({ role = "admin", clientId = null }) {
   }
 
   // ── Info popup ─────────────────────────────────────────────────────────────
-  // FIX: content div has a hard fixed width of 240px and box-sizing:border-box
-  // so it never grows when the map is zoomed out. maxWidth on the InfoWindow
-  // itself locks the Google Maps container to the same size.
   function buildInfoHtml(v) {
     const t     = v.activeTask;
     const id    = v.descrip || `veh-${v.id}`;
@@ -248,7 +265,6 @@ export default function MapView({ role = "admin", clientId = null }) {
           <button onclick="window._fleetproOverride('${id}','to_drop')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
         </div>`;
     }
-    // Width is fixed at 240px with box-sizing:border-box — never grows with zoom
     return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;width:240px;box-sizing:border-box;overflow:hidden;">
       <div style="font-weight:700;color:#111;font-size:15px;margin-bottom:4px;">${v.descrip || "Unknown"}</div>
       <div style="color:#555;font-size:12px;"><strong>Updated:</strong> ${formatDate(v.dt)}</div>
@@ -300,8 +316,9 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!task || task.status !== "inprogress") return;
 
-    // Always geocode from assigned location text — never use task.loadPoint / task.dropPoint
-    // (saved point objects from backend can match unrelated circles on the map)
+    // Always geocode from assigned location text strings.
+    // NEVER use task.loadPoint or task.dropPoint (backend saved point objects)
+    // because they match the nearest saved circle, not the actual assigned address.
     const geocoder = new window.google.maps.Geocoder();
     const geocode  = (address) => new Promise((resolve) => {
       if (!address) return resolve(null);
@@ -347,7 +364,6 @@ export default function MapView({ role = "admin", clientId = null }) {
   function drawOrUpdateVehicles(data) {
     const g = window.google, map = mapInstance.current;
     if (!map) return;
-    // FIX: maxWidth:260 locks the InfoWindow container size — it will not grow when zoomed out
     if (!map.activeInfoWindow) map.activeInfoWindow = new g.maps.InfoWindow({ maxWidth: 260 });
     const activeInfo = map.activeInfoWindow;
 
@@ -399,71 +415,66 @@ export default function MapView({ role = "admin", clientId = null }) {
     let pollTimer = null;
     function initWhenReady() {
       const g = window.google;
-      if (!g || !g.maps) {
-        pollTimer = setTimeout(initWhenReady, 200);
-        return;
-      }
+      if (!g || !g.maps) { pollTimer = setTimeout(initWhenReady, 200); return; }
       if (!mapInstance.current && mapRef.current) {
         mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1},zoom:8,streetViewControl:false,mapTypeControl:true });
       }
 
-    window._fleetproShareLocation = (lat, lon, reg) => {
-      const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
-      const text    = `📍 ${reg} current location:\n${mapsUrl}`;
-      if (navigator.share) {
-        navigator.share({ title: `${reg} Location`, text, url: mapsUrl }).catch(() => {});
-      } else {
-        navigator.clipboard.writeText(text).then(() => {
-          const btn = document.getElementById("fleetpro-share-btn");
-          if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy Link"; }, 2000); }
-        }).catch(() => { window.prompt("Copy this link:", mapsUrl); });
-      }
-    };
-
-    window._fleetproOverride = (vehicleId, newPhase) => {
-      const current = getPhase(vehicleId);
-      if (!current) return;
-      const all = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-      all[vehicleId] = {
-        ...current,
-        phase: newPhase,
-        prevDistToLoad: Infinity,
-        closestToLoad: Infinity,
-        outsideLoadCount: 0,
-        insideDropCount: 0,
-        wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
+      window._fleetproShareLocation = (lat, lon, reg) => {
+        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+        const text    = `📍 ${reg} current location:\n${mapsUrl}`;
+        if (navigator.share) {
+          navigator.share({ title: `${reg} Location`, text, url: mapsUrl }).catch(() => {});
+        } else {
+          navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById("fleetpro-share-btn");
+            if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy Link"; }, 2000); }
+          }).catch(() => { window.prompt("Copy this link:", mapsUrl); });
+        }
       };
-      localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
-      console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
-      fetchAll().then(() => {
-        const mk = markersRef.current[vehicleId];
-        const activeInfo = mapInstance.current?.activeInfoWindow;
-        if (mk && activeInfo && activeInfo.getMap()) {
-          fetch(`${API}/positions`).then(r=>r.json()).then(positions => {
-            const v = positions.find(p=>(p.descrip||`veh-${p.id}`)===vehicleId);
-            if (v) activeInfo.setContent(buildInfoHtml(v));
-          }).catch(()=>{});
-        }
-      });
-    };
 
-    const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
+      // Manual override — ONLY path that can move phase backwards
+      // Uses _forceSetPhase which bypasses the downgrade protection in setPhase
+      window._fleetproOverride = (vehicleId, newPhase) => {
+        const current = getPhase(vehicleId);
+        if (!current) return;
+        _forceSetPhase(vehicleId, {
+          ...current,
+          phase: newPhase,
+          prevDistToLoad: Infinity,
+          closestToLoad: Infinity,
+          outsideLoadCount: 0,
+          insideDropCount: 0,
+          wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
+        });
+        console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
+        fetchAll().then(() => {
+          const mk = markersRef.current[vehicleId];
+          const activeInfo = mapInstance.current?.activeInfoWindow;
+          if (mk && activeInfo && activeInfo.getMap()) {
+            fetch(`${API}/positions`).then(r=>r.json()).then(positions => {
+              const v = positions.find(p=>(p.descrip||`veh-${p.id}`)===vehicleId);
+              if (v) activeInfo.setContent(buildInfoHtml(v));
+            }).catch(()=>{});
+          }
+        });
+      };
 
-    async function fetchAll() {
-      try {
-        let positions = await fetch(`${API}/positions`).then(r=>r.json());
-        if (!Array.isArray(positions)) positions = [];
-        if (!isAdmin && clientId) {
-          positions = positions.filter(v =>
-            v.activeTask && v.activeTask.clientId === clientId
-          );
-        }
-        drawOrUpdateVehicles(positions);
-        await drawPoints();
-      } catch(err) { console.error("fetchAll error:",err); }
-    }
-    fetchAll();
-    const interval = setInterval(fetchAll, 30000);
+      const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
+
+      async function fetchAll() {
+        try {
+          let positions = await fetch(`${API}/positions`).then(r=>r.json());
+          if (!Array.isArray(positions)) positions = [];
+          if (!isAdmin && clientId) {
+            positions = positions.filter(v => v.activeTask && v.activeTask.clientId === clientId);
+          }
+          drawOrUpdateVehicles(positions);
+          await drawPoints();
+        } catch(err) { console.error("fetchAll error:",err); }
+      }
+      fetchAll();
+      const interval = setInterval(fetchAll, 30000);
       return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
     }
     initWhenReady();
