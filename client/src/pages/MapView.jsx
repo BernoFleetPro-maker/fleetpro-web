@@ -47,8 +47,8 @@ export default function MapView({ role = "admin", clientId = null }) {
   // IRON RULES:
   // 1. Driver only advances to_load → at_load by physically entering the load zone.
   // 2. Driver only advances to_drop → at_drop by physically entering the drop zone
-  //    AND staying there for 2 consecutive readings (prevents drive-through false triggers).
-  // 3. atDrop is ALWAYS computed from the geocoded task.dropoffLocation text —
+  //    AND staying for 2 consecutive readings (prevents drive-through false triggers).
+  // 3. atDrop is ALWAYS computed from geocoded task.dropoffLocation text —
   //    NEVER from task.dropPoint (saved point) which can match unrelated circles.
   // 4. Manual override by controller can set any phase at any time.
   //
@@ -56,27 +56,17 @@ export default function MapView({ role = "admin", clientId = null }) {
     const current = getPhase(id);
     const closest = Math.min(current?.closestToLoad || distToLoad, distToLoad);
 
-    // New task or new vehicle — start at to_load.
-    // Exception: preserve to_drop/at_drop if prior cache exists at that level
-    // (handles task ID refresh without regressing an already-progressed driver).
     if (!current || current.taskId !== taskId) {
       const defaultPhase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
       let resolvedPhase  = defaultPhase;
-
       if (current) {
         const priorOrder = PHASE_ORDER_MAP[current.phase] ?? 0;
-        if (priorOrder >= PHASE_ORDER_MAP["to_drop"]) {
-          resolvedPhase = current.phase; // preserve to_drop / at_drop — never regress
-        }
+        if (priorOrder >= PHASE_ORDER_MAP["to_drop"]) resolvedPhase = current.phase;
       }
-
       setPhase(id, {
-        phase: resolvedPhase,
-        taskId,
-        prevDistToLoad: distToLoad,
-        closestToLoad: distToLoad,
-        outsideLoadCount: 0,
-        insideDropCount: 0,
+        phase: resolvedPhase, taskId,
+        prevDistToLoad: distToLoad, closestToLoad: distToLoad,
+        outsideLoadCount: 0, insideDropCount: 0,
         wasInsideLoad: resolvedPhase === "to_drop" || resolvedPhase === "at_drop",
       });
       return resolvedPhase;
@@ -84,8 +74,6 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     const phase        = current.phase;
     const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
-
-    // Always update closest approach distance
     setPhase(id, { ...current, prevDistToLoad: distToLoad, closestToLoad: closest });
 
     const advanceTo = (newPhase, extraData = {}) => {
@@ -96,7 +84,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       return phase;
     };
 
-    // ── to_load: waiting to enter loading zone ─────────────────────────────
+    // ── to_load ────────────────────────────────────────────────────────────
     if (phase === "to_load") {
       if (atLoad) {
         setPhase(id, { ...current, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
@@ -105,7 +93,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       return "to_load";
     }
 
-    // ── at_load: driver is inside loading zone ─────────────────────────────
+    // ── at_load ────────────────────────────────────────────────────────────
     if (phase === "at_load") {
       if (!atLoad) {
         const count = (current.outsideLoadCount || 0) + 1;
@@ -117,18 +105,16 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     }
 
-    // ── to_drop: heading to assigned dropoff ───────────────────────────────
-    // FIX: requires 2 consecutive readings inside the drop zone before advancing.
-    // This prevents a truck driving THROUGH another client's saved point circle
+    // ── to_drop: requires 2 consecutive readings inside drop zone ──────────
+    // Prevents a truck driving THROUGH another client's saved point circle
     // from being falsely marked as arrived.
     if (phase === "to_drop") {
       if (atDrop) {
         const insideCount = (current.insideDropCount || 0) + 1;
         setPhase(id, { ...current, insideDropCount: insideCount, prevDistToLoad: distToLoad, closestToLoad: closest });
         if (insideCount >= 2) return advanceTo("at_drop");
-        return "to_drop"; // wait for second reading
+        return "to_drop";
       } else {
-        // Reset drop count if they left the zone (GPS jitter or wrong circle)
         if ((current.insideDropCount || 0) > 0) {
           setPhase(id, { ...current, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
         }
@@ -168,7 +154,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
         mins,
       };
-      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 600000 }; // 10 min cache
+      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 600000 };
       return result;
     } catch (err) { console.warn("Routes API error:", err.message); return null; }
   }
@@ -221,6 +207,9 @@ export default function MapView({ role = "admin", clientId = null }) {
   }
 
   // ── Info popup ─────────────────────────────────────────────────────────────
+  // FIX: content div has a hard fixed width of 240px and box-sizing:border-box
+  // so it never grows when the map is zoomed out. maxWidth on the InfoWindow
+  // itself locks the Google Maps container to the same size.
   function buildInfoHtml(v) {
     const t     = v.activeTask;
     const id    = v.descrip || `veh-${v.id}`;
@@ -237,8 +226,8 @@ export default function MapView({ role = "admin", clientId = null }) {
         <div style="font-weight:700;color:#1e88e5;font-size:12px;margin-bottom:6px;">📦 ACTIVE TASK</div>
         ${t.orderNumber ? `<div><strong>Order:</strong> ${t.orderNumber}</div>` : ""}
         <div><strong>Driver:</strong> ${t.driverName || "—"}</div>
-        <div><strong>Load:</strong> ${t.loadLocation || "—"}</div>
-        <div><strong>Dropoff:</strong> ${t.dropoffLocation || "—"}</div>
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Load:</strong> ${t.loadLocation || "—"}</div>
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Dropoff:</strong> ${t.dropoffLocation || "—"}</div>
         ${phaseLabel ? `<hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="background:${phaseColor};color:#fff;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:600;margin-bottom:6px;text-align:center;">${phaseLabel}</div>` : ""}
         ${routeInfo ? `
@@ -251,7 +240,7 @@ export default function MapView({ role = "admin", clientId = null }) {
             🕐 Arrival ≈ ${(() => { const a = new Date(Date.now() + (routeInfo.mins||0)*60000); return a.toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Africa/Johannesburg'}); })()}
           </span>
         </div>
-        <div style="font-size:10px;color:#aaa;text-align:center;margin-top:3px;">to ${routeInfo.dest}</div>` : ""}
+        <div style="font-size:10px;color:#aaa;text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">to ${routeInfo.dest}</div>` : ""}
         <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Manual override</div>
         <div style="display:flex;gap:6px;justify-content:center;">
@@ -259,10 +248,11 @@ export default function MapView({ role = "admin", clientId = null }) {
           <button onclick="window._fleetproOverride('${id}','to_drop')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
         </div>`;
     }
-    return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;min-width:200px;max-width:240px;">
+    // Width is fixed at 240px with box-sizing:border-box — never grows with zoom
+    return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;width:240px;box-sizing:border-box;overflow:hidden;">
       <div style="font-weight:700;color:#111;font-size:15px;margin-bottom:4px;">${v.descrip || "Unknown"}</div>
       <div style="color:#555;font-size:12px;"><strong>Updated:</strong> ${formatDate(v.dt)}</div>
-      <div style="color:#555;font-size:12px;"><strong>Location:</strong> ${v.address || `${v.lat}, ${v.lon}`}</div>
+      <div style="color:#555;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Location:</strong> ${v.address || `${v.lat}, ${v.lon}`}</div>
       <div style="color:#555;font-size:12px;"><strong>Speed:</strong> ${v.speed || 0} km/h</div>
       <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
       <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Share location</div>
@@ -310,10 +300,8 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!task || task.status !== "inprogress") return;
 
-    // FIX: Always geocode from the task's assigned location TEXT strings.
-    // NEVER use task.loadPoint or task.dropPoint (saved point objects from backend)
-    // because task.dropPoint matches the nearest saved point which can be a completely
-    // different client's circle that the truck drives through en route.
+    // Always geocode from assigned location text — never use task.loadPoint / task.dropPoint
+    // (saved point objects from backend can match unrelated circles on the map)
     const geocoder = new window.google.maps.Geocoder();
     const geocode  = (address) => new Promise((resolve) => {
       if (!address) return resolve(null);
@@ -328,19 +316,15 @@ export default function MapView({ role = "admin", clientId = null }) {
       });
     });
 
-    // Always resolve from text — ignore task.loadPoint and task.dropPoint entirely
     const loadPt = await geocode(task.loadLocation);
     const dropPt = await geocode(task.dropoffLocation);
 
-    const loadRadius = loadPt?.radius || 500;
-    // Drop radius for at_drop detection: use 500m for geocoded addresses (tight).
-    // The visual circles on the map are for display only and have NO effect here.
+    const loadRadius = 500;
     const dropRadius = 500;
 
     const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
     const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
     const atLoad     = loadPt ? distToLoad <= loadRadius : false;
-    // atDrop ONLY checks the geocoded assigned dropoff — nothing else
     const atDrop     = dropPt ? distToDrop <= dropRadius : false;
 
     const phase = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
@@ -363,7 +347,8 @@ export default function MapView({ role = "admin", clientId = null }) {
   function drawOrUpdateVehicles(data) {
     const g = window.google, map = mapInstance.current;
     if (!map) return;
-    if (!map.activeInfoWindow) map.activeInfoWindow = new g.maps.InfoWindow();
+    // FIX: maxWidth:260 locks the InfoWindow container size — it will not grow when zoomed out
+    if (!map.activeInfoWindow) map.activeInfoWindow = new g.maps.InfoWindow({ maxWidth: 260 });
     const activeInfo = map.activeInfoWindow;
 
     data.forEach(v => {
@@ -403,7 +388,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         const color  = (p.type||"").toLowerCase()==="dropoff" ? "#8ee68e" : "#7fb3ff";
         const circle = new g.maps.Circle({ map,center,radius,fillColor:color,fillOpacity:0.18,strokeColor:color,strokeOpacity:0.7,strokeWeight:2 });
         const dot    = new g.maps.Marker({ map,position:center,icon:{path:g.maps.SymbolPath.CIRCLE,scale:5,fillColor:color,fillOpacity:1,strokeColor:"#111",strokeWeight:1} });
-        const info   = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>` });
+        const info   = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>`, maxWidth:200 });
         dot.addListener("click", () => info.open(map,dot));
         pointOverlaysRef.current.push({ circle, dot });
       });
