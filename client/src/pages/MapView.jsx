@@ -6,9 +6,9 @@ const _geocodeSessionCache = {};
 
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 const TRUCK_FACTOR = 1.5;
-const ROUTE_CACHE_VERSION = "v7";
+const ROUTE_CACHE_VERSION = "v8";
 
-// Phase order — higher number = further along the journey
+// Phase order — higher = further along the journey
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
 
 // ── Read phase from localStorage ───────────────────────────────────────────
@@ -17,21 +17,23 @@ function getPhase(id) {
   catch { return null; }
 }
 
-// ── Write phase — ABSOLUTE protection: never downgrades under any circumstance ──
-// The only way to go backwards is _forceSetPhase (used by manual override only).
+// ── Write phase ────────────────────────────────────────────────────────────
+// Protection rule: for the SAME task ID, never write a lower phase.
+// For a NEW task ID, always reset cleanly — the old task is done.
+// Manual override uses _forceSetPhase which bypasses all protection.
 function setPhase(id, data) {
   try {
     const all     = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
     const current = all[id];
-    if (current && data.phase) {
+    if (current && current.taskId === data.taskId && data.phase) {
+      // Same task — never go backwards
       const curOrder = PHASE_ORDER_MAP[current.phase] ?? -1;
       const newOrder = PHASE_ORDER_MAP[data.phase]    ?? -1;
-      // NEVER write a lower phase — regardless of task ID, cache miss, or anything else
       if (newOrder < curOrder) {
-        // Keep the higher phase but update all other tracking fields
         data = { ...data, phase: current.phase };
       }
     }
+    // Different task ID or no prior cache — write freely (new task = fresh start)
     all[id] = data;
     localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
   } catch {}
@@ -58,44 +60,42 @@ export default function MapView({ role = "admin", clientId = null }) {
 
   // ── Phase logic ────────────────────────────────────────────────────────────
   //
-  // IRON RULES — enforced at the setPhase level, not just here:
-  // 1. Phase NEVER goes backwards automatically. Ever. For any reason.
-  // 2. Driver advances to_load → at_load only by physically entering load zone.
-  // 3. Driver advances at_load → to_drop only after 2 consecutive readings outside load zone.
-  // 4. Driver advances to_drop → at_drop only after 2 consecutive readings inside drop zone.
-  // 5. atDrop uses ONLY geocoded task.dropoffLocation text — never task.dropPoint saved object.
-  // 6. Only a manual controller override (_forceSetPhase) can move phase backwards.
+  // IRON RULES:
+  // 1. New task ID always resets to to_load (fresh start, old task is done).
+  // 2. Same task ID never goes backwards automatically — ever.
+  // 3. Driver advances to_load → at_load only by physically entering load zone.
+  // 4. Driver advances at_load → to_drop after 2 consecutive readings outside load zone.
+  // 5. Driver advances to_drop → at_drop after 2 consecutive readings inside drop zone.
+  // 6. atDrop uses ONLY geocoded task.dropoffLocation text — never task.dropPoint saved object.
+  // 7. Manual override (_forceSetPhase) is the ONLY way to move phase backwards.
   //
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = getPhase(id);
     const closest = Math.min(current?.closestToLoad ?? distToLoad, distToLoad);
 
-    // No cache at all — genuinely first time seeing this vehicle
-    if (!current) {
+    // ── New task or first time seeing this vehicle ─────────────────────────
+    // Always start fresh at to_load for a new task.
+    // The old task is complete — its phase is irrelevant.
+    if (!current || current.taskId !== taskId) {
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
+      setPhase(id, {
+        phase, taskId,
+        prevDistToLoad: distToLoad, closestToLoad: distToLoad,
+        outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false,
+      });
       return phase;
     }
 
-    // Task ID changed — new task assigned to this vehicle.
-    // setPhase will prevent any downgrade so even if defaultPhase is to_load,
-    // if the vehicle was at at_drop it will stay there until task is completed.
-    if (current.taskId !== taskId) {
-      const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
-      // setPhase will have kept the higher phase if applicable — re-read it
-      return getPhase(id)?.phase ?? phase;
-    }
-
+    // ── Same task — advance only, never revert ─────────────────────────────
     const phase        = current.phase;
     const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
 
-    // Update tracking fields without changing phase
-    setPhase(id, { ...current, prevDistToLoad: distToLoad, closestToLoad: closest });
+    // Update tracking fields
+    setPhase(id, { ...current, taskId, prevDistToLoad: distToLoad, closestToLoad: closest });
 
     const advanceTo = (newPhase, extraData = {}) => {
       if ((PHASE_ORDER_MAP[newPhase] ?? 0) > currentOrder) {
-        setPhase(id, { ...current, phase: newPhase, prevDistToLoad: distToLoad, closestToLoad: closest, ...extraData });
+        setPhase(id, { ...current, taskId, phase: newPhase, prevDistToLoad: distToLoad, closestToLoad: closest, ...extraData });
         return newPhase;
       }
       return phase;
@@ -104,43 +104,42 @@ export default function MapView({ role = "admin", clientId = null }) {
     // ── to_load: waiting to physically enter loading zone ──────────────────
     if (phase === "to_load") {
       if (atLoad) {
-        setPhase(id, { ...current, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
+        setPhase(id, { ...current, taskId, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
         return "at_load";
       }
       return "to_load";
     }
 
-    // ── at_load: inside loading zone, waiting to leave ─────────────────────
+    // ── at_load: inside loading zone, waiting for driver to load and leave ─
     if (phase === "at_load") {
       if (!atLoad) {
         const count = (current.outsideLoadCount || 0) + 1;
-        setPhase(id, { ...current, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
-        // 2 consecutive readings outside = driver has left loading zone
+        setPhase(id, { ...current, taskId, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
+        // 2 consecutive readings outside = driver has loaded and left
         if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase, { insideDropCount: 0 });
         return "at_load";
       } else {
-        setPhase(id, { ...current, outsideLoadCount: 0, wasInsideLoad: true, prevDistToLoad: distToLoad, closestToLoad: closest });
+        setPhase(id, { ...current, taskId, outsideLoadCount: 0, wasInsideLoad: true, prevDistToLoad: distToLoad, closestToLoad: closest });
       }
     }
 
     // ── to_drop: heading to assigned dropoff ───────────────────────────────
-    // Requires 2 consecutive readings inside drop zone — prevents drive-through
+    // 2 consecutive readings inside drop zone required — prevents drive-through
     // false triggers from other clients' saved point circles on the map.
     if (phase === "to_drop") {
       if (atDrop) {
         const insideCount = (current.insideDropCount || 0) + 1;
-        setPhase(id, { ...current, insideDropCount: insideCount, prevDistToLoad: distToLoad, closestToLoad: closest });
+        setPhase(id, { ...current, taskId, insideDropCount: insideCount, prevDistToLoad: distToLoad, closestToLoad: closest });
         if (insideCount >= 2) return advanceTo("at_drop");
         return "to_drop";
       } else {
         if ((current.insideDropCount || 0) > 0) {
-          setPhase(id, { ...current, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
+          setPhase(id, { ...current, taskId, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
         }
       }
     }
 
     // ── at_drop: arrived — stay here until task completed or manual override ─
-    // Nothing auto-advances or reverts from at_drop.
     return phase;
   }
 
@@ -316,9 +315,8 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!task || task.status !== "inprogress") return;
 
-    // Always geocode from assigned location text strings.
-    // NEVER use task.loadPoint or task.dropPoint (backend saved point objects)
-    // because they match the nearest saved circle, not the actual assigned address.
+    // Always geocode from assigned location text — never use task.loadPoint / task.dropPoint
+    // (backend saved point objects match nearest circle, not the actual assigned address)
     const geocoder = new window.google.maps.Geocoder();
     const geocode  = (address) => new Promise((resolve) => {
       if (!address) return resolve(null);
@@ -433,8 +431,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         }
       };
 
-      // Manual override — ONLY path that can move phase backwards
-      // Uses _forceSetPhase which bypasses the downgrade protection in setPhase
+      // Manual override — ONLY path that can move phase backwards within a task
       window._fleetproOverride = (vehicleId, newPhase) => {
         const current = getPhase(vehicleId);
         if (!current) return;
