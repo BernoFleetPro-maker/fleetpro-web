@@ -5,7 +5,6 @@ const API = "https://fleetpro-backend-production.up.railway.app/api";
 // Phase order
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
 
-// ── Read phase from localStorage ───────────────────────────────────────────
 function getPhase(id) {
   try { return JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}")[id] || null; }
   catch { return null; }
@@ -16,7 +15,6 @@ function getAllPhases() {
   catch { return {}; }
 }
 
-// ── Write phase — scoped per task ID, never downgrades same task ───────────
 function setPhase(id, data) {
   try {
     const all     = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
@@ -31,7 +29,6 @@ function setPhase(id, data) {
   } catch {}
 }
 
-// ── Force write — ONLY used by manual controller override ──────────────────
 function _forceSetPhase(id, data) {
   try {
     const all = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
@@ -40,9 +37,6 @@ function _forceSetPhase(id, data) {
   } catch {}
 }
 
-// ── Build phases query string to send with every poll ─────────────────────
-// Tells the backend exactly which phase each vehicle is in.
-// Backend uses this directly — no guessing needed.
 function buildPhasesParam() {
   const all = getAllPhases();
   const entries = Object.entries(all)
@@ -59,25 +53,12 @@ export default function MapView({ role = "admin", clientId = null }) {
   const pointOverlaysRef = useRef([]);
   const routeLinesRef    = useRef({});
   const vehicleRouteRef  = useRef({});
-  const activeVehicleRef = useRef(null); // tracks which vehicle is currently selected
+  const activeVehicleRef = useRef(null);
 
-  // ── Phase logic ────────────────────────────────────────────────────────────
-  //
-  // IRON RULES:
-  // 1. New task ID always resets to to_load — fresh start, old task is done.
-  // 2. Same task ID never goes backwards automatically — ever.
-  // 3. to_load → at_load: physically inside load zone.
-  // 4. at_load → to_drop: 2 consecutive readings outside load zone.
-  // 5. to_drop → at_drop: 2 consecutive readings inside drop zone.
-  // 6. atDrop uses ONLY the task's assigned dropoff coordinates.
-  //    Driving through other saved point circles never triggers phase change.
-  // 7. Manual override is the ONLY way to move phase backwards.
-  //
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = getPhase(id);
     const closest = Math.min(current?.closestToLoad ?? distToLoad, distToLoad);
 
-    // New task — always reset cleanly to to_load
     if (!current || current.taskId !== taskId) {
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
       setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
@@ -96,7 +77,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       return phase;
     };
 
-    // to_load: wait to physically enter loading zone
     if (phase === "to_load") {
       if (atLoad) {
         setPhase(id, { ...current, taskId, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
@@ -105,7 +85,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       return "to_load";
     }
 
-    // at_load: inside loading zone, wait for driver to load and leave
     if (phase === "at_load") {
       if (!atLoad) {
         const count = (current.outsideLoadCount || 0) + 1;
@@ -117,7 +96,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     }
 
-    // to_drop: heading to assigned dropoff — 2 readings required to prevent drive-through triggers
     if (phase === "to_drop") {
       if (atDrop) {
         const insideCount = (current.insideDropCount || 0) + 1;
@@ -131,7 +109,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     }
 
-    // at_drop: stay here until task completed or manual override
     return phase;
   }
 
@@ -174,26 +151,21 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position, html); lbl.setMap(map); return lbl;
   }
 
-  // ── Bring selected vehicle route to front ─────────────────────────────────
-  // When clicking a vehicle, its route line gets zIndex boosted so it sits
-  // on top of all other overlapping routes for clear visibility
-  function bringRouteToFront(selectedId) {
+  // ── Apply highlight styles ─────────────────────────────────────────────────
+  // Default: thin lines (weight 2, opacity 0.5) so map stays clean
+  // Selected: thick bright line (weight 6, opacity 1.0) on top of everything
+  function applyRouteStyles() {
+    const activeId = activeVehicleRef.current;
     Object.entries(routeLinesRef.current).forEach(([id, line]) => {
       if (!line) return;
-      if (id === selectedId) {
+      if (!activeId) {
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.55, strokeWeight: 2 });
+      } else if (id === activeId) {
         line.setOptions({ zIndex: 100, strokeOpacity: 1.0, strokeWeight: 6 });
       } else {
-        line.setOptions({ zIndex: 1, strokeOpacity: 0.4, strokeWeight: 3 });
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.2, strokeWeight: 2 });
       }
     });
-    activeVehicleRef.current = selectedId;
-  }
-
-  function resetRouteStyles() {
-    Object.values(routeLinesRef.current).forEach(line => {
-      if (line) line.setOptions({ zIndex: 1, strokeOpacity: 0.85, strokeWeight: 4 });
-    });
-    activeVehicleRef.current = null;
   }
 
   function buildInfoHtml(v) {
@@ -263,16 +235,13 @@ export default function MapView({ role = "admin", clientId = null }) {
     step();
   }
 
-  function drawPolyline(map, path, color, isActive = false) {
+  function drawPolyline(map, path, color) {
     const g = window.google;
+    // Default: thin line — highlight applied separately via applyRouteStyles()
     return new g.maps.Polyline({
-      path,
-      strokeColor:   color,
-      strokeOpacity: isActive ? 1.0 : 0.85,
-      strokeWeight:  isActive ? 6   : 4,
-      zIndex:        isActive ? 100 : 1,
-      geodesic:      false,
-      icons: [{ icon:{ path:g.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale:3, strokeColor:color }, offset:"50%" }],
+      path, strokeColor:color, strokeOpacity:0.55, strokeWeight:2,
+      zIndex:1, geodesic:false,
+      icons:[{ icon:{path:g.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:2,strokeColor:color}, offset:"50%" }],
       map,
     });
   }
@@ -287,12 +256,14 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!task || task.status !== "inprogress") return;
 
-    // Use coordinates resolved by backend — no geocoding in browser
     const loadPt = task.loadPoint;
     const dropPt = task.dropPoint;
 
-    const loadRadius = loadPt?.radius || 500;
-    const dropRadius = dropPt?.radius || 500;
+    // Use the saved point radius exactly as configured — this is the correct
+    // radius set by the admin when creating the loading/dropoff point.
+    const loadRadius = loadPt?.radius || 1000;
+    const dropRadius = dropPt?.radius || 1000;
+
     const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
     const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
     const atLoad     = loadPt ? distToLoad <= loadRadius : false;
@@ -302,13 +273,11 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!phase || phase === "at_drop") return;
 
-    // Draw route from backend pre-calculated data — no Google API call from browser
     const serverRoute = task.routeCache;
     if (serverRoute?.path?.length > 0) {
       let color = "#1e88e5"; // blue = to_load
       if (phase === "to_drop" || phase === "at_load") color = "#43a047"; // green = to_drop
-      const isActive = activeVehicleRef.current === id;
-      routeLinesRef.current[id] = drawPolyline(map, serverRoute.path, color, isActive);
+      routeLinesRef.current[id] = drawPolyline(map, serverRoute.path, color);
       vehicleRouteRef.current[id] = {
         duration: serverRoute.duration,
         distance: serverRoute.distance,
@@ -316,6 +285,9 @@ export default function MapView({ role = "admin", clientId = null }) {
         dest:     serverRoute.destTitle,
       };
     }
+
+    // Always reapply styles after redraw so selected vehicle stays highlighted
+    applyRouteStyles();
   }
 
   function drawOrUpdateVehicles(data) {
@@ -331,10 +303,10 @@ export default function MapView({ role = "admin", clientId = null }) {
       const labelHtml = `${v.descrip||"—"}<br/>${v.speed||0} km/h`;
 
       const onMarkerClick = () => {
+        activeVehicleRef.current = id;
         activeInfo.setContent(buildInfoHtml(v));
         activeInfo.open(map, markersRef.current[id]?.marker);
-        // Bring this vehicle's route to front, fade others
-        bringRouteToFront(id);
+        applyRouteStyles();
       };
 
       if (markersRef.current[id]) {
@@ -343,6 +315,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         mk.marker.setIcon(icon);
         mk.labelOverlay.updateContent(labelHtml);
         mk.labelOverlay.updatePosition(pos);
+        g.maps.event.clearListeners(mk.marker, "click");
         mk.marker.addListener("click", onMarkerClick);
       } else {
         const marker = new g.maps.Marker({ map, position:pos, icon });
@@ -382,9 +355,9 @@ export default function MapView({ role = "admin", clientId = null }) {
       if (!g || !g.maps) { pollTimer = setTimeout(initWhenReady, 200); return; }
       if (!mapInstance.current && mapRef.current) {
         mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1},zoom:8,streetViewControl:false,mapTypeControl:true });
-        // Clicking anywhere on map resets route highlight styles
         mapInstance.current.addListener("click", () => {
-          resetRouteStyles();
+          activeVehicleRef.current = null;
+          applyRouteStyles();
           if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
         });
       }
@@ -415,23 +388,13 @@ export default function MapView({ role = "admin", clientId = null }) {
           wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
         });
         console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
-        fetchAll().then(() => {
-          const mk = markersRef.current[vehicleId];
-          const activeInfo = mapInstance.current?.activeInfoWindow;
-          if (mk && activeInfo && activeInfo.getMap()) {
-            fetch(`${API}/positions${buildPhasesParam()}`).then(r=>r.json()).then(positions => {
-              const v = positions.find(p=>(p.descrip||`veh-${p.id}`)===vehicleId);
-              if (v) activeInfo.setContent(buildInfoHtml(v));
-            }).catch(()=>{});
-          }
-        });
+        fetchAll();
       };
 
       const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
 
       async function fetchAll() {
         try {
-          // Send all known phases with every poll — backend uses these directly
           const phases = buildPhasesParam();
           let positions = await fetch(`${API}/positions${phases}`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
