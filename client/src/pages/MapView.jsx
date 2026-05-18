@@ -1,14 +1,10 @@
 import React, { useEffect, useRef } from "react";
 
-const API      = "https://fleetpro-backend-production.up.railway.app/api";
-// Module-level geocode cache — persists for entire browser session
-const _geocodeSessionCache = {};
+const API = "https://fleetpro-backend-production.up.railway.app/api";
 
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
-const TRUCK_FACTOR = 1.5;
-const ROUTE_CACHE_VERSION = "v8";
 
-// Phase order — higher = further along the journey
+// Phase order
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
 
 // ── Read phase from localStorage ───────────────────────────────────────────
@@ -17,23 +13,16 @@ function getPhase(id) {
   catch { return null; }
 }
 
-// ── Write phase ────────────────────────────────────────────────────────────
-// Protection rule: for the SAME task ID, never write a lower phase.
-// For a NEW task ID, always reset cleanly — the old task is done.
-// Manual override uses _forceSetPhase which bypasses all protection.
+// ── Write phase — scoped per task ID, never downgrades same task ───────────
 function setPhase(id, data) {
   try {
     const all     = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
     const current = all[id];
     if (current && current.taskId === data.taskId && data.phase) {
-      // Same task — never go backwards
       const curOrder = PHASE_ORDER_MAP[current.phase] ?? -1;
       const newOrder = PHASE_ORDER_MAP[data.phase]    ?? -1;
-      if (newOrder < curOrder) {
-        data = { ...data, phase: current.phase };
-      }
+      if (newOrder < curOrder) data = { ...data, phase: current.phase };
     }
-    // Different task ID or no prior cache — write freely (new task = fresh start)
     all[id] = data;
     localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
   } catch {}
@@ -55,42 +44,21 @@ export default function MapView({ role = "admin", clientId = null }) {
   const markersRef       = useRef({});
   const pointOverlaysRef = useRef([]);
   const routeLinesRef    = useRef({});
-  const routeCacheRef    = useRef({});
   const vehicleRouteRef  = useRef({});
 
   // ── Phase logic ────────────────────────────────────────────────────────────
-  //
-  // IRON RULES:
-  // 1. New task ID always resets to to_load (fresh start, old task is done).
-  // 2. Same task ID never goes backwards automatically — ever.
-  // 3. Driver advances to_load → at_load only by physically entering load zone.
-  // 4. Driver advances at_load → to_drop after 2 consecutive readings outside load zone.
-  // 5. Driver advances to_drop → at_drop after 2 consecutive readings inside drop zone.
-  // 6. atDrop uses ONLY geocoded task.dropoffLocation text — never task.dropPoint saved object.
-  // 7. Manual override (_forceSetPhase) is the ONLY way to move phase backwards.
-  //
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
     const current = getPhase(id);
     const closest = Math.min(current?.closestToLoad ?? distToLoad, distToLoad);
 
-    // ── New task or first time seeing this vehicle ─────────────────────────
-    // Always start fresh at to_load for a new task.
-    // The old task is complete — its phase is irrelevant.
     if (!current || current.taskId !== taskId) {
       const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      setPhase(id, {
-        phase, taskId,
-        prevDistToLoad: distToLoad, closestToLoad: distToLoad,
-        outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false,
-      });
+      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
       return phase;
     }
 
-    // ── Same task — advance only, never revert ─────────────────────────────
     const phase        = current.phase;
     const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
-
-    // Update tracking fields
     setPhase(id, { ...current, taskId, prevDistToLoad: distToLoad, closestToLoad: closest });
 
     const advanceTo = (newPhase, extraData = {}) => {
@@ -101,7 +69,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       return phase;
     };
 
-    // ── to_load: waiting to physically enter loading zone ──────────────────
     if (phase === "to_load") {
       if (atLoad) {
         setPhase(id, { ...current, taskId, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
@@ -110,12 +77,10 @@ export default function MapView({ role = "admin", clientId = null }) {
       return "to_load";
     }
 
-    // ── at_load: inside loading zone, waiting for driver to load and leave ─
     if (phase === "at_load") {
       if (!atLoad) {
         const count = (current.outsideLoadCount || 0) + 1;
         setPhase(id, { ...current, taskId, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
-        // 2 consecutive readings outside = driver has loaded and left
         if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase, { insideDropCount: 0 });
         return "at_load";
       } else {
@@ -123,9 +88,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     }
 
-    // ── to_drop: heading to assigned dropoff ───────────────────────────────
-    // 2 consecutive readings inside drop zone required — prevents drive-through
-    // false triggers from other clients' saved point circles on the map.
     if (phase === "to_drop") {
       if (atDrop) {
         const insideCount = (current.insideDropCount || 0) + 1;
@@ -139,43 +101,16 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
     }
 
-    // ── at_drop: arrived — stay here until task completed or manual override ─
     return phase;
   }
 
-  // ── Routes API ─────────────────────────────────────────────────────────────
-  async function fetchRoadRoute(originLat, originLng, destLat, destLng) {
-    const cacheKey = `${ROUTE_CACHE_VERSION}:${originLat.toFixed(1)},${originLng.toFixed(1)}→${destLat.toFixed(1)},${destLng.toFixed(1)}`;
-    const cached   = routeCacheRef.current[cacheKey];
-    if (cached && cached.expiry > Date.now()) return cached.data;
-    try {
-      const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
-        method: "POST",
-        headers: {
-          "Content-Type":     "application/json",
-          "X-Goog-Api-Key":   MAPS_KEY,
-          "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline",
-        },
-        body: JSON.stringify({
-          origin:      { location: { latLng: { latitude: originLat, longitude: originLng } } },
-          destination: { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
-          travelMode:  "DRIVE",
-        }),
-      });
-      const data = await res.json();
-      if (!data.routes?.[0]) return null;
-      const route  = data.routes[0];
-      const mins   = Math.round((parseInt(route.duration) * TRUCK_FACTOR) / 60);
-      const distM  = route.distanceMeters;
-      const result = {
-        path:     decodePolyline(route.polyline.encodedPolyline),
-        duration: mins < 60 ? `~${mins} min` : `~${Math.floor(mins/60)}h ${mins%60>0?mins%60+"min":""}`,
-        distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
-        mins,
-      };
-      routeCacheRef.current[cacheKey] = { data: result, expiry: Date.now() + 600000 };
-      return result;
-    } catch (err) { console.warn("Routes API error:", err.message); return null; }
+  // ── Tell backend about phase change so route cache serves correct destination ──
+  function reportPhaseToBackend(vehicleReg, phase) {
+    fetch(`${API}/positions/phase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vehicleReg, phase }),
+    }).catch(() => {});
   }
 
   function decodePolyline(encoded) {
@@ -203,7 +138,6 @@ export default function MapView({ role = "admin", clientId = null }) {
     } catch { return "Invalid date"; }
   }
 
-  // ── Label overlay ──────────────────────────────────────────────────────────
   function createLabelOverlay(map, position, html) {
     const g = window.google; if (!g) return null;
     function LO(pos, content) { this.position = pos; this.content = content; this.div = null; }
@@ -225,11 +159,10 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position, html); lbl.setMap(map); return lbl;
   }
 
-  // ── Info popup ─────────────────────────────────────────────────────────────
   function buildInfoHtml(v) {
-    const t     = v.activeTask;
-    const id    = v.descrip || `veh-${v.id}`;
-    const phase = getPhase(id)?.phase;
+    const t         = v.activeTask;
+    const id        = v.descrip || `veh-${v.id}`;
+    const phase     = getPhase(id)?.phase;
     const routeInfo = vehicleRouteRef.current[id];
     const phaseColors = { to_load:"#1e88e5", at_load:"#fb8c00", to_drop:"#43a047", at_drop:"#43a047" };
     const phaseLabels = { to_load:"🚛 En route to loading", at_load:"🏭 At loading station", to_drop:"🚛 En route to dropoff", at_drop:"✅ Arrived at client" };
@@ -305,7 +238,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       icons:[{ icon:{path:g.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:3,strokeColor:color}, offset:"50%" }], map });
   }
 
-  async function updateRouteAndEta(v) {
+  function updateRouteAndEta(v) {
     const map  = mapInstance.current;
     const id   = v.descrip || `veh-${v.id}`;
     const task = v.activeTask;
@@ -315,47 +248,39 @@ export default function MapView({ role = "admin", clientId = null }) {
 
     if (!task || task.status !== "inprogress") return;
 
-    // Always geocode from assigned location text — never use task.loadPoint / task.dropPoint
-    // (backend saved point objects match nearest circle, not the actual assigned address)
-    const geocoder = new window.google.maps.Geocoder();
-    const geocode  = (address) => new Promise((resolve) => {
-      if (!address) return resolve(null);
-      if (_geocodeSessionCache[address]) return resolve(_geocodeSessionCache[address]);
-      geocoder.geocode({ address, componentRestrictions: { country: "za" } }, (results, status) => {
-        if (status === "OK" && results[0]) {
-          const loc    = results[0].geometry.location;
-          const result = { lat: loc.lat(), lon: loc.lng(), radius: 500, title: address };
-          _geocodeSessionCache[address] = result;
-          resolve(result);
-        } else resolve(null);
-      });
-    });
+    // Use coordinates from backend — no geocoding needed in browser
+    const loadPt = task.loadPoint;
+    const dropPt = task.dropPoint;
 
-    const loadPt = await geocode(task.loadLocation);
-    const dropPt = await geocode(task.dropoffLocation);
-
-    const loadRadius = 500;
-    const dropRadius = 500;
-
+    const loadRadius = loadPt?.radius || 500;
+    const dropRadius = dropPt?.radius || 500;
     const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
     const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
     const atLoad     = loadPt ? distToLoad <= loadRadius : false;
     const atDrop     = dropPt ? distToDrop <= dropRadius : false;
 
-    const phase = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
+    const prevPhase = getPhase(id)?.phase;
+    const phase     = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
+
+    // If phase changed, tell backend so route cache updates to correct destination
+    if (phase !== prevPhase) {
+      reportPhaseToBackend(v.descrip, phase);
+    }
 
     if (!phase || phase === "at_drop") return;
 
-    let destPt = null, color = "#1e88e5";
-    if (phase === "to_load")           { destPt = loadPt; color = "#1e88e5"; }
-    if (phase === "at_load" && dropPt) { destPt = dropPt; color = "#43a047"; }
-    if (phase === "to_drop")           { destPt = dropPt; color = "#43a047"; }
-    if (!destPt) return;
-
-    const route = await fetchRoadRoute(v.lat, v.lon, destPt.lat, destPt.lon);
-    if (route) {
-      routeLinesRef.current[id] = drawPolyline(map, route.path, color);
-      vehicleRouteRef.current[id] = { duration: route.duration, distance: route.distance, dest: destPt.title, mins: route.mins };
+    // Use pre-calculated route from backend — NO Google API call from browser
+    const serverRoute = task.routeCache;
+    if (serverRoute?.path?.length > 0) {
+      let color = "#1e88e5";
+      if (phase === "to_drop" || phase === "at_load") color = "#43a047";
+      routeLinesRef.current[id] = drawPolyline(map, serverRoute.path, color);
+      vehicleRouteRef.current[id] = {
+        duration: serverRoute.duration,
+        distance: serverRoute.distance,
+        mins:     serverRoute.mins,
+        dest:     serverRoute.destTitle,
+      };
     }
   }
 
@@ -431,7 +356,6 @@ export default function MapView({ role = "admin", clientId = null }) {
         }
       };
 
-      // Manual override — ONLY path that can move phase backwards within a task
       window._fleetproOverride = (vehicleId, newPhase) => {
         const current = getPhase(vehicleId);
         if (!current) return;
@@ -444,6 +368,7 @@ export default function MapView({ role = "admin", clientId = null }) {
           insideDropCount: 0,
           wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
         });
+        reportPhaseToBackend(vehicleId, newPhase);
         console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
         fetchAll().then(() => {
           const mk = markersRef.current[vehicleId];
