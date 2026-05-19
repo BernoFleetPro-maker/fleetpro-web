@@ -716,9 +716,22 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                           : "bg-[#0b1220] border-slate-700"
                       }`}
                     >
-                      <div className="font-semibold text-[12px] truncate">
-                        {task.title || task.loadLocation || "Untitled"}
-                        {task.orderNumber && <span className="ml-1 text-slate-400 font-normal">#{task.orderNumber}</span>}
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="font-semibold text-[12px] truncate flex-1">
+                          {task.title || task.loadLocation || "Untitled"}
+                          {task.orderNumber && <span className="ml-1 text-slate-400 font-normal">#{task.orderNumber}</span>}
+                        </div>
+                        {task.status === "inprogress" && task.vehicleId && (
+                          <button
+                            onClick={() => {
+                              const reg = vehicleReg(task.vehicleId);
+                              window.location.href = `/?vehicle=${encodeURIComponent(reg)}`;
+                            }}
+                            className="shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded border border-blue-500 text-blue-400 hover:bg-blue-900/40 whitespace-nowrap"
+                          >
+                            🗺 Map
+                          </button>
+                        )}
                       </div>
                       <div className="text-slate-400 truncate mt-0.5">📍{task.loadLocation || "—"} → 🏁{task.dropoffLocation || "—"}</div>
                       <div className="text-slate-400 truncate mt-0.5">

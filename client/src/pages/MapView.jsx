@@ -321,6 +321,31 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
           }
           drawOrUpdateVehicles(positions);
           await drawPoints();
+
+          // Auto-open vehicle popup if navigated from Tasks page
+          const urlVehicle = new URLSearchParams(window.location.search).get("vehicle");
+          if (urlVehicle) {
+            const match = positions.find(v => (v.descrip || "").trim().toUpperCase() === urlVehicle.trim().toUpperCase());
+            if (match) {
+              const id = match.descrip || `veh-${match.id}`;
+              const mk = markersRef.current[id];
+              if (mk && mapInstance.current) {
+                // Centre map on vehicle
+                mapInstance.current.panTo({ lat: match.lat, lng: match.lon });
+                mapInstance.current.setZoom(12);
+                // Open info popup
+                const activeInfo = mapInstance.current.activeInfoWindow;
+                if (activeInfo) {
+                  activeVehicleRef.current = id;
+                  activeInfo.setContent(buildInfoHtml(match));
+                  activeInfo.open(mapInstance.current, mk.marker);
+                  applyRouteStyles();
+                }
+                // Clear the URL param so refresh doesn't re-trigger
+                window.history.replaceState({}, "", "/");
+              }
+            }
+          }
         } catch(err) { console.error("fetchAll error:",err); }
       }
       fetchAll();
