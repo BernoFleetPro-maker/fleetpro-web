@@ -320,6 +320,19 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   const lastOptimisticRef = useRef(0);
   const [vehicleETAs, setVehicleETAs] = useState({});
 
+  // ── Highlight task navigated from map ────────────────────────────────────
+  const [highlightedTaskId, setHighlightedTaskId] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("highlight") || null; }
+    catch { return null; }
+  });
+  const highlightRef = useRef(null);
+  useEffect(() => {
+    if (!highlightedTaskId) return;
+    const scroll = setTimeout(() => { if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:"smooth", block:"center" }); }, 600);
+    const clear  = setTimeout(() => setHighlightedTaskId(null), 4000);
+    return () => { clearTimeout(scroll); clearTimeout(clear); };
+  }, [highlightedTaskId, initialLoaded]);
+
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
     try {
@@ -675,8 +688,17 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                 {col.length === 0 && <p className="text-slate-500 text-[11px] italic text-center mt-3">No tasks</p>}
                 {col.map((task) => {
                   const photoCount = task.photoCount ?? task.photoUrls?.filter(p => p && !p.startsWith("photo_")).length ?? (task.photoUrl && task.photoUrl !== "has_photo" ? 1 : 0);
+                  const isHighlighted = task.id === highlightedTaskId;
                   return (
-                    <div key={task.id} className="bg-[#0b1220] border border-slate-700 rounded p-2 text-[11px] leading-snug">
+                    <div
+                      key={task.id}
+                      ref={isHighlighted ? highlightRef : null}
+                      className={`border rounded p-2 text-[11px] leading-snug transition-all duration-500 ${
+                        isHighlighted
+                          ? "bg-blue-950 border-blue-400 shadow-lg shadow-blue-900/50 ring-1 ring-blue-400"
+                          : "bg-[#0b1220] border-slate-700"
+                      }`}
+                    >
                       <div className="font-semibold text-[12px] truncate">
                         {task.title || task.loadLocation || "Untitled"}
                         {task.orderNumber && <span className="ml-1 text-slate-400 font-normal">#{task.orderNumber}</span>}

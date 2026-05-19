@@ -86,7 +86,7 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
           <div style="font-weight:700;color:#1e88e5;font-size:12px;">📦 ACTIVE TASK</div>
           <button onclick="window._fleetproGoToTask('${t.id}')"
-            style="background:#1e293b;color:#60a5fa;border:1px solid #334155;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;">
+            style="background:#fff;color:#1e88e5;border:1px solid #1e88e5;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;">
             Open in Tasks →
           </button>
         </div>
@@ -266,10 +266,9 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
         }
       };
 
-      // Navigate to Tasks page and highlight the specific task
+      // Navigate to Tasks page with task highlighted
       window._fleetproGoToTask = (taskId) => {
         if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
-        // Use React navigation if available, otherwise use URL
         if (typeof onNavigateToTask === "function") {
           onNavigateToTask(taskId);
         } else {
