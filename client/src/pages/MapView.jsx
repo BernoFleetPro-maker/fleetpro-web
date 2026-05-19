@@ -93,7 +93,7 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
         <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
           <div style="font-weight:700;color:#1e88e5;font-size:12px;">📦 ACTIVE TASK</div>
-          <button onclick="window._fleetproGoToTask('${t.id}')"
+          <button onclick="window._fleetproGoToTask('${t.id}','${phase || ''}')"
             style="background:#fff;color:#1e88e5;border:1px solid #1e88e5;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;">
             Open in Tasks →
           </button>
@@ -289,12 +289,13 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
         }
       };
 
-      window._fleetproGoToTask = (taskId) => {
+      window._fleetproGoToTask = (taskId, phase) => {
         if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
         if (typeof onNavigateToTask === "function") {
-          onNavigateToTask(taskId);
+          onNavigateToTask(taskId, phase);
         } else {
-          window.location.href = `/tasks?highlight=${taskId}`;
+          const phaseParam = phase ? `&phase=${phase}` : "";
+          window.location.href = `/tasks?highlight=${taskId}${phaseParam}`;
         }
       };
 

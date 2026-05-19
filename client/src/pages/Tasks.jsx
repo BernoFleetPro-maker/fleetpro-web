@@ -325,22 +325,34 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     try { return new URLSearchParams(window.location.search).get("highlight") || null; }
     catch { return null; }
   });
+  // Phase passed from map via URL so highlight color is correct immediately
+  // without waiting for ETAs to load
+  const highlightedPhase = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("phase") || null; }
+    catch { return null; }
+  })[0];
   const highlightRef = useRef(null);
 
-  // When navigating from map, show all dates so the task is always visible
-  // regardless of which date is currently selected in the calendar
+  // When navigating from map, switch to the task's own date so it's visible
+  // We do this after tasks load so we know the task's date
   useEffect(() => {
-    if (!highlightedTaskId) return;
-    handleDateSelect(""); // show all dates so highlighted task is always found
-  }, [highlightedTaskId]);
+    if (!highlightedTaskId || !initialLoaded) return;
+    const task = tasks.find(t => t.id === highlightedTaskId);
+    if (task?.date) {
+      handleDateSelect(task.date);
+    }
+    // If task has no date, show all so it's always found
+    else {
+      handleDateSelect("");
+    }
+  }, [highlightedTaskId, initialLoaded]);
 
-  // Only scroll and start the clear timer AFTER tasks have actually loaded
-  // This prevents the timer expiring before the task card renders
+  // Scroll to task after date filter is applied and task is rendered
   useEffect(() => {
     if (!highlightedTaskId || !initialLoaded) return;
     const scroll = setTimeout(() => {
       if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:"smooth", block:"center" });
-    }, 300);
+    }, 400);
     const clear = setTimeout(() => setHighlightedTaskId(null), 6000);
     return () => { clearTimeout(scroll); clearTimeout(clear); };
   }, [highlightedTaskId, initialLoaded]);
@@ -701,8 +713,11 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                 {col.map((task) => {
                   const photoCount = task.photoCount ?? task.photoUrls?.filter(p => p && !p.startsWith("photo_")).length ?? (task.photoUrl && task.photoUrl !== "has_photo" ? 1 : 0);
                   const isHighlighted = task.id === highlightedTaskId;
-                  // Border color matches phase: blue = to_load/at_load, green = to_drop/at_drop
-                  const etaPhase = vehicleETAs[task.id]?.phase;
+                  // Use phase from URL param (passed by map) for immediate correct color
+                  // Fall back to vehicleETAs phase if available
+                  const etaPhase = isHighlighted
+                    ? (highlightedPhase || vehicleETAs[task.id]?.phase)
+                    : vehicleETAs[task.id]?.phase;
                   const highlightBorder = etaPhase === "to_drop" || etaPhase === "at_drop"
                     ? "border-green-400"
                     : "border-blue-400";
