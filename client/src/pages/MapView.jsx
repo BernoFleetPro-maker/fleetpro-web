@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
-export default function MapView({ role = "admin", clientId = null }) {
+export default function MapView({ role = "admin", clientId = null, onNavigateToTask }) {
   const isAdmin = role === "admin";
   const mapRef           = useRef(null);
   const mapInstance      = useRef(null);
@@ -11,9 +11,7 @@ export default function MapView({ role = "admin", clientId = null }) {
   const routeLinesRef    = useRef({});
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null);
-  const lastDataRef      = useRef({}); // latest vehicle data per id
 
-  // ── Apply highlight styles ─────────────────────────────────────────────────
   function applyRouteStyles() {
     const activeId = activeVehicleRef.current;
     Object.entries(routeLinesRef.current).forEach(([id, line]) => {
@@ -38,6 +36,15 @@ export default function MapView({ role = "admin", clientId = null }) {
       date = new Date(date.getTime() - 2 * 60 * 60 * 1000);
       return date.toLocaleString("en-ZA", { timeZone:"Africa/Johannesburg", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false });
     } catch { return "Invalid date"; }
+  }
+
+  function formatDropoffDate(date, time) {
+    if (!date) return null;
+    try {
+      const d = new Date(date + "T00:00:00");
+      const dayStr = d.toLocaleDateString("en-ZA", { weekday:"short", day:"numeric", month:"short", year:"numeric" });
+      return time ? `${dayStr} @ ${time}` : dayStr;
+    } catch { return date; }
   }
 
   function createLabelOverlay(map, position, html) {
@@ -68,17 +75,26 @@ export default function MapView({ role = "admin", clientId = null }) {
     const routeInfo = vehicleRouteRef.current[id];
     const phaseColors = { to_load:"#1e88e5", at_load:"#fb8c00", to_drop:"#43a047", at_drop:"#43a047" };
     const phaseLabels = { to_load:"🚛 En route to loading", at_load:"🏭 At loading station", to_drop:"🚛 En route to dropoff", at_drop:"✅ Arrived at client" };
-    const phaseColor = phase ? (phaseColors[phase] || "#555") : "#555";
-    const phaseLabel = phase ? (phaseLabels[phase] || "") : "";
+    const phaseColor  = phase ? (phaseColors[phase] || "#555") : "#555";
+    const phaseLabel  = phase ? (phaseLabels[phase] || "") : "";
+    const dropoffDate = t ? formatDropoffDate(t.date, t.pickupTime) : null;
+
     let taskSection = "";
     if (t) {
       taskSection = `
         <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
-        <div style="font-weight:700;color:#1e88e5;font-size:12px;margin-bottom:6px;">📦 ACTIVE TASK</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <div style="font-weight:700;color:#1e88e5;font-size:12px;">📦 ACTIVE TASK</div>
+          <button onclick="window._fleetproGoToTask('${t.id}')"
+            style="background:#1e293b;color:#60a5fa;border:1px solid #334155;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;">
+            Open in Tasks →
+          </button>
+        </div>
         ${t.orderNumber ? `<div><strong>Order:</strong> ${t.orderNumber}</div>` : ""}
         <div><strong>Driver:</strong> ${t.driverName || "—"}</div>
         <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Load:</strong> ${t.loadLocation || "—"}</div>
         <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Dropoff:</strong> ${t.dropoffLocation || "—"}</div>
+        ${dropoffDate ? `<div style="margin-top:3px;"><strong>Due:</strong> <span style="color:#f59e0b;font-weight:600;">${dropoffDate}</span></div>` : ""}
         ${phaseLabel ? `<hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="background:${phaseColor};color:#fff;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:600;margin-bottom:6px;text-align:center;">${phaseLabel}</div>` : ""}
         ${routeInfo ? `
@@ -143,8 +159,6 @@ export default function MapView({ role = "admin", clientId = null }) {
     const id   = v.descrip || `veh-${v.id}`;
     const task = v.activeTask;
 
-    lastDataRef.current[id] = v;
-
     if (routeLinesRef.current[id]) { routeLinesRef.current[id].setMap(null); delete routeLinesRef.current[id]; }
     delete vehicleRouteRef.current[id];
 
@@ -153,8 +167,8 @@ export default function MapView({ role = "admin", clientId = null }) {
     const phase = task.phase;
     if (!phase || phase === "at_drop") return;
 
-    let color = "#1e88e5"; // blue = loading
-    if (phase === "to_drop" || phase === "at_load") color = "#43a047"; // green = dropoff
+    let color = "#1e88e5";
+    if (phase === "to_drop" || phase === "at_load") color = "#43a047";
 
     routeLinesRef.current[id] = drawPolyline(map, task.routeCache.path, color);
     vehicleRouteRef.current[id] = {
@@ -164,7 +178,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       dest:     task.routeCache.destTitle,
     };
 
-    // Reapply styles so selected vehicle stays highlighted after redraw
     applyRouteStyles();
   }
 
@@ -253,7 +266,17 @@ export default function MapView({ role = "admin", clientId = null }) {
         }
       };
 
-      // Manual override — calls backend directly so all browsers update immediately
+      // Navigate to Tasks page and highlight the specific task
+      window._fleetproGoToTask = (taskId) => {
+        if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
+        // Use React navigation if available, otherwise use URL
+        if (typeof onNavigateToTask === "function") {
+          onNavigateToTask(taskId);
+        } else {
+          window.location.href = `/tasks?highlight=${taskId}`;
+        }
+      };
+
       window._fleetproOverride = (vehicleId, newPhase, taskId) => {
         fetch(`${API}/positions/phase`, {
           method: "POST",
@@ -280,7 +303,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
       fetchAll();
       const interval = setInterval(fetchAll, 30000);
-      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
+      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; delete window._fleetproGoToTask; };
     }
     initWhenReady();
     return () => { if (pollTimer) clearTimeout(pollTimer); };
