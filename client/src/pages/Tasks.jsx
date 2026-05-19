@@ -689,13 +689,18 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                 {col.map((task) => {
                   const photoCount = task.photoCount ?? task.photoUrls?.filter(p => p && !p.startsWith("photo_")).length ?? (task.photoUrl && task.photoUrl !== "has_photo" ? 1 : 0);
                   const isHighlighted = task.id === highlightedTaskId;
+                  // Border color matches phase: blue = to_load/at_load, green = to_drop/at_drop
+                  const etaPhase = vehicleETAs[task.id]?.phase;
+                  const highlightBorder = etaPhase === "to_drop" || etaPhase === "at_drop"
+                    ? "border-green-400"
+                    : "border-blue-400";
                   return (
                     <div
                       key={task.id}
                       ref={isHighlighted ? highlightRef : null}
                       className={`border rounded p-2 text-[11px] leading-snug transition-all duration-500 ${
                         isHighlighted
-                          ? "bg-blue-950 border-blue-400 shadow-lg shadow-blue-900/50 ring-1 ring-blue-400"
+                          ? `bg-[#0b1220] ${highlightBorder} border-2`
                           : "bg-[#0b1220] border-slate-700"
                       }`}
                     >
