@@ -652,7 +652,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   };
 
   return (
-    <div className="bg-[#0f1724] text-white p-4" style={{transform:"scale(0.6)",transformOrigin:"top left",width:"166.67%",minHeight:"166.67vh"}}>
+    <div className="min-h-screen bg-[#0f1724] text-white p-4">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
@@ -674,26 +674,26 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
         <div className="text-center text-slate-400 text-sm py-8">Loading tasks...</div>
       )}
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-4 gap-3" style={{height:"calc(100vh - 110px)"}}>
         {STATUSES.map(({ key, label, color, badge }) => {
           const col = tasksForStatus(key);
           return (
-            <div key={key} className={`bg-[#1e293b] rounded-lg border-t-4 ${color} flex flex-col`}>
-              <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
-                <span className="text-xs font-semibold">{label}</span>
+            <div key={key} className={`bg-[#1e293b] rounded-lg border-t-4 ${color} flex flex-col overflow-hidden`}>
+              <div className="flex items-center justify-between px-2 py-1.5 border-b border-slate-700">
+                <span className="text-[11px] font-semibold">{label}</span>
                 <div className="flex items-center gap-1">
                   {key === "completed" && col.length > 0 && (
                     <>
-                      <span className="text-[10px] text-green-400">{col.filter(t => t.result !== "failed").length}✅</span>
+                      <span className="text-[9px] text-green-400">{col.filter(t => t.result !== "failed").length}✅</span>
                       {col.filter(t => t.result === "failed").length > 0 && (
-                        <span className="text-[10px] text-red-400 ml-1">{col.filter(t => t.result === "failed").length}❌</span>
+                        <span className="text-[9px] text-red-400 ml-1">{col.filter(t => t.result === "failed").length}❌</span>
                       )}
                     </>
                   )}
-                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ml-1 ${badge}`}>{col.length}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1 ${badge}`}>{col.length}</span>
                 </div>
               </div>
-              <div className="flex flex-col gap-1.5 p-2 flex-1 overflow-y-auto max-h-[75vh]">
+              <div className="flex flex-col gap-1 p-1.5 flex-1 overflow-y-auto">
                 {col.length === 0 && <p className="text-slate-500 text-[11px] italic text-center mt-3">No tasks</p>}
                 {col.map((task) => {
                   const photoCount = task.photoCount ?? task.photoUrls?.filter(p => p && !p.startsWith("photo_")).length ?? (task.photoUrl && task.photoUrl !== "has_photo" ? 1 : 0);
@@ -710,7 +710,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                     <div
                       key={task.id}
                       ref={isHighlighted ? highlightRef : null}
-                      className={`border rounded p-2 text-[11px] leading-snug transition-all duration-500 ${
+                      className={`border rounded p-1.5 text-[10px] leading-snug transition-all duration-500 ${
                         isHighlighted
                           ? `bg-[#0b1220] ${highlightBorder} border-2`
                           : "bg-[#0b1220] border-slate-700"
@@ -742,7 +742,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                         <div className="text-slate-500 text-[10px] mt-0.5">{task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}</div>
                       )}
                       {task.status === "inprogress" && vehicleETAs[task.id] && (
-                        <div className={`flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-[10px] font-semibold ${
+                        <div className={`flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
                           vehicleETAs[task.id].phase === "to_load" || vehicleETAs[task.id].phase === "at_load"
                             ? "bg-blue-900/50 text-blue-300"
                             : "bg-green-900/50 text-green-300"
@@ -763,31 +763,31 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                           <span className="text-[10px] text-green-400">📷 {photoCount} photo{photoCount !== 1 ? "s" : ""}</span>
                         </div>
                       )}
-                      <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/60">
+                      <div className="flex flex-wrap gap-0.5 mt-1 pt-1 border-t border-slate-700/60">
                         {hasFullAccess ? (
                           <>
                             {task.status === "completed" && (
-                              <button onClick={() => setPodTask(task)} className="px-1.5 py-0.5 bg-green-800 hover:bg-green-700 rounded text-[10px] font-medium">👁 View POD</button>
+                              <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
                             )}
-                            <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
-                            <button onClick={() => handleDelete(task.id)} className="px-1.5 py-0.5 bg-red-900 hover:bg-red-700 rounded text-[10px]">🗑 Del</button>
+                            <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
+                            <button onClick={() => handleDelete(task.id)} className="px-1 py-0 bg-red-900 hover:bg-red-700 rounded text-[9px]">🗑 Del</button>
                             {task.status === "todo" && (
-                              <button onClick={() => setStatus(task.id, "inprogress")} className="px-1.5 py-0.5 bg-yellow-700 hover:bg-yellow-600 rounded text-[10px]">▶ Accept</button>
+                              <button onClick={() => setStatus(task.id, "inprogress")} className="px-1 py-0 bg-yellow-700 hover:bg-yellow-600 rounded text-[9px]">▶ Accept</button>
                             )}
                             {task.status === "inprogress" && (
                               <>
-                                <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-green-700 hover:bg-green-600 rounded text-[10px]">✅ Done</button>
-                                <button onClick={() => setStatus(task.id, "completed")} className="px-1.5 py-0.5 bg-orange-700 hover:bg-orange-600 rounded text-[10px]">❌ Fail</button>
+                                <button onClick={() => setStatus(task.id, "completed")} className="px-1 py-0 bg-green-700 hover:bg-green-600 rounded text-[9px]">✅ Done</button>
+                                <button onClick={() => setStatus(task.id, "completed")} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
                               </>
                             )}
                           </>
                         ) : canEdit ? (
                           <>
-                            <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
-                            <button onClick={() => openEdit(task)} className="px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px]">✏ Edit</button>
+                            <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
+                            <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
                           </>
                         ) : (
-                          <button onClick={() => setViewTask(task)} className="px-1.5 py-0.5 bg-blue-800 hover:bg-blue-700 rounded text-[10px] font-medium">👁 View</button>
+                          <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
                         )}
                       </div>
                     </div>
