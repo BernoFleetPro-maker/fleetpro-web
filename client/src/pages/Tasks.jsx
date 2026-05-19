@@ -326,10 +326,22 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     catch { return null; }
   });
   const highlightRef = useRef(null);
+
+  // When navigating from map, show all dates so the task is always visible
+  // regardless of which date is currently selected in the calendar
   useEffect(() => {
     if (!highlightedTaskId) return;
-    const scroll = setTimeout(() => { if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:"smooth", block:"center" }); }, 600);
-    const clear  = setTimeout(() => setHighlightedTaskId(null), 4000);
+    handleDateSelect(""); // show all dates so highlighted task is always found
+  }, [highlightedTaskId]);
+
+  // Only scroll and start the clear timer AFTER tasks have actually loaded
+  // This prevents the timer expiring before the task card renders
+  useEffect(() => {
+    if (!highlightedTaskId || !initialLoaded) return;
+    const scroll = setTimeout(() => {
+      if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:"smooth", block:"center" });
+    }, 300);
+    const clear = setTimeout(() => setHighlightedTaskId(null), 6000);
     return () => { clearTimeout(scroll); clearTimeout(clear); };
   }, [highlightedTaskId, initialLoaded]);
 
