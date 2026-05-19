@@ -479,34 +479,19 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
 
         if (!resolvedLoadPt && !dropPt) return;
 
-        // FIX: Read phase from localStorage — same source of truth as MapView.
-        // If no cache entry exists for this vehicle+task, default to to_load
-        // (correct starting state) but do NOT assume to_drop prematurely.
-        let phase = "to_load";
-        try {
-          const phaseCache = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-          const vehicleReg = v.descrip;
-          if (vehicleReg && phaseCache[vehicleReg]) {
-            const cached = phaseCache[vehicleReg];
-            // Only use cached phase if it belongs to this exact task
-            if (cached.taskId === task.id && cached.phase) {
-              phase = cached.phase;
-            }
-            // If task ID doesn't match, this vehicle is on a new task — start at to_load
-          }
-        } catch {}
+        // FIX: Phase now comes from the backend (task.phase in positions response)
+        // The backend is the single source of truth — no more localStorage reads
+        const phase = task.phase || "to_load";
 
-        // Determine destination based on phase — mirrors MapView logic exactly
+        // Determine destination based on backend phase
         let dest = null;
         if (phase === "to_load" && resolvedLoadPt) {
           dest = resolvedLoadPt;
-        } else if (phase === "at_load" && resolvedLoadPt) {
-          // Still at loading — show route to dropoff if available, else stay on load
+        } else if (phase === "at_load") {
           dest = dropPt || resolvedLoadPt;
         } else if ((phase === "to_drop" || phase === "at_drop") && dropPt) {
           dest = dropPt;
         } else {
-          // Fallback: go to wherever we have a point
           dest = resolvedLoadPt || dropPt;
         }
         if (!dest) return;
