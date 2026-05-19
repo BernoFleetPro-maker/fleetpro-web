@@ -2,49 +2,6 @@ import React, { useEffect, useRef } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
-// Phase order
-const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
-
-function getPhase(id) {
-  try { return JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}")[id] || null; }
-  catch { return null; }
-}
-
-function getAllPhases() {
-  try { return JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}"); }
-  catch { return {}; }
-}
-
-function setPhase(id, data) {
-  try {
-    const all     = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-    const current = all[id];
-    if (current && current.taskId === data.taskId && data.phase) {
-      const curOrder = PHASE_ORDER_MAP[current.phase] ?? -1;
-      const newOrder = PHASE_ORDER_MAP[data.phase]    ?? -1;
-      if (newOrder < curOrder) data = { ...data, phase: current.phase };
-    }
-    all[id] = data;
-    localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
-  } catch {}
-}
-
-function _forceSetPhase(id, data) {
-  try {
-    const all = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-    all[id] = data;
-    localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
-  } catch {}
-}
-
-function buildPhasesParam() {
-  const all = getAllPhases();
-  const entries = Object.entries(all)
-    .filter(([, v]) => v?.phase)
-    .map(([reg, v]) => `${reg}:${v.phase}`);
-  return entries.length > 0 ? `?phases=${entries.join(",")}` : "";
-}
-
 export default function MapView({ role = "admin", clientId = null }) {
   const isAdmin = role === "admin";
   const mapRef           = useRef(null);
@@ -54,68 +11,21 @@ export default function MapView({ role = "admin", clientId = null }) {
   const routeLinesRef    = useRef({});
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null);
+  const lastDataRef      = useRef({}); // latest vehicle data per id
 
-  function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
-    const current = getPhase(id);
-    const closest = Math.min(current?.closestToLoad ?? distToLoad, distToLoad);
-
-    if (!current || current.taskId !== taskId) {
-      const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
-      return phase;
-    }
-
-    const phase        = current.phase;
-    const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
-    setPhase(id, { ...current, taskId, prevDistToLoad: distToLoad, closestToLoad: closest });
-
-    const advanceTo = (newPhase, extraData = {}) => {
-      if ((PHASE_ORDER_MAP[newPhase] ?? 0) > currentOrder) {
-        setPhase(id, { ...current, taskId, phase: newPhase, prevDistToLoad: distToLoad, closestToLoad: closest, ...extraData });
-        return newPhase;
-      }
-      return phase;
-    };
-
-    if (phase === "to_load") {
-      if (atLoad) {
-        setPhase(id, { ...current, taskId, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
-        return "at_load";
-      }
-      return "to_load";
-    }
-
-    if (phase === "at_load") {
-      if (!atLoad) {
-        const count = (current.outsideLoadCount || 0) + 1;
-        setPhase(id, { ...current, taskId, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
-        if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase, { insideDropCount: 0 });
-        return "at_load";
+  // ── Apply highlight styles ─────────────────────────────────────────────────
+  function applyRouteStyles() {
+    const activeId = activeVehicleRef.current;
+    Object.entries(routeLinesRef.current).forEach(([id, line]) => {
+      if (!line) return;
+      if (!activeId) {
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.55, strokeWeight: 2 });
+      } else if (id === activeId) {
+        line.setOptions({ zIndex: 100, strokeOpacity: 1.0, strokeWeight: 6 });
       } else {
-        setPhase(id, { ...current, taskId, outsideLoadCount: 0, wasInsideLoad: true, prevDistToLoad: distToLoad, closestToLoad: closest });
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.2, strokeWeight: 2 });
       }
-    }
-
-    if (phase === "to_drop") {
-      if (atDrop) {
-        const insideCount = (current.insideDropCount || 0) + 1;
-        setPhase(id, { ...current, taskId, insideDropCount: insideCount, prevDistToLoad: distToLoad, closestToLoad: closest });
-        if (insideCount >= 2) return advanceTo("at_drop");
-        return "to_drop";
-      } else {
-        if ((current.insideDropCount || 0) > 0) {
-          setPhase(id, { ...current, taskId, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
-        }
-      }
-    }
-
-    return phase;
-  }
-
-  function haversineM(lat1, lon1, lat2, lon2) {
-    const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
-    const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+    });
   }
 
   function formatDate(dtValue) {
@@ -151,32 +61,15 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position, html); lbl.setMap(map); return lbl;
   }
 
-  // ── Apply highlight styles ─────────────────────────────────────────────────
-  // Default: thin lines (weight 2, opacity 0.5) so map stays clean
-  // Selected: thick bright line (weight 6, opacity 1.0) on top of everything
-  function applyRouteStyles() {
-    const activeId = activeVehicleRef.current;
-    Object.entries(routeLinesRef.current).forEach(([id, line]) => {
-      if (!line) return;
-      if (!activeId) {
-        line.setOptions({ zIndex: 1, strokeOpacity: 0.55, strokeWeight: 2 });
-      } else if (id === activeId) {
-        line.setOptions({ zIndex: 100, strokeOpacity: 1.0, strokeWeight: 6 });
-      } else {
-        line.setOptions({ zIndex: 1, strokeOpacity: 0.2, strokeWeight: 2 });
-      }
-    });
-  }
-
   function buildInfoHtml(v) {
     const t         = v.activeTask;
     const id        = v.descrip || `veh-${v.id}`;
-    const phase     = getPhase(id)?.phase;
+    const phase     = t?.phase;
     const routeInfo = vehicleRouteRef.current[id];
     const phaseColors = { to_load:"#1e88e5", at_load:"#fb8c00", to_drop:"#43a047", at_drop:"#43a047" };
     const phaseLabels = { to_load:"🚛 En route to loading", at_load:"🏭 At loading station", to_drop:"🚛 En route to dropoff", at_drop:"✅ Arrived at client" };
-    const phaseColor = phaseColors[phase] || "#555";
-    const phaseLabel = phaseLabels[phase] || "";
+    const phaseColor = phase ? (phaseColors[phase] || "#555") : "#555";
+    const phaseLabel = phase ? (phaseLabels[phase] || "") : "";
     let taskSection = "";
     if (t) {
       taskSection = `
@@ -202,8 +95,8 @@ export default function MapView({ role = "admin", clientId = null }) {
         <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Manual override</div>
         <div style="display:flex;gap:6px;justify-content:center;">
-          <button onclick="window._fleetproOverride('${id}','to_load')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">📦 → Loading</button>
-          <button onclick="window._fleetproOverride('${id}','to_drop')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
+          <button onclick="window._fleetproOverride('${id}','to_load','${t.id}')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">📦 → Loading</button>
+          <button onclick="window._fleetproOverride('${id}','to_drop','${t.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
         </div>`;
     }
     return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;width:240px;box-sizing:border-box;overflow:hidden;">
@@ -237,7 +130,6 @@ export default function MapView({ role = "admin", clientId = null }) {
 
   function drawPolyline(map, path, color) {
     const g = window.google;
-    // Default: thin line — highlight applied separately via applyRouteStyles()
     return new g.maps.Polyline({
       path, strokeColor:color, strokeOpacity:0.55, strokeWeight:2,
       zIndex:1, geodesic:false,
@@ -251,42 +143,28 @@ export default function MapView({ role = "admin", clientId = null }) {
     const id   = v.descrip || `veh-${v.id}`;
     const task = v.activeTask;
 
+    lastDataRef.current[id] = v;
+
     if (routeLinesRef.current[id]) { routeLinesRef.current[id].setMap(null); delete routeLinesRef.current[id]; }
     delete vehicleRouteRef.current[id];
 
-    if (!task || task.status !== "inprogress") return;
+    if (!task || task.status !== "inprogress" || !task.routeCache) return;
 
-    const loadPt = task.loadPoint;
-    const dropPt = task.dropPoint;
-
-    // Use the saved point radius exactly as configured — this is the correct
-    // radius set by the admin when creating the loading/dropoff point.
-    const loadRadius = loadPt?.radius || 1000;
-    const dropRadius = dropPt?.radius || 1000;
-
-    const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
-    const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
-    const atLoad     = loadPt ? distToLoad <= loadRadius : false;
-    const atDrop     = dropPt ? distToDrop <= dropRadius : false;
-
-    const phase = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
-
+    const phase = task.phase;
     if (!phase || phase === "at_drop") return;
 
-    const serverRoute = task.routeCache;
-    if (serverRoute?.path?.length > 0) {
-      let color = "#1e88e5"; // blue = to_load
-      if (phase === "to_drop" || phase === "at_load") color = "#43a047"; // green = to_drop
-      routeLinesRef.current[id] = drawPolyline(map, serverRoute.path, color);
-      vehicleRouteRef.current[id] = {
-        duration: serverRoute.duration,
-        distance: serverRoute.distance,
-        mins:     serverRoute.mins,
-        dest:     serverRoute.destTitle,
-      };
-    }
+    let color = "#1e88e5"; // blue = loading
+    if (phase === "to_drop" || phase === "at_load") color = "#43a047"; // green = dropoff
 
-    // Always reapply styles after redraw so selected vehicle stays highlighted
+    routeLinesRef.current[id] = drawPolyline(map, task.routeCache.path, color);
+    vehicleRouteRef.current[id] = {
+      duration: task.routeCache.duration,
+      distance: task.routeCache.distance,
+      mins:     task.routeCache.mins,
+      dest:     task.routeCache.destTitle,
+    };
+
+    // Reapply styles so selected vehicle stays highlighted after redraw
     applyRouteStyles();
   }
 
@@ -375,28 +253,23 @@ export default function MapView({ role = "admin", clientId = null }) {
         }
       };
 
-      window._fleetproOverride = (vehicleId, newPhase) => {
-        const current = getPhase(vehicleId);
-        if (!current) return;
-        _forceSetPhase(vehicleId, {
-          ...current,
-          phase: newPhase,
-          prevDistToLoad: Infinity,
-          closestToLoad: Infinity,
-          outsideLoadCount: 0,
-          insideDropCount: 0,
-          wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
-        });
-        console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
-        fetchAll();
+      // Manual override — calls backend directly so all browsers update immediately
+      window._fleetproOverride = (vehicleId, newPhase, taskId) => {
+        fetch(`${API}/positions/phase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vehicleReg: vehicleId, phase: newPhase, taskId }),
+        }).then(() => {
+          console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
+          fetchAll();
+        }).catch(() => {});
       };
 
       const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
 
       async function fetchAll() {
         try {
-          const phases = buildPhasesParam();
-          let positions = await fetch(`${API}/positions${phases}`).then(r=>r.json());
+          let positions = await fetch(`${API}/positions`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
           if (!isAdmin && clientId) {
             positions = positions.filter(v => v.activeTask && v.activeTask.clientId === clientId);
