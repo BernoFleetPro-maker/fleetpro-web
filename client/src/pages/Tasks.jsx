@@ -652,7 +652,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1724] text-white p-4">
+    <div className="bg-[#0f1724] text-white p-4" style={{transform:"scale(0.6)",transformOrigin:"top left",width:"166.67%",minHeight:"166.67vh"}}>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
