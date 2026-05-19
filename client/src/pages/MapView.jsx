@@ -12,16 +12,20 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null);
 
+  // ── Route styles ───────────────────────────────────────────────────────────
+  // Default: weight 3, opacity 0.75 — clearly visible but subtle
+  // Selected: weight 6, opacity 1.0 — bold and bright
+  // Others when one selected: weight 2, opacity 0.25 — faded back
   function applyRouteStyles() {
     const activeId = activeVehicleRef.current;
     Object.entries(routeLinesRef.current).forEach(([id, line]) => {
       if (!line) return;
       if (!activeId) {
-        line.setOptions({ zIndex: 1, strokeOpacity: 0.55, strokeWeight: 2 });
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.75, strokeWeight: 3 });
       } else if (id === activeId) {
         line.setOptions({ zIndex: 100, strokeOpacity: 1.0, strokeWeight: 6 });
       } else {
-        line.setOptions({ zIndex: 1, strokeOpacity: 0.2, strokeWeight: 2 });
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.25, strokeWeight: 2 });
       }
     });
   }
@@ -147,7 +151,7 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
   function drawPolyline(map, path, color) {
     const g = window.google;
     return new g.maps.Polyline({
-      path, strokeColor:color, strokeOpacity:0.55, strokeWeight:2,
+      path, strokeColor:color, strokeOpacity:0.75, strokeWeight:3,
       zIndex:1, geodesic:false,
       icons:[{ icon:{path:g.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:2,strokeColor:color}, offset:"50%" }],
       map,
@@ -266,7 +270,6 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
         }
       };
 
-      // Navigate to Tasks page with task highlighted
       window._fleetproGoToTask = (taskId) => {
         if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
         if (typeof onNavigateToTask === "function") {
