@@ -235,14 +235,27 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
     applyRouteStyles();
   }
 
-  async function drawPoints() {
+  async function drawPoints(positions) {
     const g = window.google, map = mapInstance.current;
     if (!g || !map) return;
     pointOverlaysRef.current.forEach(o => { if(o.circle) o.circle.setMap(null); if(o.dot) o.dot.setMap(null); });
     pointOverlaysRef.current = [];
     try {
       const points = await fetch(`${API}/points`).then(r => r.json());
-      points.forEach(p => {
+
+      // Clients only see points for their own active tasks — keeps other locations private
+      let visiblePoints = points;
+      if (!isAdmin && clientId && Array.isArray(positions) && positions.length > 0) {
+        const allowedTitles = new Set();
+        positions.forEach(v => {
+          if (!v.activeTask) return;
+          if (v.activeTask.loadLocation) allowedTitles.add(v.activeTask.loadLocation.toLowerCase().trim());
+          if (v.activeTask.dropoffLocation) allowedTitles.add(v.activeTask.dropoffLocation.toLowerCase().trim());
+        });
+        visiblePoints = points.filter(p => allowedTitles.has((p.title || "").toLowerCase().trim()));
+      }
+
+      visiblePoints.forEach(p => {
         const lat=Number(p.lat), lon=Number(p.lon), radius=Number(p.radius)||1000;
         if(isNaN(lat)||isNaN(lon)) return;
         const center = new g.maps.LatLng(lat,lon);
@@ -320,7 +333,7 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
             positions = positions.filter(v => v.activeTask && v.activeTask.clientId === clientId);
           }
           drawOrUpdateVehicles(positions);
-          await drawPoints();
+          await drawPoints(positions);
 
           // Auto-open vehicle popup if navigated from Tasks page
           const urlVehicle = new URLSearchParams(window.location.search).get("vehicle");
