@@ -13,19 +13,23 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
   const activeVehicleRef = useRef(null);
 
   // ── Route styles ───────────────────────────────────────────────────────────
-  // Default: weight 3, opacity 0.75 — clearly visible but subtle
-  // Selected: weight 6, opacity 1.0 — bold and bright
-  // Others when one selected: weight 2, opacity 0.25 — faded back
+  // No selection:  all routes weight 3, opacity 0.75 — clearly visible
+  // One selected:  selected = weight 6, opacity 1.0 (bold)
+  //                others   = weight 3, opacity 0.45 (still visible, slightly faded)
+  // This is called after EVERY redraw so routes never disappear
   function applyRouteStyles() {
     const activeId = activeVehicleRef.current;
     Object.entries(routeLinesRef.current).forEach(([id, line]) => {
       if (!line) return;
       if (!activeId) {
+        // No selection — all routes fully visible
         line.setOptions({ zIndex: 1, strokeOpacity: 0.75, strokeWeight: 3 });
       } else if (id === activeId) {
+        // Selected vehicle — bold and bright on top
         line.setOptions({ zIndex: 100, strokeOpacity: 1.0, strokeWeight: 6 });
       } else {
-        line.setOptions({ zIndex: 1, strokeOpacity: 0.25, strokeWeight: 2 });
+        // Other vehicles — still visible but slightly faded so selected stands out
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.45, strokeWeight: 3 });
       }
     });
   }
@@ -182,6 +186,8 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
       dest:     task.routeCache.destTitle,
     };
 
+    // Always reapply styles after every redraw — this ensures routes never
+    // disappear when another vehicle is selected or deselected
     applyRouteStyles();
   }
 
@@ -213,13 +219,20 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
         g.maps.event.clearListeners(mk.marker, "click");
         mk.marker.addListener("click", onMarkerClick);
       } else {
-        const marker = new g.maps.Marker({ map, position:pos, icon });
+        const marker = new g.maps.Marker({
+          map, position:pos, icon,
+          // Vehicle markers always on top of point dots
+          zIndex: 10,
+        });
         const labelOverlay = createLabelOverlay(map, pos, labelHtml);
         marker.addListener("click", onMarkerClick);
         markersRef.current[id] = { marker, labelOverlay };
       }
       updateRouteAndEta(v);
     });
+
+    // After all vehicles processed, reapply styles once more to be sure
+    applyRouteStyles();
   }
 
   async function drawPoints() {
@@ -235,8 +248,14 @@ export default function MapView({ role = "admin", clientId = null, onNavigateToT
         const center = new g.maps.LatLng(lat,lon);
         const color  = (p.type||"").toLowerCase()==="dropoff" ? "#8ee68e" : "#7fb3ff";
         const circle = new g.maps.Circle({ map,center,radius,fillColor:color,fillOpacity:0.18,strokeColor:color,strokeOpacity:0.7,strokeWeight:2 });
-        const dot    = new g.maps.Marker({ map,position:center,icon:{path:g.maps.SymbolPath.CIRCLE,scale:5,fillColor:color,fillOpacity:1,strokeColor:"#111",strokeWeight:1} });
-        const info   = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>`, maxWidth:200 });
+        // FIX: Point dots smaller (scale 3 instead of 5) and lower zIndex (1)
+        // so vehicle markers always render on top when overlapping
+        const dot = new g.maps.Marker({
+          map, position:center,
+          icon:{ path:g.maps.SymbolPath.CIRCLE, scale:3, fillColor:color, fillOpacity:1, strokeColor:"#111", strokeWeight:1 },
+          zIndex: 1,
+        });
+        const info = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>`, maxWidth:200 });
         dot.addListener("click", () => info.open(map,dot));
         pointOverlaysRef.current.push({ circle, dot });
       });
