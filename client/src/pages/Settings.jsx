@@ -2,10 +2,30 @@ import React, { useEffect, useState } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
+function getAuthPayload() {
+  try {
+    const token = localStorage.getItem("fleetpro_token");
+    if (!token) return null;
+    return JSON.parse(atob(token.split(".")[1]));
+  } catch { return null; }
+}
+
 export default function Settings() {
   const [clients,  setClients]  = useState([]);
   const [loading,  setLoading]  = useState(true);
-  const [saving,   setSaving]   = useState(null); // clientId being saved
+  const [saving,   setSaving]   = useState(null);
+
+  // Change password state
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew,     setPwNew]     = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwSaving,  setPwSaving]  = useState(false);
+  const [pwError,   setPwError]   = useState("");
+  const [pwSuccess, setPwSuccess] = useState("");
+
+  const payload = getAuthPayload();
+  const role    = payload?.role || "admin";
+  const canChangePassword = role === "controller" || role === "client";
 
   const loadClients = async () => {
     try {
@@ -30,6 +50,32 @@ export default function Settings() {
       setClients(prev => prev.map(c => c.id === client.id ? { ...c, permission: newPermission } : c));
     } catch { alert("Failed to update permission."); }
     finally  { setSaving(null); }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwError(""); setPwSuccess("");
+    if (!pwCurrent || !pwNew || !pwConfirm) { setPwError("All fields are required."); return; }
+    if (pwNew.length < 6) { setPwError("New password must be at least 6 characters."); return; }
+    if (pwNew !== pwConfirm) { setPwError("New passwords do not match."); return; }
+    setPwSaving(true);
+    try {
+      const res = await fetch(`${API}/auth/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: payload?.username,
+          currentPassword: pwCurrent,
+          newPassword: pwNew,
+          role,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setPwError(data.error || "Failed to change password."); return; }
+      setPwSuccess("✅ Password changed successfully!");
+      setPwCurrent(""); setPwNew(""); setPwConfirm("");
+    } catch { setPwError("Network error — please try again."); }
+    finally { setPwSaving(false); }
   };
 
   return (
@@ -124,6 +170,56 @@ export default function Settings() {
           </div>
         )}
       </div>
+
+      {/* Change Password — for controllers and clients */}
+      {canChangePassword && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+          <div className="bg-slate-50 border-b border-slate-200 px-5 py-3">
+            <h3 className="font-semibold text-slate-700">🔒 Change Password</h3>
+          </div>
+          <form onSubmit={handleChangePassword} className="p-5 space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">Current Password</label>
+              <input
+                type="password"
+                value={pwCurrent}
+                onChange={e => setPwCurrent(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="Enter current password"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">New Password</label>
+              <input
+                type="password"
+                value={pwNew}
+                onChange={e => setPwNew(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="At least 6 characters"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">Confirm New Password</label>
+              <input
+                type="password"
+                value={pwConfirm}
+                onChange={e => setPwConfirm(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="Repeat new password"
+              />
+            </div>
+            {pwError   && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pwError}</p>}
+            {pwSuccess && <p className="text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg px-3 py-2">{pwSuccess}</p>}
+            <button
+              type="submit"
+              disabled={pwSaving}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold py-2 rounded-lg text-sm transition-colors"
+            >
+              {pwSaving ? "Changing..." : "Change Password"}
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Admin credentials */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
