@@ -8,7 +8,7 @@ export default function DropoffPoints() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving]   = useState(false);
   const [loading, setLoading] = useState(true);
-  const [pinned, setPinned]   = useState(null);
+  const [search, setSearch] = useState("");
 
   const mapRef        = useRef(null);
   const mapInst       = useRef(null);
@@ -168,6 +168,36 @@ export default function DropoffPoints() {
     placePin(p.lat, p.lon, p.radius);
   };
 
+  // Show pin and circle on map without entering edit mode
+  const viewPin = (p) => {
+    const map = mapInst.current;
+    if (!map) return;
+    const lat = Number(p.lat), lon = Number(p.lon), radius = Number(p.radius) || 1000;
+    const pos = new window.google.maps.LatLng(lat, lon);
+
+    if (markerRef.current) {
+      markerRef.current.setPosition(pos);
+      markerRef.current.setVisible(true);
+      markerRef.current.setDraggable(false);
+    } else {
+      markerRef.current = new window.google.maps.Marker({ map, position: pos, draggable: false });
+    }
+
+    if (circleRef.current) {
+      circleRef.current.setCenter(pos);
+      circleRef.current.setRadius(radius);
+    } else {
+      circleRef.current = new window.google.maps.Circle({
+        map, center: pos, radius,
+        strokeColor: "#16a34a", strokeOpacity: 0.8, strokeWeight: 2,
+        fillColor: "#16a34a", fillOpacity: 0.15,
+      });
+    }
+    map.panTo(pos);
+    map.setZoom(14);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this dropoff point?")) return;
     await fetch(`${API}/${id}`, { method: "DELETE" });
@@ -238,17 +268,35 @@ export default function DropoffPoints() {
       <ul>
         {loading && <li className="text-gray-400 text-sm">Loading...</li>}
         {!loading && points.length === 0 && <li className="text-gray-400 text-sm">No dropoff points yet.</li>}
-        {points.map((p) => (
+        {!loading && points.length > 0 && (
+          <div className="mb-3">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+              <input
+                type="text"
+                placeholder="Filter saved points..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="border p-2 pl-8 w-full rounded bg-white text-sm"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+              )}
+            </div>
+            {search && (
+              <p className="text-xs text-gray-400 mt-1">
+                {points.filter(p => `${p.title} ${p.address}`.toLowerCase().includes(search.toLowerCase())).length} result(s) for "{search}"
+              </p>
+            )}
+          </div>
+        )}
+        {points
+          .filter(p => !search || `${p.title} ${p.address}`.toLowerCase().includes(search.toLowerCase()))
+          .map((p) => (
           <li key={p.id} className="flex justify-between items-center border-b py-2">
             <div>
               <button
-                onClick={() => {
-                  const map = mapInst.current;
-                  if (!map) return;
-                  map.panTo({ lat: Number(p.lat), lng: Number(p.lon) });
-                  map.setZoom(15);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
+                onClick={() => viewPin(p)}
                 className="text-left hover:text-green-600 transition-colors"
                 title="Click to view on map"
               >
