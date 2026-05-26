@@ -1,13 +1,26 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
+const LS_TASKS_KEY = "fleetpro_tasks_cache";
 
 // Module-level cache — persists across page navigations within the same session
+// Also pre-populated from localStorage so tasks show INSTANTLY on cold start
 let _cachedTasks    = null;
 let _cachedDrivers  = null;
 let _cachedVehicles = null;
 let _cachedPoints   = null;
 let _cachedClients  = null;
+
+// Load tasks from localStorage immediately — before any network request
+try {
+  const stored = localStorage.getItem(LS_TASKS_KEY);
+  if (stored) _cachedTasks = JSON.parse(stored);
+} catch {}
+
+// Save tasks to localStorage whenever they update
+function persistTasks(tasks) {
+  try { localStorage.setItem(LS_TASKS_KEY, JSON.stringify(tasks)); } catch {}
+}
 
 const STATUSES = [
   { key: "unassigned", label: "Unassigned",  color: "border-gray-400",   badge: "bg-gray-100 text-gray-600" },
@@ -395,6 +408,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
         fresh = fresh.filter(task => task.clientId === clientId);
       }
       _cachedTasks = fresh;
+      persistTasks(fresh); // save to localStorage for instant load next time
       setTasks(fresh);
     } catch (err) { console.error("Tasks load error:", err); }
   }, [isAdmin, clientId]);
@@ -511,13 +525,18 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   }, []);
 
   const loadAll = useCallback(async () => {
-    if (_cachedTasks)    { setTasks(_cachedTasks); setInitialLoaded(true); }
+    // Wake backend immediately — fire-and-forget ping so it's warm when tasks fetch arrives
+    fetch(`${API}/health`).catch(() => {});
+
+    // Show cached tasks INSTANTLY from localStorage — zero wait
+    if (_cachedTasks) { setTasks(_cachedTasks); setInitialLoaded(true); }
     if (_cachedDrivers)  setDrivers(_cachedDrivers);
     if (_cachedVehicles) setVehicles(_cachedVehicles);
     if (_cachedPoints) {
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
     }
+    // Then fetch fresh data in background — updates silently
     await loadTasks();
     setInitialLoaded(true);
     loadStatic();
