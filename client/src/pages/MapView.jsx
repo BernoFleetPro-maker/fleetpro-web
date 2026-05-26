@@ -327,7 +327,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         const center = new g.maps.LatLng(lat,lon);
         const color  = (p.type||"").toLowerCase()==="dropoff" ? "#8ee68e" : "#7fb3ff";
         const circle = new g.maps.Circle({ map,center,radius,fillColor:color,fillOpacity:0.18,strokeColor:color,strokeOpacity:0.7,strokeWeight:2 });
-        const dot    = new g.maps.Marker({ map,position:center,icon:{path:g.maps.SymbolPath.CIRCLE,scale:5,fillColor:color,fillOpacity:1,strokeColor:"#111",strokeWeight:1} });
+        const dot    = new g.maps.Marker({ map,position:center,icon:{path:g.maps.SymbolPath.CIRCLE,scale:2,fillColor:color,fillOpacity:1,strokeColor:"#111",strokeWeight:1} });
         const info   = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>`, maxWidth:200 });
         dot.addListener("click", () => info.open(map,dot));
         pointOverlaysRef.current.push({ circle, dot });
