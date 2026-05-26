@@ -9,6 +9,7 @@ export default function LoadingPoints() {
   const [saving, setSaving]   = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [pinned, setPinned]   = useState(null);
 
   const mapRef        = useRef(null);
   const mapInst       = useRef(null);
