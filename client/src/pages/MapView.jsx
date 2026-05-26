@@ -159,24 +159,41 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position, html); lbl.setMap(map); return lbl;
   }
 
+  function formatDropoffDate(date, time) {
+    if (!date) return null;
+    try {
+      const d = new Date(date + "T00:00:00");
+      const dayStr = d.toLocaleDateString("en-ZA", { weekday:"short", day:"numeric", month:"short", year:"numeric" });
+      return time ? `${dayStr} @ ${time}` : dayStr;
+    } catch { return date; }
+  }
+
   function buildInfoHtml(v) {
     const t         = v.activeTask;
     const id        = v.descrip || `veh-${v.id}`;
-    const phase     = getPhase(id)?.phase;
+    const phase     = t?.phase; // phase from backend — single source of truth
     const routeInfo = vehicleRouteRef.current[id];
     const phaseColors = { to_load:"#1e88e5", at_load:"#fb8c00", to_drop:"#43a047", at_drop:"#43a047" };
     const phaseLabels = { to_load:"🚛 En route to loading", at_load:"🏭 At loading station", to_drop:"🚛 En route to dropoff", at_drop:"✅ Arrived at client" };
-    const phaseColor = phaseColors[phase] || "#555";
-    const phaseLabel = phaseLabels[phase] || "";
+    const phaseColor  = phase ? (phaseColors[phase] || "#555") : "#555";
+    const phaseLabel  = phase ? (phaseLabels[phase] || "") : "";
+    const dropoffDate = t ? formatDropoffDate(t.date, t.pickupTime) : null;
     let taskSection = "";
     if (t) {
       taskSection = `
         <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
-        <div style="font-weight:700;color:#1e88e5;font-size:12px;margin-bottom:6px;">📦 ACTIVE TASK</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <div style="font-weight:700;color:#1e88e5;font-size:12px;">📦 ACTIVE TASK</div>
+          <button onclick="window._fleetproGoToTask('${t.id}','${phase||''}')"
+            style="background:#fff;color:#1e88e5;border:1px solid #1e88e5;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;">
+            Open in Tasks →
+          </button>
+        </div>
         ${t.orderNumber ? `<div><strong>Order:</strong> ${t.orderNumber}</div>` : ""}
         <div><strong>Driver:</strong> ${t.driverName || "—"}</div>
         <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Load:</strong> ${t.loadLocation || "—"}</div>
         <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Dropoff:</strong> ${t.dropoffLocation || "—"}</div>
+        ${dropoffDate ? `<div style="margin-top:3px;"><strong>Due:</strong> <span style="color:#f59e0b;font-weight:600;">${dropoffDate}</span></div>` : ""}
         ${phaseLabel ? `<hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="background:${phaseColor};color:#fff;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:600;margin-bottom:6px;text-align:center;">${phaseLabel}</div>` : ""}
         ${routeInfo ? `
@@ -193,8 +210,8 @@ export default function MapView({ role = "admin", clientId = null }) {
         <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Manual override</div>
         <div style="display:flex;gap:6px;justify-content:center;">
-          <button onclick="window._fleetproOverride('${id}','to_load')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">📦 → Loading</button>
-          <button onclick="window._fleetproOverride('${id}','to_drop')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
+          <button onclick="window._fleetproOverride('${id}','to_load','${t.id}')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">📦 → Loading</button>
+          <button onclick="window._fleetproOverride('${id}','to_drop','${t.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
         </div>`;
     }
     return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;width:240px;box-sizing:border-box;overflow:hidden;">
@@ -419,30 +436,21 @@ export default function MapView({ role = "admin", clientId = null }) {
         });
       };
 
-      window._fleetproOverride = (vehicleId, newPhase) => {
-        const current = getPhase(vehicleId);
-        if (!current) return;
-        _forceSetPhase(vehicleId, {
-          ...current,
-          phase: newPhase,
-          prevDistToLoad: Infinity,
-          closestToLoad: Infinity,
-          outsideLoadCount: 0,
-          insideDropCount: 0,
-          wasInsideLoad: newPhase === "to_drop" || newPhase === "at_drop",
-        });
-        reportPhaseToBackend(vehicleId, newPhase);
-        console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
-        fetchAll().then(() => {
-          const mk = markersRef.current[vehicleId];
-          const activeInfo = mapInstance.current?.activeInfoWindow;
-          if (mk && activeInfo && activeInfo.getMap()) {
-            fetch(`${API}/positions`).then(r=>r.json()).then(positions => {
-              const v = positions.find(p=>(p.descrip||`veh-${p.id}`)===vehicleId);
-              if (v) activeInfo.setContent(buildInfoHtml(v));
-            }).catch(()=>{});
-          }
-        });
+      window._fleetproGoToTask = (taskId, phase) => {
+        if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
+        const phaseParam = phase ? `&phase=${phase}` : "";
+        window.location.href = `/tasks?highlight=${taskId}${phaseParam}`;
+      };
+
+      window._fleetproOverride = (vehicleId, newPhase, taskId) => {
+        fetch(`${API}/positions/phase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vehicleReg: vehicleId, phase: newPhase, taskId }),
+        }).then(() => {
+          console.log(`🔧 Manual override: ${vehicleId} → ${newPhase}`);
+          fetchAll();
+        }).catch(() => {});
       };
 
       const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
@@ -455,12 +463,34 @@ export default function MapView({ role = "admin", clientId = null }) {
             positions = positions.filter(v => v.activeTask && v.activeTask.clientId === clientId);
           }
           drawOrUpdateVehicles(positions);
-          await drawPoints();
+          await drawPoints(positions);
+
+          // Auto-open vehicle popup if navigated from Tasks page
+          const urlVehicle = new URLSearchParams(window.location.search).get("vehicle");
+          if (urlVehicle) {
+            const match = positions.find(v => (v.descrip || "").trim().toUpperCase() === urlVehicle.trim().toUpperCase());
+            if (match) {
+              const id = match.descrip || `veh-${match.id}`;
+              const mk = markersRef.current[id];
+              if (mk && mapInstance.current) {
+                mapInstance.current.panTo({ lat: match.lat, lng: match.lon });
+                mapInstance.current.setZoom(12);
+                const activeInfo = mapInstance.current.activeInfoWindow;
+                if (activeInfo) {
+                  activeVehicleRef.current = id;
+                  activeInfo.setContent(buildInfoHtml(match));
+                  activeInfo.open(mapInstance.current, mk.marker);
+                  applyRouteStyles();
+                }
+                window.history.replaceState({}, "", "/");
+              }
+            }
+          }
         } catch(err) { console.error("fetchAll error:",err); }
       }
       fetchAll();
       const interval = setInterval(fetchAll, 30000);
-      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; };
+      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; delete window._fleetproGoToTask; };
     }
     initWhenReady();
     return () => { if (pollTimer) clearTimeout(pollTimer); };
