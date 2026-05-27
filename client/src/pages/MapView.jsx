@@ -225,12 +225,12 @@ export default function MapView({ role = "admin", clientId = null }) {
           </span>
         </div>
         <div style="font-size:10px;color:#aaa;text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">to ${routeInfo.dest}</div>` : ""}
-        ${isAdmin || role === 'controller' ? `<hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
+        <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
         <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Manual override</div>
         <div style="display:flex;gap:6px;justify-content:center;">
           <button onclick="window._fleetproOverride('${id}','to_load','${t.id}')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">📦 → Loading</button>
           <button onclick="window._fleetproOverride('${id}','to_drop','${t.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
-        </div>` : ""}`;
+        </div>`;
     }
     return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;width:240px;box-sizing:border-box;overflow:hidden;">
       <div style="font-weight:700;color:#111;font-size:15px;margin-bottom:4px;">${v.descrip || "Unknown"}</div>
