@@ -45,6 +45,24 @@ export default function MapView({ role = "admin", clientId = null }) {
   const pointOverlaysRef = useRef([]);
   const routeLinesRef    = useRef({});
   const vehicleRouteRef  = useRef({});
+  const activeVehicleRef = useRef(null); // tracks selected vehicle for route highlight
+
+  // ── Route highlight styles ─────────────────────────────────────────────────
+  // No selection:  all routes weight 3, opacity 0.75
+  // One selected:  selected = weight 6, opacity 1.0 — others = weight 3, opacity 0.4
+  function applyRouteStyles() {
+    const activeId = activeVehicleRef.current;
+    Object.entries(routeLinesRef.current).forEach(([id, line]) => {
+      if (!line) return;
+      if (!activeId) {
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.75, strokeWeight: 3 });
+      } else if (id === activeId) {
+        line.setOptions({ zIndex: 100, strokeOpacity: 1.0, strokeWeight: 6 });
+      } else {
+        line.setOptions({ zIndex: 1, strokeOpacity: 0.4, strokeWeight: 3 });
+      }
+    });
+  }
 
   // ── Phase logic ────────────────────────────────────────────────────────────
   function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
@@ -252,8 +270,12 @@ export default function MapView({ role = "admin", clientId = null }) {
 
   function drawPolyline(map, path, color) {
     const g = window.google;
-    return new g.maps.Polyline({ path, strokeColor:color, strokeOpacity:0.85, strokeWeight:4, geodesic:false,
-      icons:[{ icon:{path:g.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:3,strokeColor:color}, offset:"50%" }], map });
+    return new g.maps.Polyline({
+      path, strokeColor:color, strokeOpacity:0.75, strokeWeight:3,
+      zIndex:1, geodesic:false,
+      icons:[{ icon:{path:g.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:2,strokeColor:color}, offset:"50%" }],
+      map,
+    });
   }
 
   function updateRouteAndEta(v) {
@@ -294,31 +316,52 @@ export default function MapView({ role = "admin", clientId = null }) {
       const icon = getSymbolIcon(v.speed, v.heading);
       const labelHtml = `${v.descrip||"—"}<br/>${v.speed||0} km/h`;
 
+      const onMarkerClick = () => {
+        activeVehicleRef.current = id;
+        activeInfo.setContent(buildInfoHtml(v));
+        activeInfo.open(map, markersRef.current[id]?.marker);
+        applyRouteStyles();
+      };
+
       if (markersRef.current[id]) {
         const mk = markersRef.current[id];
         animateMarker(mk.marker, pos);
         mk.marker.setIcon(icon);
         mk.labelOverlay.updateContent(labelHtml);
         mk.labelOverlay.updatePosition(pos);
-        mk.marker.addListener("click", () => { activeInfo.setContent(buildInfoHtml(v)); activeInfo.open(map, mk.marker); });
+        g.maps.event.clearListeners(mk.marker, "click");
+        mk.marker.addListener("click", onMarkerClick);
       } else {
-        const marker = new g.maps.Marker({ map, position:pos, icon });
+        const marker = new g.maps.Marker({ map, position:pos, icon, zIndex:10 });
         const labelOverlay = createLabelOverlay(map, pos, labelHtml);
-        marker.addListener("click", () => { activeInfo.setContent(buildInfoHtml(v)); activeInfo.open(map, marker); });
+        marker.addListener("click", onMarkerClick);
         markersRef.current[id] = { marker, labelOverlay };
       }
       updateRouteAndEta(v);
     });
+    // Reapply styles after all vehicles drawn
+    applyRouteStyles();
   }
 
-  async function drawPoints() {
+  async function drawPoints(positions) {
     const g = window.google, map = mapInstance.current;
     if (!g || !map) return;
     pointOverlaysRef.current.forEach(o => { if(o.circle) o.circle.setMap(null); if(o.dot) o.dot.setMap(null); });
     pointOverlaysRef.current = [];
     try {
       const points = await fetch(`${API}/points`).then(r => r.json());
-      points.forEach(p => {
+      // Clients only see points for their own active tasks
+      let visiblePoints = points;
+      if (!isAdmin && clientId && Array.isArray(positions)) {
+        const allowedTitles = new Set();
+        positions.forEach(v => {
+          if (!v.activeTask) return;
+          if (v.activeTask.loadLocation) allowedTitles.add(v.activeTask.loadLocation.toLowerCase().trim());
+          if (v.activeTask.dropoffLocation) allowedTitles.add(v.activeTask.dropoffLocation.toLowerCase().trim());
+        });
+        visiblePoints = points.filter(p => allowedTitles.has((p.title||"").toLowerCase().trim()));
+      }
+      visiblePoints.forEach(p => {
         const lat=Number(p.lat), lon=Number(p.lon), radius=Number(p.radius)||1000;
         if(isNaN(lat)||isNaN(lon)) return;
         const center = new g.maps.LatLng(lat,lon);
@@ -339,6 +382,12 @@ export default function MapView({ role = "admin", clientId = null }) {
       if (!g || !g.maps) { pollTimer = setTimeout(initWhenReady, 200); return; }
       if (!mapInstance.current && mapRef.current) {
         mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1},zoom:8,streetViewControl:false,mapTypeControl:true });
+        // Click empty map → reset route highlight and close popup
+        mapInstance.current.addListener("click", () => {
+          activeVehicleRef.current = null;
+          applyRouteStyles();
+          if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
+        });
       }
 
       window._fleetproShareLocation = (lat, lon, reg) => {
