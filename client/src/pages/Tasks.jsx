@@ -802,11 +802,19 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                           </>
                         ) : canEdit ? (
                           <>
+                            {task.status === "completed" && (
+                              <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
+                            )}
                             <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
                             <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
                           </>
                         ) : (
-                          <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
+                          <>
+                            {task.status === "completed" && (
+                              <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
+                            )}
+                            <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
+                          </>
                         )}
                       </div>
                     </div>
