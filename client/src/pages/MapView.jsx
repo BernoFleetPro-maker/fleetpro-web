@@ -189,7 +189,7 @@ export default function MapView({ role = "admin", clientId = null }) {
   function buildInfoHtml(v) {
     const t         = v.activeTask;
     const id        = v.descrip || `veh-${v.id}`;
-    const phase     = t?.phase; // phase from backend — single source of truth
+    const phase     = t?.phase;
     const routeInfo = vehicleRouteRef.current[id];
     const phaseColors = { to_load:"#1e88e5", at_load:"#fb8c00", to_drop:"#43a047", at_drop:"#43a047" };
     const phaseLabels = { to_load:"🚛 En route to loading", at_load:"🏭 At loading station", to_drop:"🚛 En route to dropoff", at_drop:"✅ Arrived at client" };
@@ -199,49 +199,48 @@ export default function MapView({ role = "admin", clientId = null }) {
     let taskSection = "";
     if (t) {
       taskSection = `
-        <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-          <div style="font-weight:700;color:#1e88e5;font-size:12px;">📦 ACTIVE TASK</div>
+        <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div style="font-weight:700;color:#1e88e5;font-size:10px;">📦 ACTIVE TASK</div>
           <button onclick="window._fleetproGoToTask('${t.id}','${phase||''}')"
-            style="background:#fff;color:#1e88e5;border:1px solid #1e88e5;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;">
+            style="background:#fff;color:#1e88e5;border:1px solid #1e88e5;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:600;cursor:pointer;white-space:nowrap;">
             Open in Tasks →
           </button>
         </div>
-        ${t.orderNumber ? `<div><strong>Order:</strong> ${t.orderNumber}</div>` : ""}
-        <div><strong>Driver:</strong> ${t.driverName || "—"}</div>
-        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Load:</strong> ${t.loadLocation || "—"}</div>
-        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Dropoff:</strong> ${t.dropoffLocation || "—"}</div>
-        ${dropoffDate ? `<div style="margin-top:3px;"><strong>Due:</strong> <span style="color:#f59e0b;font-weight:600;">${dropoffDate}</span></div>` : ""}
-        ${phaseLabel ? `<hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
-        <div style="background:${phaseColor};color:#fff;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:600;margin-bottom:6px;text-align:center;">${phaseLabel}</div>` : ""}
+        ${t.orderNumber ? `<div style="font-size:10px;"><strong>Order:</strong> ${t.orderNumber}</div>` : ""}
+        <div style="font-size:10px;"><strong>Driver:</strong> ${t.driverName || "—"}</div>
+        <div style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Load:</strong> ${t.loadLocation || "—"}</div>
+        <div style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Dropoff:</strong> ${t.dropoffLocation || "—"}</div>
+        ${dropoffDate ? `<div style="font-size:10px;margin-top:2px;"><strong>Due:</strong> <span style="color:#f59e0b;font-weight:600;">${dropoffDate}</span></div>` : ""}
+        ${phaseLabel ? `<hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+        <div style="background:${phaseColor};color:#fff;border-radius:5px;padding:3px 6px;font-size:10px;font-weight:600;margin-bottom:4px;text-align:center;">${phaseLabel}</div>` : ""}
         ${routeInfo ? `
-        <div style="display:flex;gap:12px;justify-content:center;margin-top:4px;">
-          <div style="text-align:center;"><div style="font-size:10px;color:#888;">ETA</div><div style="font-size:14px;font-weight:700;color:#333;">⏱ ${routeInfo.duration}</div></div>
-          <div style="text-align:center;"><div style="font-size:10px;color:#888;">Distance</div><div style="font-size:14px;font-weight:700;color:#333;">📍 ${routeInfo.distance}</div></div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:3px;">
+          <div style="text-align:center;"><div style="font-size:9px;color:#888;">ETA</div><div style="font-size:12px;font-weight:700;color:#333;">⏱ ${routeInfo.duration}</div></div>
+          <div style="text-align:center;"><div style="font-size:9px;color:#888;">Distance</div><div style="font-size:12px;font-weight:700;color:#333;">📍 ${routeInfo.distance}</div></div>
         </div>
-        <div style="text-align:center;margin-top:4px;">
-          <span style="font-size:12px;font-weight:700;color:#1e88e5;background:#e3f2fd;padding:2px 10px;border-radius:12px;">
+        <div style="text-align:center;margin-top:3px;">
+          <span style="font-size:10px;font-weight:700;color:#1e88e5;background:#e3f2fd;padding:2px 8px;border-radius:10px;">
             🕐 Arrival ≈ ${(() => { const a = new Date(Date.now() + (routeInfo.mins||0)*60000); return a.toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Africa/Johannesburg'}); })()}
           </span>
         </div>
-        <div style="font-size:10px;color:#aaa;text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">to ${routeInfo.dest}</div>` : ""}
-        <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
-        <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Manual override</div>
-        <div style="display:flex;gap:6px;justify-content:center;">
-          <button onclick="window._fleetproOverride('${id}','to_load','${t.id}')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">📦 → Loading</button>
-          <button onclick="window._fleetproOverride('${id}','to_drop','${t.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
+        <div style="font-size:9px;color:#aaa;text-align:center;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">to ${routeInfo.dest}</div>` : ""}
+        <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+        <div style="font-size:9px;color:#888;margin-bottom:3px;text-align:center;">Manual override</div>
+        <div style="display:flex;gap:4px;justify-content:center;">
+          <button onclick="window._fleetproOverride('${id}','to_load','${t.id}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;">📦 → Loading</button>
+          <button onclick="window._fleetproOverride('${id}','to_drop','${t.id}')" style="background:#43a047;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
         </div>`;
     }
-    return `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.4;width:240px;box-sizing:border-box;overflow:hidden;">
-      <div style="font-weight:700;color:#111;font-size:15px;margin-bottom:4px;">${v.descrip || "Unknown"}</div>
-      <div style="color:#555;font-size:12px;"><strong>Updated:</strong> ${formatDate(v.dt)}</div>
-      <div style="color:#555;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Location:</strong> ${v.address || `${v.lat}, ${v.lon}`}</div>
-      <div style="color:#555;font-size:12px;"><strong>Speed:</strong> ${v.speed || 0} km/h</div>
-      <hr style="margin:8px 0;border:none;border-top:1px solid #e0e0e0;"/>
-      <div style="font-size:10px;color:#888;margin-bottom:4px;text-align:center;">Location</div>
-      <div style="display:flex;gap:6px;justify-content:center;">
-        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;flex:1;">📋 Copy Link</button>
-        ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;flex:1;">📍 Save Point</button>` : ""}
+    return `<div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.35;width:100%;max-width:240px;box-sizing:border-box;overflow:hidden;word-break:break-word;">
+      <div style="font-weight:700;color:#111;font-size:13px;margin-bottom:2px;">${v.descrip || "Unknown"}</div>
+      <div style="color:#555;font-size:10px;"><strong>Updated:</strong> ${formatDate(v.dt)}</div>
+      <div style="color:#555;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Location:</strong> ${v.address || `${v.lat}, ${v.lon}`}</div>
+      <div style="color:#555;font-size:10px;"><strong>Speed:</strong> ${v.speed || 0} km/h</div>
+      <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+      <div style="display:flex;gap:4px;justify-content:center;">
+        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📋 Copy Link</button>
+        ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📍 Save Point</button>` : ""}
       </div>
       ${taskSection}
     </div>`;
@@ -307,7 +306,7 @@ export default function MapView({ role = "admin", clientId = null }) {
   function drawOrUpdateVehicles(data) {
     const g = window.google, map = mapInstance.current;
     if (!map) return;
-    if (!map.activeInfoWindow) map.activeInfoWindow = new g.maps.InfoWindow({ maxWidth: 260 });
+    if (!map.activeInfoWindow) map.activeInfoWindow = new g.maps.InfoWindow({ maxWidth: 280 });
     const activeInfo = map.activeInfoWindow;
 
     data.forEach(v => {
@@ -532,7 +531,7 @@ export default function MapView({ role = "admin", clientId = null }) {
   }, []);
 
   return (
-    <div className="w-full h-[100vh] relative">
+    <div className="w-full h-[100vh] relative overflow-hidden">
       <div ref={mapRef} style={{ position:"absolute",inset:0,width:"100%",height:"100%",borderRadius:6 }} />
     </div>
   );
