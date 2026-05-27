@@ -264,42 +264,22 @@ export default function MapView({ role = "admin", clientId = null }) {
     if (routeLinesRef.current[id]) { routeLinesRef.current[id].setMap(null); delete routeLinesRef.current[id]; }
     delete vehicleRouteRef.current[id];
 
-    if (!task || task.status !== "inprogress") return;
+    if (!task || task.status !== "inprogress" || !task.routeCache) return;
 
-    // Use coordinates from backend — no geocoding needed in browser
-    const loadPt = task.loadPoint;
-    const dropPt = task.dropPoint;
-
-    const loadRadius = loadPt?.radius || 500;
-    const dropRadius = dropPt?.radius || 500;
-    const distToLoad = loadPt ? haversineM(v.lat, v.lon, loadPt.lat, loadPt.lon) : Infinity;
-    const distToDrop = dropPt ? haversineM(v.lat, v.lon, dropPt.lat, dropPt.lon) : Infinity;
-    const atLoad     = loadPt ? distToLoad <= loadRadius : false;
-    const atDrop     = dropPt ? distToDrop <= dropRadius : false;
-
-    const prevPhase = getPhase(id)?.phase;
-    const phase     = resolvePhase(id, task.id, atLoad, atDrop, !!loadPt, !!dropPt, distToLoad, loadRadius);
-
-    // If phase changed, tell backend so route cache updates to correct destination
-    if (phase !== prevPhase) {
-      reportPhaseToBackend(v.descrip, phase);
-    }
-
+    // Phase comes from backend — single source of truth for all browsers
+    const phase = task.phase;
     if (!phase || phase === "at_drop") return;
 
-    // Use pre-calculated route from backend — NO Google API call from browser
-    const serverRoute = task.routeCache;
-    if (serverRoute?.path?.length > 0) {
-      let color = "#1e88e5";
-      if (phase === "to_drop" || phase === "at_load") color = "#43a047";
-      routeLinesRef.current[id] = drawPolyline(map, serverRoute.path, color);
-      vehicleRouteRef.current[id] = {
-        duration: serverRoute.duration,
-        distance: serverRoute.distance,
-        mins:     serverRoute.mins,
-        dest:     serverRoute.destTitle,
-      };
-    }
+    let color = "#1e88e5"; // blue = to_load
+    if (phase === "to_drop" || phase === "at_load") color = "#43a047"; // green = to_drop
+    routeLinesRef.current[id] = drawPolyline(map, task.routeCache.path, color);
+    vehicleRouteRef.current[id] = {
+      duration: task.routeCache.duration,
+      distance: task.routeCache.distance,
+      mins:     task.routeCache.mins,
+      dest:     task.routeCache.destTitle,
+    };
+    applyRouteStyles();
   }
 
   function drawOrUpdateVehicles(data) {
