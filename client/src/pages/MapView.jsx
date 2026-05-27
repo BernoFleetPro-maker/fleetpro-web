@@ -306,7 +306,14 @@ export default function MapView({ role = "admin", clientId = null }) {
   function drawOrUpdateVehicles(data) {
     const g = window.google, map = mapInstance.current;
     if (!map) return;
-    if (!map.activeInfoWindow) map.activeInfoWindow = new g.maps.InfoWindow({ maxWidth: 280 });
+    if (!map.activeInfoWindow) {
+      map.activeInfoWindow = new g.maps.InfoWindow({ maxWidth: 280 });
+      // X button closed → reset highlight
+      map.activeInfoWindow.addListener("closeclick", () => {
+        activeVehicleRef.current = null;
+        applyRouteStyles();
+      });
+    }
     const activeInfo = map.activeInfoWindow;
 
     data.forEach(v => {
@@ -316,6 +323,13 @@ export default function MapView({ role = "admin", clientId = null }) {
       const labelHtml = `${v.descrip||"—"}<br/>${v.speed||0} km/h`;
 
       const onMarkerClick = () => {
+        // Click same vehicle again → deselect and reset
+        if (activeVehicleRef.current === id) {
+          activeVehicleRef.current = null;
+          activeInfo.close();
+          applyRouteStyles();
+          return;
+        }
         activeVehicleRef.current = id;
         activeInfo.setContent(buildInfoHtml(v));
         activeInfo.open(map, markersRef.current[id]?.marker);
@@ -488,7 +502,14 @@ export default function MapView({ role = "admin", clientId = null }) {
           let positions = await fetch(`${API}/positions`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
           if (!isAdmin && clientId) {
-            positions = positions.filter(v => v.activeTask && v.activeTask.clientId === clientId);
+            console.log("[FleetPro] Client filter — clientId:", clientId, "positions:", positions.map(v => ({ reg: v.descrip, taskClientId: v.activeTask?.clientId })));
+            positions = positions.filter(v =>
+              v.activeTask && (
+                v.activeTask.clientId === clientId ||
+                String(v.activeTask.clientId) === String(clientId)
+              )
+            );
+            console.log("[FleetPro] Visible vehicles after filter:", positions.map(v => v.descrip));
           }
           drawOrUpdateVehicles(positions);
           await drawPoints(positions);
