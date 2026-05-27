@@ -142,10 +142,24 @@ function Lightbox({ photos, startIndex, onClose }) {
 
 function PodModal({ task, drivers, vehicles, onClose }) {
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [photos, setPhotos] = useState([]);
+  const [photosLoading, setPhotosLoading] = useState(true);
+
+  useEffect(() => {
+    if (!task?.id) return;
+    setPhotosLoading(true);
+    fetch(`${API}/tasks/${task.id}/photos`)
+      .then(r => r.json())
+      .then(data => {
+        setPhotos(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setPhotos([]))
+      .finally(() => setPhotosLoading(false));
+  }, [task?.id]);
+
   if (!task) return null;
   const driver  = drivers.find(d => d.id === task.assignedDriverId);
   const vehicle = vehicles.find(v => v.id === task.vehicleId);
-  const photos  = task.photoUrls?.length > 0 ? task.photoUrls : task.photoUrl ? [task.photoUrl] : [];
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -175,8 +189,10 @@ function PodModal({ task, drivers, vehicles, onClose }) {
             </div>
             {task.notes && <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">📝 Driver Notes</div><div className="text-white text-sm">{task.notes}</div></div>}
             <div>
-              <div className="text-sm font-semibold text-slate-300 mb-2">📷 Proof of Delivery {photos.length > 0 ? `(${photos.length} photo${photos.length !== 1 ? "s" : ""})` : ""}</div>
-              {photos.length === 0 ? (
+              <div className="text-sm font-semibold text-slate-300 mb-2">📷 Proof of Delivery {!photosLoading && photos.length > 0 ? `(${photos.length} photo${photos.length !== 1 ? "s" : ""})` : ""}</div>
+              {photosLoading ? (
+                <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-400 text-sm animate-pulse">Loading photos…</div>
+              ) : photos.length === 0 ? (
                 <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">No photos uploaded for this task</div>
               ) : (
                 <>
@@ -715,7 +731,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
               <div className="flex flex-col gap-1 p-1.5 flex-1 overflow-y-auto">
                 {col.length === 0 && <p className="text-slate-500 text-[11px] italic text-center mt-3">No tasks</p>}
                 {col.map((task) => {
-                  const photoCount = task.photoCount ?? task.photoUrls?.filter(p => p && !p.startsWith("photo_")).length ?? (task.photoUrl && task.photoUrl !== "has_photo" ? 1 : 0);
+                  const photoCount = task.photoCount || 0;
                   const isHighlighted = task.id === highlightedTaskId;
                   // Use phase from URL param (passed by map) for immediate correct color
                   // Fall back to vehicleETAs phase if available
