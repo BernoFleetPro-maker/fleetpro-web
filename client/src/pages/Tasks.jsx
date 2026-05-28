@@ -429,113 +429,53 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     } catch (err) { console.error("Tasks load error:", err); }
   }, [isAdmin, clientId]);
 
-  // ── Fetch live ETAs using same Routes API as MapView ────────────────────
-  const MAPS_KEY    = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
-  const TRUCK_FACTOR = 1.5;
-  const _etaRouteCache = {};
-
-  const fetchRoadETA = async (originLat, originLng, destLat, destLng) => {
-    // Use .toFixed(1) grid (~11km) to match MapView cache and reduce API calls
-    const key = `${originLat.toFixed(1)},${originLng.toFixed(1)}→${destLat.toFixed(1)},${destLng.toFixed(1)}`;
-    if (_etaRouteCache[key] && _etaRouteCache[key].expiry > Date.now()) return _etaRouteCache[key].data;
-    try {
-      const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
-        method: "POST",
-        headers: {
-          "Content-Type":     "application/json",
-          "X-Goog-Api-Key":   MAPS_KEY,
-          "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
-        },
-        body: JSON.stringify({
-          origin:      { location: { latLng: { latitude: originLat, longitude: originLng } } },
-          destination: { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
-          travelMode:  "DRIVE",
-        }),
-      });
-      const data = await res.json();
-      if (!data.routes?.[0]) return null;
-      const route  = data.routes[0];
-      const mins   = Math.round((parseInt(route.duration) * TRUCK_FACTOR) / 60);
-      const distM  = route.distanceMeters;
-      const result = {
-        duration: mins < 60 ? `~${mins} min` : `~${Math.floor(mins/60)}h ${mins%60>0?mins%60+"min":""}`,
-        distance: distM < 1000 ? `${distM} m` : `${(distM/1000).toFixed(1)} km`,
-      };
-      _etaRouteCache[key] = { data: result, expiry: Date.now() + 600000 }; // 10 min cache
-      return result;
-    } catch { return null; }
-  };
-
-  // Geocode cache — avoids re-geocoding same address on every ETA refresh
-  const _geocodeCache = useRef({});
-
-  const geocodeAddress = async (address) => {
-    if (!address?.trim()) return null;
-    const key = address.trim().toLowerCase();
-    if (_geocodeCache.current[key]) return _geocodeCache.current[key];
-    try {
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&region=za&key=${MAPS_KEY}`;
-      const res  = await fetch(url);
-      const data = await res.json();
-      if (data.status === "OK" && data.results?.[0]) {
-        const { lat, lng } = data.results[0].geometry.location;
-        const result = { lat, lon: lng, title: address };
-        _geocodeCache.current[key] = result;
-        return result;
-      }
-    } catch {}
-    return null;
-  };
-
+  // ── Load ETAs from backend routeCache — zero browser Google API calls ───
+  // Backend calculates routes once per 10min per vehicle and caches them.
+  // We just read task.phase and task.routeCache from the positions response.
   const loadETAs = useCallback(async () => {
     try {
       const positions = await fetch(`${API}/positions`).then(r => r.json());
       if (!Array.isArray(positions)) return;
 
       const etaMap = {};
-      await Promise.all(positions.map(async (v) => {
+      positions.forEach((v) => {
         if (!v.activeTask) return;
-        const task   = v.activeTask;
-        const loadPt = task.loadPoint;
-        let   dropPt = task.dropPoint;
-
-        if (!dropPt && task.dropoffLocation) {
-          dropPt = await geocodeAddress(task.dropoffLocation);
-        }
-        let resolvedLoadPt = loadPt;
-        if (!resolvedLoadPt && task.loadLocation) {
-          resolvedLoadPt = await geocodeAddress(task.loadLocation);
-        }
-
-        if (!resolvedLoadPt && !dropPt) return;
-
-        // FIX: Phase now comes from the backend (task.phase in positions response)
-        // The backend is the single source of truth — no more localStorage reads
+        const task  = v.activeTask;
         const phase = task.phase || "to_load";
+        const rc    = task.routeCache;
 
-        // Determine destination based on backend phase
-        let dest = null;
-        if (phase === "to_load" && resolvedLoadPt) {
-          dest = resolvedLoadPt;
-        } else if (phase === "at_load") {
-          dest = dropPt || resolvedLoadPt;
-        } else if ((phase === "to_drop" || phase === "at_drop") && dropPt) {
-          dest = dropPt;
-        } else {
-          dest = resolvedLoadPt || dropPt;
+        // Arrived at load — show Arrived, no route needed
+        if (phase === "at_load") {
+          etaMap[task.id] = {
+            duration: "Arrived",
+            distance: "",
+            dest:     task.loadLocation || "Loading point",
+            phase,
+          };
+          return;
         }
-        if (!dest) return;
 
-        const route = await fetchRoadETA(v.lat, v.lon, Number(dest.lat), Number(dest.lon));
-        if (!route) return;
+        // Arrived at dropoff — show Arrived, no route needed
+        if (phase === "at_drop") {
+          etaMap[task.id] = {
+            duration: "Arrived",
+            distance: "",
+            dest:     task.dropoffLocation || "Dropoff point",
+            phase,
+          };
+          return;
+        }
 
-        etaMap[task.id] = {
-          duration: route.duration,
-          distance: route.distance,
-          dest:     dest.title,
-          phase,
-        };
-      }));
+        // En-route — use backend cached route data directly
+        if (rc?.duration) {
+          etaMap[task.id] = {
+            duration: rc.duration,
+            distance: rc.distance || "",
+            dest:     rc.destTitle || task.dropoffLocation || task.loadLocation || "",
+            phase,
+          };
+        }
+      });
       setVehicleETAs(etaMap);
     } catch (err) { console.error("ETA load error:", err); }
   }, []);
@@ -776,20 +716,24 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                       {(task.date || task.pickupTime) && (
                         <div className="text-slate-500 text-[10px] mt-0.5">{task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}</div>
                       )}
-                      {task.status === "inprogress" && vehicleETAs[task.id] && (
-                        <div className={`flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                          vehicleETAs[task.id].phase === "to_load" || vehicleETAs[task.id].phase === "at_load"
+                      {task.status === "inprogress" && vehicleETAs[task.id] && (() => {
+                        const eta = vehicleETAs[task.id];
+                        const arrived = eta.duration === "Arrived";
+                        const isLoad  = eta.phase === "to_load" || eta.phase === "at_load";
+                        const colorClass = arrived
+                          ? "bg-emerald-900/60 text-emerald-300"
+                          : isLoad
                             ? "bg-blue-900/50 text-blue-300"
-                            : "bg-green-900/50 text-green-300"
-                        }`}>
-                          <span>⏱</span>
-                          <span>{vehicleETAs[task.id].duration}</span>
-                          <span className="opacity-60">·</span>
-                          <span>{vehicleETAs[task.id].distance}</span>
-                          <span className="opacity-60">·</span>
-                          <span className="truncate">{vehicleETAs[task.id].dest}</span>
-                        </div>
-                      )}
+                            : "bg-green-900/50 text-green-300";
+                        return (
+                          <div className={`flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold ${colorClass}`}>
+                            <span>{arrived ? "\u2705" : "\u23f1"}</span>
+                            <span>{eta.duration}</span>
+                            {eta.distance && <><span className="opacity-60">\u00b7</span><span>{eta.distance}</span></>}
+                            {eta.dest && <><span className="opacity-60">\u00b7</span><span className="truncate">{eta.dest}</span></>}
+                          </div>
+                        );
+                      })()}
                       {task.status === "completed" && (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {task.result === "failed"
