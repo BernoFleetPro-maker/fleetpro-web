@@ -499,14 +499,19 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   }, [loadTasks, loadStatic]);
 
   useEffect(() => {
-    loadAll();
+    // Load tasks first, then ETAs — staggered so both don't hit /positions simultaneously
+    // Backend cache means the second call is instant anyway
+    loadAll().then(() => {
+      // Small delay so backend cache is warm from loadAll's /positions fetch
+      setTimeout(loadETAs, 500);
+    });
 
     const keepalive = setInterval(() => {
       fetch(`${API}/health`).catch(() => {});
     }, 2 * 60 * 1000);
 
-    loadETAs();
-    const etaInterval = setInterval(loadETAs, 15000);
+    // ETAs poll every 20s — backend cache (8s TTL) means this is cheap
+    const etaInterval = setInterval(loadETAs, 20000);
 
     let sse;
     try {
