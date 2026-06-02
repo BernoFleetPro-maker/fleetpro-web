@@ -362,29 +362,30 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   })[0];
   const highlightRef = useRef(null);
 
-  // When navigating from map, switch to the task's own date so it's visible
-  // We do this after tasks load so we know the task's date
+  // When navigating from map, wait until the highlighted task actually exists in
+  // the tasks list before switching date and scrolling. This handles cold-start
+  // where tasks load from localStorage first (may be stale/empty) and then fresh
+  // data arrives — we must not act on a missing task (which triggers "show all").
   useEffect(() => {
-    if (!highlightedTaskId || !initialLoaded) return;
+    if (!highlightedTaskId) return;
     const task = tasks.find(t => t.id === highlightedTaskId);
-    if (task?.date) {
+    if (!task) return; // wait — task not loaded yet, effect re-runs when tasks changes
+
+    // Switch to the task's date so it's visible in the filtered view
+    if (task.date) {
       handleDateSelect(task.date);
     }
-    // If task has no date, show all so it's always found
-    else {
-      handleDateSelect("");
-    }
-  }, [highlightedTaskId, initialLoaded]);
 
-  // Scroll to task after date filter is applied and task is rendered
-  useEffect(() => {
-    if (!highlightedTaskId || !initialLoaded) return;
+    // Scroll after a short delay to let the date filter re-render
     const scroll = setTimeout(() => {
-      if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:"smooth", block:"center" });
-    }, 400);
+      if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 350);
+
+    // Clear highlight after 6 seconds
     const clear = setTimeout(() => setHighlightedTaskId(null), 6000);
+
     return () => { clearTimeout(scroll); clearTimeout(clear); };
-  }, [highlightedTaskId, initialLoaded]);
+  }, [highlightedTaskId, tasks]); // re-runs every time tasks updates until task is found
 
   // ── Load static data once (drivers, vehicles, points) ───────────────────
   const loadStatic = useCallback(async () => {
