@@ -150,7 +150,8 @@ export default function MapView({ role = "admin", clientId = null }) {
       <div style="color:#555;font-size:10px;"><strong>Speed:</strong> ${v.speed || 0} km/h</div>
       <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
       <div style="display:flex;gap:4px;justify-content:center;">
-        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📋 Copy Link</button>
+        <button onclick="window._fleetproOpenMaps(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#34a853;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">🗺 Open in Maps</button>
+        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📤 Share</button>
         ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📍 Save Point</button>` : ""}
       </div>
       ${taskSection}
@@ -226,22 +227,6 @@ export default function MapView({ role = "admin", clientId = null }) {
       });
     }
     const activeInfo = map.activeInfoWindow;
-
-    // Remove markers for vehicles no longer in the positions response
-    // (task completed, driver logged off, etc.)
-    const activeIds = new Set(data.map(v => v.descrip || `veh-${v.id}`));
-    Object.keys(markersRef.current).forEach(id => {
-      if (!activeIds.has(id)) {
-        const mk = markersRef.current[id];
-        mk.marker.setMap(null);
-        if (mk.labelOverlay?.setMap) mk.labelOverlay.setMap(null);
-        delete markersRef.current[id];
-        // Also remove route line
-        if (routeLinesRef.current[id]) { routeLinesRef.current[id].setMap(null); delete routeLinesRef.current[id]; }
-        // If this was the selected vehicle, deselect
-        if (activeVehicleRef.current === id) { activeVehicleRef.current = null; activeInfo.close(); }
-      }
-    });
 
     data.forEach(v => {
       const id   = v.descrip || `veh-${v.id}`;
@@ -330,16 +315,37 @@ export default function MapView({ role = "admin", clientId = null }) {
         });
       }
 
+      // Open in Google Maps — works on desktop and mobile
+      window._fleetproOpenMaps = (lat, lon, reg) => {
+        // On mobile: geo: URI opens native maps app, fallback to Google Maps URL
+        const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
+        if (isMobile) {
+          // Try native maps first via geo URI, then Google Maps web
+          const geoUrl    = `geo:${lat},${lon}?q=${lat},${lon}(${encodeURIComponent(reg)})`;
+          const googleUrl = `https://maps.google.com/?q=${lat},${lon}`;
+          // Use Google Maps URL which opens native app on both iOS and Android
+          window.open(`https://maps.google.com/?q=${lat},${lon}`, "_blank");
+        } else {
+          window.open(`https://www.google.com/maps?q=${lat},${lon}`, "_blank");
+        }
+      };
+
+      // Share location — mobile uses native share sheet, desktop copies text
       window._fleetproShareLocation = (lat, lon, reg) => {
-        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+        const mapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
         const text    = `📍 ${reg} current location:\n${mapsUrl}`;
         if (navigator.share) {
+          // Mobile: native share sheet — can send to WhatsApp, SMS, email, etc.
           navigator.share({ title: `${reg} Location`, text, url: mapsUrl }).catch(() => {});
         } else {
+          // Desktop: copy to clipboard
           navigator.clipboard.writeText(text).then(() => {
             const btn = document.getElementById("fleetpro-share-btn");
-            if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy Link"; }, 2000); }
-          }).catch(() => { window.prompt("Copy this link:", mapsUrl); });
+            if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📤 Share"; }, 2000); }
+          }).catch(() => {
+            // Final fallback: prompt box
+            window.prompt("Copy this link:", mapsUrl);
+          });
         }
       };
 

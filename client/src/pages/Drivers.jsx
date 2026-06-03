@@ -23,6 +23,7 @@ export default function Drivers() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
+  const [activeTasks, setActiveTasks] = useState([]); // inprogress tasks for map nav
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -42,7 +43,16 @@ export default function Drivers() {
     }
   };
 
-  useEffect(() => { fetchDrivers(); }, []);
+  useEffect(() => {
+    fetchDrivers();
+    // Load inprogress tasks so we know which drivers can be tracked on map
+    fetch("https://fleetpro-backend-production.up.railway.app/api/tasks", {
+      headers: { "Authorization": `Bearer ${getToken()}` }
+    })
+      .then(r => r.json())
+      .then(data => setActiveTasks(Array.isArray(data) ? data.filter(t => t.status === "inprogress") : []))
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -81,6 +91,26 @@ export default function Drivers() {
     } catch {
       showToast("Failed to delete driver — please try again.");
     }
+  };
+
+  const handleViewOnMap = (driver) => {
+    const task = activeTasks.find(t => t.assignedDriverId === driver.id);
+    if (!task) {
+      showToast(`${driver.name} has no active task — cannot track on map.`);
+      return;
+    }
+    // Look up the vehicle registration from vehicleId, then navigate to map
+    authFetch(`https://fleetpro-backend-production.up.railway.app/api/vehicles`)
+      .then(r => r.json())
+      .then(vehicles => {
+        const veh = Array.isArray(vehicles) ? vehicles.find(v => v.id === task.vehicleId) : null;
+        if (veh?.registration) {
+          window.location.href = `/?vehicle=${encodeURIComponent(veh.registration)}`;
+        } else {
+          showToast("Could not find vehicle for this driver.");
+        }
+      })
+      .catch(() => showToast("Could not reach server — please try again."));
   };
 
   const startEdit = (d) => {
@@ -159,7 +189,14 @@ export default function Drivers() {
               <span className="font-bold text-gray-800">{d.name}</span>
               <span className="text-gray-500 text-sm ml-2">— {d.phone}</span>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2 items-center flex-wrap justify-end">
+              <button
+                onClick={() => handleViewOnMap(d)}
+                className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded text-xs font-medium"
+                title="View driver on map"
+              >
+                🗺 Map
+              </button>
               <button onClick={() => startEdit(d)} className="text-blue-600 hover:underline text-sm">Edit</button>
               <button onClick={() => handleDelete(d.id)} className="text-red-600 hover:underline text-sm">Delete</button>
             </div>

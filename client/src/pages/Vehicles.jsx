@@ -221,7 +221,14 @@ export default function Vehicles() {
                 </div>
               )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2 items-center flex-wrap justify-end">
+              <button
+                onClick={() => { window.location.href = `/?vehicle=${encodeURIComponent(v.registration)}`; }}
+                className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded text-xs font-medium"
+                title="View this vehicle on the map"
+              >
+                🗺 Map
+              </button>
               <button onClick={() => startEdit(v)}
                 className="text-blue-600 hover:underline text-sm">Edit</button>
               <button onClick={() => handleDelete(v.id)}
