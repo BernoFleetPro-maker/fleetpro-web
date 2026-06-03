@@ -2,6 +2,18 @@ import React, { useEffect, useState } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
+// ── Auth helper — attaches JWT token to every API request ───────────────────
+function getToken() {
+  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
+}
+function authHeaders(extra = {}) {
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+}
+
+
 function getAuthPayload() {
   try {
     const token = localStorage.getItem("fleetpro_token");
@@ -29,7 +41,7 @@ export default function Settings() {
 
   const loadClients = async () => {
     try {
-      const res  = await fetch(`${API}/clients`);
+      const res  = await authFetch(`${API}/clients`);
       const data = await res.json();
       setClients(Array.isArray(data) ? data : []);
     } catch { setClients([]); }
@@ -42,7 +54,7 @@ export default function Settings() {
     const newPermission = client.permission === "full" ? "view" : "full";
     setSaving(client.id);
     try {
-      await fetch(`${API}/clients/${client.id}`, {
+      await authFetch(`${API}/clients/${client.id}`, {
         method:  "PUT",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ name: client.name, username: client.username, permission: newPermission }),

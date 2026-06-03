@@ -2,6 +2,18 @@ import React, { useEffect, useRef, useState } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api/points";
 
+// ── Auth helper — attaches JWT token to every API request ───────────────────
+function getToken() {
+  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
+}
+function authHeaders(extra = {}) {
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+}
+
+
 export default function DropoffPoints() {
   const [points, setPoints]   = useState([]);
   const [form, setForm]       = useState({ title: "", address: "", lat: "", lon: "", radius: 1000 });
@@ -22,7 +34,7 @@ export default function DropoffPoints() {
   const fetchPoints = async () => {
     setLoading(true);
     try {
-      const res  = await fetch(API);
+      const res  = await authFetch(API);
       const data = await res.json();
       setPoints((data || []).filter((p) => p.type === "dropoff"));
     } catch {}
@@ -145,7 +157,7 @@ export default function DropoffPoints() {
       };
       const url    = editing ? `${API}/${editing}` : API;
       const method = editing ? "PUT" : "POST";
-      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res    = await authFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) { const err = await res.json(); return alert(err.error || "Failed to save"); }
       resetForm();
       fetchPoints();
@@ -201,7 +213,7 @@ export default function DropoffPoints() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this dropoff point?")) return;
-    await fetch(`${API}/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/${id}`, { method: "DELETE" });
     fetchPoints();
   };
 

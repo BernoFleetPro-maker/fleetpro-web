@@ -2,6 +2,18 @@ import React, { useEffect, useState } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
+// ── Auth helper — attaches JWT token to every API request ───────────────────
+function getToken() {
+  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
+}
+function authHeaders(extra = {}) {
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+}
+
+
 const EMPTY_FORM = { name: "", username: "", password: "" };
 
 export default function Controllers() {
@@ -16,7 +28,7 @@ export default function Controllers() {
 
   const load = async () => {
     try {
-      const res  = await fetch(`${API}/controllers`);
+      const res  = await authFetch(`${API}/controllers`);
       const data = await res.json();
       setControllers(Array.isArray(data) ? data : []);
     } catch { setControllers([]); }
@@ -53,7 +65,7 @@ export default function Controllers() {
       const body   = { ...form };
       if (editingId && !body.password) delete body.password;
 
-      const res  = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res  = await authFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Failed to save."); return; }
 
@@ -68,7 +80,7 @@ export default function Controllers() {
   const handleDelete = async (c) => {
     if (!window.confirm(`Delete controller "${c.name}"? They will no longer be able to log in.`)) return;
     try {
-      await fetch(`${API}/controllers/${c.id}`, { method: "DELETE" });
+      await authFetch(`${API}/controllers/${c.id}`, { method: "DELETE" });
       setSuccess("Controller deleted.");
       setTimeout(() => setSuccess(""), 3000);
       load();

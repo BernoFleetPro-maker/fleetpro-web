@@ -7,6 +7,18 @@ const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 // Phase order
 const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
 
+// ── Auth helper — attaches JWT token to every API request ───────────────────
+function getToken() {
+  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
+}
+function authHeaders(extra = {}) {
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+}
+
+
 // ── Read phase from localStorage ───────────────────────────────────────────
 function getPhase(id) {
   try { return JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}")[id] || null; }
@@ -124,7 +136,7 @@ export default function MapView({ role = "admin", clientId = null }) {
 
   // ── Tell backend about phase change so route cache serves correct destination ──
   function reportPhaseToBackend(vehicleReg, phase) {
-    fetch(`${API}/positions/phase`, {
+    authFetch(`${API}/positions/phase`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vehicleReg, phase }),
@@ -362,7 +374,7 @@ export default function MapView({ role = "admin", clientId = null }) {
     pointOverlaysRef.current.forEach(o => { if(o.circle) o.circle.setMap(null); if(o.dot) o.dot.setMap(null); });
     pointOverlaysRef.current = [];
     try {
-      const points = await fetch(`${API}/points`).then(r => r.json());
+      const points = await authFetch(`${API}/points`).then(r => r.json());
       // Clients only see points for their own active tasks
       let visiblePoints = points;
       if (!isAdmin && clientId && Array.isArray(positions)) {
@@ -458,7 +470,7 @@ export default function MapView({ role = "admin", clientId = null }) {
           const btn = document.getElementById("fp-save-confirm");
           btn.textContent = "Saving..."; btn.disabled = true;
           try {
-            const res = await fetch(`${API}/points`, {
+            const res = await authFetch(`${API}/points`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ title, type, lat, lon, radius, address: address || null }),
@@ -485,7 +497,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       };
 
       window._fleetproOverride = (vehicleId, newPhase, taskId) => {
-        fetch(`${API}/positions/phase`, {
+        authFetch(`${API}/positions/phase`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ vehicleReg: vehicleId, phase: newPhase, taskId }),
@@ -499,7 +511,7 @@ export default function MapView({ role = "admin", clientId = null }) {
 
       async function fetchAll() {
         try {
-          let positions = await fetch(`${API}/positions`).then(r=>r.json());
+          let positions = await authFetch(`${API}/positions`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
           if (!isAdmin && clientId) {
             console.log("[FleetPro] Client filter — clientId:", clientId, "positions:", positions.map(v => ({ reg: v.descrip, taskClientId: v.activeTask?.clientId })));

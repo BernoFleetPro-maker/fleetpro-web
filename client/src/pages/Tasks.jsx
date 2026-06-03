@@ -3,6 +3,18 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 const LS_TASKS_KEY = "fleetpro_tasks_cache";
 
+// ── Auth helper — attaches JWT token to every API request ───────────────────
+function getToken() {
+  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
+}
+function authHeaders(extra = {}) {
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+}
+
+
 // Module-level cache — persists across page navigations within the same session
 // Also pre-populated from localStorage so tasks show INSTANTLY on cold start
 let _cachedTasks    = null;
@@ -148,7 +160,7 @@ function PodModal({ task, drivers, vehicles, onClose }) {
   useEffect(() => {
     if (!task?.id) return;
     setPhotosLoading(true);
-    fetch(`${API}/tasks/${task.id}/photos`)
+    authFetch(`${API}/tasks/${task.id}/photos`)
       .then(r => r.json())
       .then(data => {
         setPhotos(Array.isArray(data) ? data : []);
@@ -391,7 +403,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   const loadStatic = useCallback(async () => {
     try {
       const [dRes, pRes] = await Promise.all([
-        fetch(`${API}/drivers`), fetch(`${API}/points`),
+        authFetch(`${API}/drivers`), authFetch(`${API}/points`),
       ]);
       const [d, p] = await Promise.all([dRes.json(), pRes.json()]);
       _cachedDrivers = Array.isArray(d) ? d : [];
@@ -405,7 +417,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       if (_cachedVehicles && _cachedClients) return;
 
       const [vRes, cRes] = await Promise.all([
-        fetch(`${API}/vehicles`), fetch(`${API}/clients`),
+        authFetch(`${API}/vehicles`), authFetch(`${API}/clients`),
       ]);
       const [v, c] = await Promise.all([vRes.json(), cRes.json()]);
       _cachedVehicles = Array.isArray(v) ? v : [];
@@ -418,7 +430,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   // ── Load tasks from server ───────────────────────────────────────────────
   const loadTasks = useCallback(async () => {
     try {
-      const res   = await fetch(`${API}/tasks`);
+      const res   = await authFetch(`${API}/tasks`);
       const t     = await res.json();
       let fresh = Array.isArray(t) ? t : [];
       if (!hasFullAccess && clientId) {
@@ -435,7 +447,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   // We just read task.phase and task.routeCache from the positions response.
   const loadETAs = useCallback(async () => {
     try {
-      const positions = await fetch(`${API}/positions`).then(r => r.json());
+      const positions = await authFetch(`${API}/positions`).then(r => r.json());
       if (!Array.isArray(positions)) return;
 
       const etaMap = {};
@@ -576,7 +588,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     setShowForm(false);
 
     try {
-      const res  = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res  = await authFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res.ok) {
         setFormError(data.error || `Error ${res.status}`);
@@ -617,7 +629,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       _cachedTasks = updated;
       return updated;
     });
-    await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/tasks/${id}`, { method: "DELETE" });
   };
 
   const setStatus = async (id, status) => {
@@ -626,7 +638,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       _cachedTasks = updated;
       return updated;
     });
-    await fetch(`${API}/tasks/${id}/status`, {
+    await authFetch(`${API}/tasks/${id}/status`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });

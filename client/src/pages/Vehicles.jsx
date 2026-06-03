@@ -2,6 +2,18 @@ import React, { useEffect, useState } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api/vehicles";
 
+// ── Auth helper — attaches JWT token to every API request ───────────────────
+function getToken() {
+  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
+}
+function authHeaders(extra = {}) {
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+}
+
+
 export default function Vehicles() {
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm]         = useState({ registration: "", description: "", make: "", model: "", year: "" });
@@ -15,7 +27,7 @@ export default function Vehicles() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(API);
+      const res = await authFetch(API);
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
       setVehicles(Array.isArray(data) ? data : []);
@@ -40,7 +52,7 @@ export default function Vehicles() {
     try {
       const url    = editing ? `${API}/${editing}` : API;
       const method = editing ? "PUT" : "POST";
-      const res    = await fetch(url, {
+      const res    = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -69,7 +81,7 @@ export default function Vehicles() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this vehicle?")) return;
     try {
-      await fetch(`${API}/${id}`, { method: "DELETE" });
+      await authFetch(`${API}/${id}`, { method: "DELETE" });
       fetchVehicles();
     } catch {
       alert("Failed to delete vehicle.");

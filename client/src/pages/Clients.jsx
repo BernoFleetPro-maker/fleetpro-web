@@ -2,6 +2,18 @@ import React, { useEffect, useState } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
+// ── Auth helper — attaches JWT token to every API request ───────────────────
+function getToken() {
+  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
+}
+function authHeaders(extra = {}) {
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+}
+
+
 const EMPTY_FORM = { name: "", username: "", password: "" };
 
 export default function Clients() {
@@ -16,7 +28,7 @@ export default function Clients() {
 
   const load = async () => {
     try {
-      const res = await fetch(`${API}/clients`);
+      const res = await authFetch(`${API}/clients`);
       const data = await res.json();
       setClients(Array.isArray(data) ? data : []);
     } catch { setClients([]); } finally { setLoading(false); }
@@ -52,7 +64,7 @@ export default function Clients() {
       const body   = { ...form };
       if (editingId && !body.password) delete body.password; // don't overwrite if blank
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -71,7 +83,7 @@ export default function Clients() {
   const handleDelete = async (client) => {
     if (!window.confirm(`Delete client "${client.name}"? This cannot be undone.`)) return;
     try {
-      await fetch(`${API}/clients/${client.id}`, { method: "DELETE" });
+      await authFetch(`${API}/clients/${client.id}`, { method: "DELETE" });
       setSuccess("Client deleted.");
       setTimeout(() => setSuccess(""), 3000);
       load();
