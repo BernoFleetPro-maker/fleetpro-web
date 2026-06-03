@@ -150,8 +150,8 @@ export default function MapView({ role = "admin", clientId = null }) {
       <div style="color:#555;font-size:10px;"><strong>Speed:</strong> ${v.speed || 0} km/h</div>
       <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
       <div style="display:flex;gap:4px;justify-content:center;">
-        <button id="fleetpro-loc-btn" onclick="window._fleetproShowLocMenu(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📍 Current Location</button>
-        ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📍 Save Point</button>` : ""}
+        <button id="fleetpro-loc-btn" onclick="window._fleetproShowLocMenu(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Current Location</button>
+        ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Save Point</button>` : ""}
       </div>
       ${taskSection}
     </div>`;
