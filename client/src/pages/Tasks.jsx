@@ -538,24 +538,44 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     // ETAs poll every 20s — backend cache (8s TTL) means this is cheap
     const etaInterval = setInterval(loadETAs, 20000);
 
+    // SSE with exponential backoff — stops retrying after 5 failures to avoid
+    // hammering Railway if the server is down
     let sse;
-    try {
-      sse = new EventSource(`${API}/stream/events`);
-      sse.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
-            if (Date.now() - lastOptimisticRef.current > 5000) {
-              loadTasks(true);
+    let sseRetries = 0;
+    let sseRetryTimeout;
+    const MAX_SSE_RETRIES = 5;
+
+    const connectSSE = () => {
+      try {
+        sse = new EventSource(`${API}/stream/events`);
+        sse.onmessage = (e) => {
+          sseRetries = 0; // reset on successful message
+          try {
+            const msg = JSON.parse(e.data);
+            if (["task_created", "task_updated", "task_deleted"].includes(msg.type)) {
+              if (Date.now() - lastOptimisticRef.current > 5000) {
+                loadTasks(true);
+              }
             }
+          } catch {}
+        };
+        sse.onerror = () => {
+          sse.close();
+          if (sseRetries < MAX_SSE_RETRIES) {
+            const delay = Math.min(1000 * Math.pow(2, sseRetries), 30000); // 1s, 2s, 4s, 8s, 16s, max 30s
+            sseRetries++;
+            sseRetryTimeout = setTimeout(connectSSE, delay);
           }
-        } catch {}
-      };
-    } catch {}
+          // After max retries, stop silently — poll intervals still keep data fresh
+        };
+      } catch {}
+    };
+    connectSSE();
 
     return () => {
       clearInterval(keepalive);
       clearInterval(etaInterval);
+      clearTimeout(sseRetryTimeout);
       if (sse) sse.close();
     };
   }, []);

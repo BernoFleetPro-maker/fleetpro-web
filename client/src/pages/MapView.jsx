@@ -227,6 +227,22 @@ export default function MapView({ role = "admin", clientId = null }) {
     }
     const activeInfo = map.activeInfoWindow;
 
+    // Remove markers for vehicles no longer in the positions response
+    // (task completed, driver logged off, etc.)
+    const activeIds = new Set(data.map(v => v.descrip || `veh-${v.id}`));
+    Object.keys(markersRef.current).forEach(id => {
+      if (!activeIds.has(id)) {
+        const mk = markersRef.current[id];
+        mk.marker.setMap(null);
+        if (mk.labelOverlay?.setMap) mk.labelOverlay.setMap(null);
+        delete markersRef.current[id];
+        // Also remove route line
+        if (routeLinesRef.current[id]) { routeLinesRef.current[id].setMap(null); delete routeLinesRef.current[id]; }
+        // If this was the selected vehicle, deselect
+        if (activeVehicleRef.current === id) { activeVehicleRef.current = null; activeInfo.close(); }
+      }
+    });
+
     data.forEach(v => {
       const id   = v.descrip || `veh-${v.id}`;
       const pos  = new g.maps.LatLng(v.lat, v.lon);

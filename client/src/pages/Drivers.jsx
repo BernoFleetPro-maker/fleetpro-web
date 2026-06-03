@@ -21,6 +21,10 @@ export default function Drivers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [toast, setToast] = useState("");
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
   const fetchDrivers = async () => {
     setLoading(true);
@@ -42,7 +46,8 @@ export default function Drivers() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.phone.trim()) return alert("Name and phone number are required.");
+    setFormError("");
+    if (!form.name.trim() || !form.phone.trim()) { setFormError("Name and phone number are required."); return; }
     setSaving(true);
     try {
       const url = editing ? `${API}/${editing}` : API;
@@ -54,14 +59,14 @@ export default function Drivers() {
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(err.error || "Failed to save driver");
+        setFormError(err.error || "Failed to save driver");
         return;
       }
       setForm({ name: "", phone: "" });
       setEditing(null);
       fetchDrivers();
     } catch {
-      alert("Could not save driver. Please try again.");
+      setFormError("Could not save driver. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -71,9 +76,10 @@ export default function Drivers() {
     if (!window.confirm("Delete this driver? This will also remove them from any assigned tasks.")) return;
     try {
       await authFetch(`${API}/${id}`, { method: "DELETE" });
+      showToast("Driver deleted.");
       fetchDrivers();
     } catch {
-      alert("Failed to delete driver.");
+      showToast("Failed to delete driver — please try again.");
     }
   };
 
@@ -89,6 +95,7 @@ export default function Drivers() {
 
   return (
     <div className="p-6 max-w-3xl">
+      {toast && <div className="fixed top-4 right-4 z-50 bg-slate-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg">{toast}</div>}
       <h2 className="text-xl font-bold mb-4 text-gray-800">Drivers</h2>
 
       {/* Add / Edit Form */}
@@ -97,6 +104,7 @@ export default function Drivers() {
         <p className="text-xs text-gray-400 mb-3">
           The driver's phone number is used as their login password on the app.
         </p>
+        {formError && <div className="bg-red-50 border border-red-300 text-red-600 text-sm px-3 py-2 rounded mb-3">{formError}</div>}
         <form onSubmit={handleSubmit} className="space-y-3">
           <input
             type="text"

@@ -22,6 +22,10 @@ export default function LoadingPoints() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [pinned, setPinned]   = useState(null);
+  const [toast, setToast]     = useState("");
+  const [formErr, setFormErr] = useState("");
+
+  const showToast = (msg, isError=false) => { setToast({msg, isError}); setTimeout(() => setToast(""), 3000); };
 
   const mapRef        = useRef(null);
   const mapInst       = useRef(null);
@@ -146,8 +150,9 @@ export default function LoadingPoints() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.title.trim()) return alert("Please enter a point name.");
-    if (!form.lat || !form.lon) return alert("Please search or click the map to place a pin first.");
+    setFormErr("");
+    if (!form.title.trim()) { setFormErr("Please enter a point name."); return; }
+    if (!form.lat || !form.lon) { setFormErr("Please search or click the map to place a pin first."); return; }
     setSaving(true);
     try {
       const payload = {
@@ -158,10 +163,10 @@ export default function LoadingPoints() {
       const url    = editing ? `${API}/${editing}` : API;
       const method = editing ? "PUT" : "POST";
       const res    = await authFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!res.ok) { const err = await res.json(); return alert(err.error || "Failed to save"); }
+      if (!res.ok) { const err = await res.json(); setFormErr(err.error || "Failed to save"); return; }
       resetForm();
       fetchPoints();
-    } catch { alert("Failed to save point."); }
+    } catch { setFormErr("Failed to save point — please try again."); }
     finally { setSaving(false); }
   };
 
@@ -213,12 +218,16 @@ export default function LoadingPoints() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this loading point?")) return;
-    await authFetch(`${API}/${id}`, { method: "DELETE" });
-    fetchPoints();
+    try {
+      await authFetch(`${API}/${id}`, { method: "DELETE" });
+      showToast("Loading point deleted.");
+      fetchPoints();
+    } catch { showToast("Failed to delete — please try again.", true); }
   };
 
   return (
     <div className="p-6">
+      {toast && <div className={`fixed top-4 right-4 z-50 text-white text-sm px-4 py-2 rounded-lg shadow-lg ${toast.isError ? 'bg-red-700' : 'bg-slate-800'}`}>{toast.msg}</div>}
       <h2 className="text-xl font-bold mb-4">Loading Points</h2>
 
       <form onSubmit={handleSubmit} className="mb-6 space-y-2">
@@ -264,6 +273,7 @@ export default function LoadingPoints() {
         />
         <p className="text-xs text-gray-400">💡 Search for a location above, or click directly on the map. Drag the pin to fine-tune.</p>
 
+        {formErr && <div className="bg-red-50 border border-red-300 text-red-600 text-sm px-3 py-2 rounded">{formErr}</div>}
         <div className="flex gap-2 mt-1">
           <button type="submit" disabled={saving}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded">
