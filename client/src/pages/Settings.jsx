@@ -39,7 +39,10 @@ export default function Settings() {
   const role    = payload?.role || "admin";
   const canChangePassword = role === "controller" || role === "client";
 
+  const isAdminOrController = role === "admin" || role === "controller";
+
   const loadClients = async () => {
+    if (!isAdminOrController) { setLoading(false); return; } // clients can't see other clients
     try {
       const res  = await authFetch(`${API}/clients`);
       const data = await res.json();
@@ -134,8 +137,8 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Client Permissions — inline list */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+      {/* Client Permissions — admin/controller only */}
+      {isAdminOrController && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
         <div className="bg-slate-50 border-b border-slate-200 px-5 py-3 flex items-center justify-between">
           <h3 className="font-semibold text-slate-700">🏢 Client Permissions</h3>
           <span className="text-xs text-slate-400">Toggle to change access level</span>
@@ -182,6 +185,8 @@ export default function Settings() {
           </div>
         )}
       </div>
+
+      }{/* end client permissions */}
 
       {/* Change Password — for controllers and clients */}
       {canChangePassword && (

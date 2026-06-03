@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
-const LS_TASKS_KEY = "fleetpro_tasks_cache";
+const LS_TASKS_KEY     = "fleetpro_tasks_cache";
+const LS_TASKS_TS_KEY  = "fleetpro_tasks_cache_ts";
+const LS_TASKS_TTL_MS  = 6 * 60 * 60 * 1000; // 6 hours
 
 // ── Auth helper — attaches JWT token to every API request ───────────────────
 function getToken() {
@@ -23,15 +25,25 @@ let _cachedVehicles = null;
 let _cachedPoints   = null;
 let _cachedClients  = null;
 
-// Load tasks from localStorage immediately — before any network request
+// Load tasks from localStorage immediately — but only if cache is less than 6 hours old
 try {
   const stored = localStorage.getItem(LS_TASKS_KEY);
-  if (stored) _cachedTasks = JSON.parse(stored);
+  const ts     = parseInt(localStorage.getItem(LS_TASKS_TS_KEY) || "0");
+  if (stored && (Date.now() - ts) < LS_TASKS_TTL_MS) {
+    _cachedTasks = JSON.parse(stored);
+  } else if (stored) {
+    // Cache too old — clear it so stale data never flashes
+    localStorage.removeItem(LS_TASKS_KEY);
+    localStorage.removeItem(LS_TASKS_TS_KEY);
+  }
 } catch {}
 
-// Save tasks to localStorage whenever they update
+// Save tasks to localStorage with a timestamp for TTL checks
 function persistTasks(tasks) {
-  try { localStorage.setItem(LS_TASKS_KEY, JSON.stringify(tasks)); } catch {}
+  try {
+    localStorage.setItem(LS_TASKS_KEY, JSON.stringify(tasks));
+    localStorage.setItem(LS_TASKS_TS_KEY, String(Date.now()));
+  } catch {}
 }
 
 const STATUSES = [

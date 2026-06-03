@@ -224,7 +224,7 @@ export default function DropoffPoints() {
       <form onSubmit={handleSubmit} className="mb-6 space-y-2">
         {/* Point name */}
         <input
-          type="text" placeholder="Loading Point Name"
+          type="text" placeholder="Dropoff Point Name"
           className="border p-2 w-full rounded"
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
