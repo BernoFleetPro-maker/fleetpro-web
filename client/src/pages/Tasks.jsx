@@ -506,10 +506,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   }, []);
 
   const loadAll = useCallback(async () => {
-    // Wake backend immediately — fire-and-forget ping so it's warm when tasks fetch arrives
-    fetch(`${API}/health`).catch(() => {});
-
-    // Show cached tasks INSTANTLY from localStorage — zero wait
+    // Show cached data INSTANTLY — zero wait
     if (_cachedTasks) { setTasks(_cachedTasks); setInitialLoaded(true); }
     if (_cachedDrivers)  setDrivers(_cachedDrivers);
     if (_cachedVehicles) setVehicles(_cachedVehicles);
@@ -517,19 +514,19 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       setLoadingPoints(_cachedPoints.filter(x => x.type === "loading"));
       setDropoffPoints(_cachedPoints.filter(x => x.type === "dropoff"));
     }
-    // Then fetch fresh data in background — updates silently
-    await loadTasks();
+
+    // Fire ALL fetches in parallel — tasks, static data, AND ETAs all at once
+    // No sequential waiting — whichever arrives first updates the UI immediately
+    await Promise.all([
+      loadTasks(),
+      loadStatic(),
+      loadETAs(),   // start positions fetch immediately — backend cache makes it fast
+    ]);
     setInitialLoaded(true);
-    loadStatic();
-  }, [loadTasks, loadStatic]);
+  }, [loadTasks, loadStatic, loadETAs]);
 
   useEffect(() => {
-    // Load tasks first, then ETAs — staggered so both don't hit /positions simultaneously
-    // Backend cache means the second call is instant anyway
-    loadAll().then(() => {
-      // Small delay so backend cache is warm from loadAll's /positions fetch
-      setTimeout(loadETAs, 500);
-    });
+    loadAll();
 
     const keepalive = setInterval(() => {
       fetch(`${API}/health`).catch(() => {});
