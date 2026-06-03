@@ -150,8 +150,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       <div style="color:#555;font-size:10px;"><strong>Speed:</strong> ${v.speed || 0} km/h</div>
       <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
       <div style="display:flex;gap:4px;justify-content:center;">
-        <button onclick="window._fleetproOpenMaps(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#34a853;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">🗺 Open in Maps</button>
-        <button id="fleetpro-share-btn" onclick="window._fleetproShareLocation(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📤 Share</button>
+        <button id="fleetpro-loc-btn" onclick="window._fleetproShowLocMenu(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📍 Current Location</button>
         ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;">📍 Save Point</button>` : ""}
       </div>
       ${taskSection}
@@ -315,38 +314,52 @@ export default function MapView({ role = "admin", clientId = null }) {
         });
       }
 
-      // Open in Google Maps — works on desktop and mobile
-      window._fleetproOpenMaps = (lat, lon, reg) => {
-        // On mobile: geo: URI opens native maps app, fallback to Google Maps URL
-        const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
-        if (isMobile) {
-          // Try native maps first via geo URI, then Google Maps web
-          const geoUrl    = `geo:${lat},${lon}?q=${lat},${lon}(${encodeURIComponent(reg)})`;
-          const googleUrl = `https://maps.google.com/?q=${lat},${lon}`;
-          // Use Google Maps URL which opens native app on both iOS and Android
-          window.open(`https://maps.google.com/?q=${lat},${lon}`, "_blank");
-        } else {
-          window.open(`https://www.google.com/maps?q=${lat},${lon}`, "_blank");
-        }
-      };
+      window._fleetproShowLocMenu = (lat, lon, reg) => {
+        // Remove any existing menu
+        const existing = document.getElementById("fp-loc-menu");
+        if (existing) { existing.remove(); return; }
 
-      // Share location — mobile uses native share sheet, desktop copies text
-      window._fleetproShareLocation = (lat, lon, reg) => {
         const mapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
-        const text    = `📍 ${reg} current location:\n${mapsUrl}`;
-        if (navigator.share) {
-          // Mobile: native share sheet — can send to WhatsApp, SMS, email, etc.
-          navigator.share({ title: `${reg} Location`, text, url: mapsUrl }).catch(() => {});
-        } else {
-          // Desktop: copy to clipboard
-          navigator.clipboard.writeText(text).then(() => {
-            const btn = document.getElementById("fleetpro-share-btn");
-            if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📤 Share"; }, 2000); }
-          }).catch(() => {
-            // Final fallback: prompt box
-            window.prompt("Copy this link:", mapsUrl);
-          });
-        }
+        const shareText = `📍 ${reg} current location:\n${mapsUrl}`;
+
+        const menu = document.createElement("div");
+        menu.id = "fp-loc-menu";
+        menu.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);";
+        menu.innerHTML = `
+          <div style="background:#1e293b;border:1px solid #334155;border-radius:14px;padding:18px;width:260px;font-family:Arial,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+            <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px;">📍 ${reg}</div>
+            <div style="font-size:10px;color:#94a3b8;margin-bottom:14px;">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <button id="fp-open-maps" style="background:#34a853;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">
+                🗺 Open in Google Maps
+              </button>
+              <button id="fp-share-link" style="background:#1e88e5;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">
+                📤 Share / Copy Link
+              </button>
+            </div>
+            <button id="fp-loc-cancel" style="margin-top:10px;width:100%;background:transparent;color:#64748b;border:none;font-size:12px;cursor:pointer;padding:4px;">Cancel</button>
+          </div>`;
+
+        document.body.appendChild(menu);
+
+        document.getElementById("fp-open-maps").onclick = () => {
+          window.open(mapsUrl, "_blank");
+          menu.remove();
+        };
+
+        document.getElementById("fp-share-link").onclick = () => {
+          if (navigator.share) {
+            navigator.share({ title: `${reg} Location`, text: shareText, url: mapsUrl }).catch(() => {});
+          } else {
+            navigator.clipboard.writeText(shareText).then(() => {
+              document.getElementById("fp-share-link").textContent = "✅ Copied!";
+              setTimeout(() => menu.remove(), 1200);
+            }).catch(() => { window.prompt("Copy this link:", mapsUrl); menu.remove(); });
+          }
+        };
+
+        document.getElementById("fp-loc-cancel").onclick = () => menu.remove();
+        menu.addEventListener("click", (e) => { if (e.target === menu) menu.remove(); });
       };
 
       window._fleetproSaveLocation = (lat, lon, address) => {
