@@ -235,7 +235,7 @@ export default function DropoffPoints() {
           <input
             ref={searchRef}
             type="text"
-            placeholder="🔍 Search for a location (e.g. Matla Power Station)..."
+            placeholder="🔍 Search location"
             className="border p-2 w-full rounded bg-white"
           />
         </div>
@@ -262,7 +262,7 @@ export default function DropoffPoints() {
           style={{ width: "100%", height: "320px", borderRadius: "8px", marginTop: "8px" }}
           className="border"
         />
-        <p className="text-xs text-gray-400">💡 Search above to find a location, then drag the pin for precise placement. Or click directly on the map.</p>
+        <p className="text-xs text-gray-400">💡 Search for a location above, or click directly on the map. Drag the pin to fine-tune.</p>
 
         <div className="flex gap-2 mt-1">
           <button type="submit" disabled={saving}
