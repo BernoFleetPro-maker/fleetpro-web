@@ -624,24 +624,44 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this task?")) return;
+    // Optimistic remove
+    const previous = _cachedTasks;
     setTasks(prev => {
       const updated = prev.filter(t => t.id !== id);
       _cachedTasks = updated;
       return updated;
     });
-    await authFetch(`${API}/tasks/${id}`, { method: "DELETE" });
+    try {
+      const res = await authFetch(`${API}/tasks/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+    } catch {
+      // Restore previous state if delete failed
+      setTasks(previous);
+      _cachedTasks = previous;
+      alert("Failed to delete task — please try again.");
+    }
   };
 
   const setStatus = async (id, status) => {
+    // Optimistic update
+    const previous = _cachedTasks;
     setTasks(prev => {
       const updated = prev.map(t => t.id === id ? { ...t, status } : t);
       _cachedTasks = updated;
       return updated;
     });
-    await authFetch(`${API}/tasks/${id}/status`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
+    try {
+      const res = await authFetch(`${API}/tasks/${id}/status`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+    } catch {
+      // Revert to previous state if update failed
+      setTasks(previous);
+      _cachedTasks = previous;
+      alert("Failed to update status — please try again.");
+    }
   };
 
   return (

@@ -4,9 +4,6 @@ const API = "https://fleetpro-backend-production.up.railway.app/api";
 
 const MAPS_KEY = "AIzaSyCwlu54d0fcLUJ_7z7rG4wQSpDqoFlRPBw";
 
-// Phase order
-const PHASE_ORDER_MAP = { to_load: 0, at_load: 1, to_drop: 2, at_drop: 3 };
-
 // ── Auth helper — attaches JWT token to every API request ───────────────────
 function getToken() {
   try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
@@ -16,37 +13,6 @@ function authHeaders(extra = {}) {
 }
 function authFetch(url, opts = {}) {
   return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
-}
-
-
-// ── Read phase from localStorage ───────────────────────────────────────────
-function getPhase(id) {
-  try { return JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}")[id] || null; }
-  catch { return null; }
-}
-
-// ── Write phase — scoped per task ID, never downgrades same task ───────────
-function setPhase(id, data) {
-  try {
-    const all     = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-    const current = all[id];
-    if (current && current.taskId === data.taskId && data.phase) {
-      const curOrder = PHASE_ORDER_MAP[current.phase] ?? -1;
-      const newOrder = PHASE_ORDER_MAP[data.phase]    ?? -1;
-      if (newOrder < curOrder) data = { ...data, phase: current.phase };
-    }
-    all[id] = data;
-    localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
-  } catch {}
-}
-
-// ── Force write — ONLY used by manual controller override ──────────────────
-function _forceSetPhase(id, data) {
-  try {
-    const all = JSON.parse(localStorage.getItem("fleetpro_phase_cache") || "{}");
-    all[id] = data;
-    localStorage.setItem("fleetpro_phase_cache", JSON.stringify(all));
-  } catch {}
 }
 
 export default function MapView({ role = "admin", clientId = null }) {
@@ -74,73 +40,6 @@ export default function MapView({ role = "admin", clientId = null }) {
         line.setOptions({ zIndex: 1, strokeOpacity: 0.4, strokeWeight: 3 });
       }
     });
-  }
-
-  // ── Phase logic ────────────────────────────────────────────────────────────
-  function resolvePhase(id, taskId, atLoad, atDrop, hasLoadPt, hasDropPt, distToLoad, loadRadius) {
-    const current = getPhase(id);
-    const closest = Math.min(current?.closestToLoad ?? distToLoad, distToLoad);
-
-    if (!current || current.taskId !== taskId) {
-      const phase = hasLoadPt ? "to_load" : hasDropPt ? "to_drop" : null;
-      setPhase(id, { phase, taskId, prevDistToLoad: distToLoad, closestToLoad: distToLoad, outsideLoadCount: 0, insideDropCount: 0, wasInsideLoad: false });
-      return phase;
-    }
-
-    const phase        = current.phase;
-    const currentOrder = PHASE_ORDER_MAP[phase] ?? 0;
-    setPhase(id, { ...current, taskId, prevDistToLoad: distToLoad, closestToLoad: closest });
-
-    const advanceTo = (newPhase, extraData = {}) => {
-      if ((PHASE_ORDER_MAP[newPhase] ?? 0) > currentOrder) {
-        setPhase(id, { ...current, taskId, phase: newPhase, prevDistToLoad: distToLoad, closestToLoad: closest, ...extraData });
-        return newPhase;
-      }
-      return phase;
-    };
-
-    if (phase === "to_load") {
-      if (atLoad) {
-        setPhase(id, { ...current, taskId, phase: "at_load", wasInsideLoad: true, outsideLoadCount: 0, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
-        return "at_load";
-      }
-      return "to_load";
-    }
-
-    if (phase === "at_load") {
-      if (!atLoad) {
-        const count = (current.outsideLoadCount || 0) + 1;
-        setPhase(id, { ...current, taskId, outsideLoadCount: count, prevDistToLoad: distToLoad, closestToLoad: closest });
-        if (count >= 2) return advanceTo(hasDropPt ? "to_drop" : phase, { insideDropCount: 0 });
-        return "at_load";
-      } else {
-        setPhase(id, { ...current, taskId, outsideLoadCount: 0, wasInsideLoad: true, prevDistToLoad: distToLoad, closestToLoad: closest });
-      }
-    }
-
-    if (phase === "to_drop") {
-      if (atDrop) {
-        const insideCount = (current.insideDropCount || 0) + 1;
-        setPhase(id, { ...current, taskId, insideDropCount: insideCount, prevDistToLoad: distToLoad, closestToLoad: closest });
-        if (insideCount >= 2) return advanceTo("at_drop");
-        return "to_drop";
-      } else {
-        if ((current.insideDropCount || 0) > 0) {
-          setPhase(id, { ...current, taskId, insideDropCount: 0, prevDistToLoad: distToLoad, closestToLoad: closest });
-        }
-      }
-    }
-
-    return phase;
-  }
-
-  // ── Tell backend about phase change so route cache serves correct destination ──
-  function reportPhaseToBackend(vehicleReg, phase) {
-    authFetch(`${API}/positions/phase`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicleReg, phase }),
-    }).catch(() => {});
   }
 
   function decodePolyline(encoded) {
