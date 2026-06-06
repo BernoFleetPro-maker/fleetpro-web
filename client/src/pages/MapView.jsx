@@ -267,14 +267,18 @@ export default function MapView({ role = "admin", clientId = null }) {
     applyRouteStyles();
   }
 
+  // ── Draw points once on load — they don't change every 30s ─────────────
+  // Only redraws if point count or IDs change (e.g. after adding a new point)
+  const pointsDrawnRef = useRef(false);
+  const lastPointsHashRef = useRef("");
+
   async function drawPoints(positions) {
     const g = window.google, map = mapInstance.current;
     if (!g || !map) return;
-    pointOverlaysRef.current.forEach(o => { if(o.circle) o.circle.setMap(null); if(o.dot) o.dot.setMap(null); });
-    pointOverlaysRef.current = [];
     try {
       const points = await authFetch(`${API}/points`).then(r => r.json());
-      // Clients only see points for their own active tasks
+
+      // Build a hash of point IDs + client filter to detect real changes
       let visiblePoints = points;
       if (!isAdmin && clientId && Array.isArray(positions)) {
         const allowedTitles = new Set();
@@ -285,6 +289,18 @@ export default function MapView({ role = "admin", clientId = null }) {
         });
         visiblePoints = points.filter(p => allowedTitles.has((p.title||"").toLowerCase().trim()));
       }
+
+      const hash = visiblePoints.map(p => p.id).join(",");
+
+      // Skip redraw if nothing changed — prevents blinking on every 30s poll
+      if (hash === lastPointsHashRef.current && pointsDrawnRef.current) return;
+      lastPointsHashRef.current = hash;
+      pointsDrawnRef.current = true;
+
+      // Clear old overlays only when something actually changed
+      pointOverlaysRef.current.forEach(o => { if(o.circle) o.circle.setMap(null); if(o.dot) o.dot.setMap(null); });
+      pointOverlaysRef.current = [];
+
       visiblePoints.forEach(p => {
         const lat=Number(p.lat), lon=Number(p.lon), radius=Number(p.radius)||1000;
         if(isNaN(lat)||isNaN(lon)) return;
@@ -448,14 +464,12 @@ export default function MapView({ role = "admin", clientId = null }) {
           let positions = await authFetch(`${API}/positions`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
           if (!isAdmin && clientId) {
-            console.log("[FleetPro] Client filter — clientId:", clientId, "positions:", positions.map(v => ({ reg: v.descrip, taskClientId: v.activeTask?.clientId })));
             positions = positions.filter(v =>
               v.activeTask && (
                 v.activeTask.clientId === clientId ||
                 String(v.activeTask.clientId) === String(clientId)
               )
             );
-            console.log("[FleetPro] Visible vehicles after filter:", positions.map(v => v.descrip));
           }
           drawOrUpdateVehicles(positions);
           await drawPoints(positions);
