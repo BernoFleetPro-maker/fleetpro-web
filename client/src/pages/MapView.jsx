@@ -102,7 +102,7 @@ export default function MapView({ role = "admin", clientId = null }) {
     const id        = v.descrip || `veh-${v.id}`;
     const phase     = t?.phase;
     const routeInfo = vehicleRouteRef.current[id];
-    const phaseColors = { to_load:"#1e88e5", at_load:"#fb8c00", to_drop:"#43a047", at_drop:"#43a047" };
+    const phaseColors = { to_load:"#1e88e5", at_load:"#1e88e5", to_drop:"#43a047", at_drop:"#43a047" };
     const phaseLabels = { to_load:"🚛 En route to loading", at_load:"🏭 At loading station", to_drop:"🚛 En route to dropoff", at_drop:"✅ Arrived at client" };
     const phaseColor  = phase ? (phaseColors[phase] || "#555") : "#555";
     const phaseLabel  = phase ? (phaseLabels[phase] || "") : "";
@@ -202,8 +202,8 @@ export default function MapView({ role = "admin", clientId = null }) {
     const phase = task.phase;
     if (!phase || phase === "at_drop") return;
 
-    let color = "#1e88e5"; // blue = to_load
-    if (phase === "to_drop" || phase === "at_load") color = "#43a047"; // green = to_drop
+    let color = "#1e88e5"; // blue = to_load / at_load (still on loading side)
+    if (phase === "to_drop" || phase === "at_drop") color = "#43a047"; // green = dropoff side only
     routeLinesRef.current[id] = drawPolyline(map, task.routeCache.path, color);
     vehicleRouteRef.current[id] = {
       duration: task.routeCache.duration,
@@ -267,18 +267,14 @@ export default function MapView({ role = "admin", clientId = null }) {
     applyRouteStyles();
   }
 
-  // ── Draw points once on load — they don't change every 30s ─────────────
-  // Only redraws if point count or IDs change (e.g. after adding a new point)
-  const pointsDrawnRef = useRef(false);
-  const lastPointsHashRef = useRef("");
-
   async function drawPoints(positions) {
     const g = window.google, map = mapInstance.current;
     if (!g || !map) return;
+    pointOverlaysRef.current.forEach(o => { if(o.circle) o.circle.setMap(null); if(o.dot) o.dot.setMap(null); });
+    pointOverlaysRef.current = [];
     try {
       const points = await authFetch(`${API}/points`).then(r => r.json());
-
-      // Build a hash of point IDs + client filter to detect real changes
+      // Clients only see points for their own active tasks
       let visiblePoints = points;
       if (!isAdmin && clientId && Array.isArray(positions)) {
         const allowedTitles = new Set();
@@ -289,18 +285,6 @@ export default function MapView({ role = "admin", clientId = null }) {
         });
         visiblePoints = points.filter(p => allowedTitles.has((p.title||"").toLowerCase().trim()));
       }
-
-      const hash = visiblePoints.map(p => p.id).join(",");
-
-      // Skip redraw if nothing changed — prevents blinking on every 30s poll
-      if (hash === lastPointsHashRef.current && pointsDrawnRef.current) return;
-      lastPointsHashRef.current = hash;
-      pointsDrawnRef.current = true;
-
-      // Clear old overlays only when something actually changed
-      pointOverlaysRef.current.forEach(o => { if(o.circle) o.circle.setMap(null); if(o.dot) o.dot.setMap(null); });
-      pointOverlaysRef.current = [];
-
       visiblePoints.forEach(p => {
         const lat=Number(p.lat), lon=Number(p.lon), radius=Number(p.radius)||1000;
         if(isNaN(lat)||isNaN(lon)) return;
@@ -464,12 +448,14 @@ export default function MapView({ role = "admin", clientId = null }) {
           let positions = await authFetch(`${API}/positions`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
           if (!isAdmin && clientId) {
+            console.log("[FleetPro] Client filter — clientId:", clientId, "positions:", positions.map(v => ({ reg: v.descrip, taskClientId: v.activeTask?.clientId })));
             positions = positions.filter(v =>
               v.activeTask && (
                 v.activeTask.clientId === clientId ||
                 String(v.activeTask.clientId) === String(clientId)
               )
             );
+            console.log("[FleetPro] Visible vehicles after filter:", positions.map(v => v.descrip));
           }
           drawOrUpdateVehicles(positions);
           await drawPoints(positions);
