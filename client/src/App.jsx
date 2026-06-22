@@ -1,7 +1,8 @@
 // src/App.jsx
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 
+import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
 
@@ -31,11 +32,31 @@ function getAuthPayload() {
   }
 }
 
+function LoggedOutRoutes() {
+  const navigate = useNavigate();
+  return (
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <LandingPage
+            onLogin={() => navigate("/login")}
+            onSignup={() => navigate("/login")}
+          />
+        }
+      />
+      <Route path="/login" element={<LoginPage onLogin={() => window.location.reload()} />} />
+      {/* Any other path while logged out goes to the landing page, not straight to login */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
 export default function App() {
   const payload = getAuthPayload();
 
   if (!payload) {
-    return <LoginPage onLogin={() => window.location.reload()} />;
+    return <LoggedOutRoutes />;
   }
 
   const role           = payload.role || "admin";

@@ -452,59 +452,41 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
         <Reveal>
           <Eyebrow>Pricing</Eyebrow>
           <h2 style={{ fontWeight: 600, fontSize: 28, margin: "0 0 12px", letterSpacing: "-0.01em" }}>
-            Priced per truck, not per headache.
+            Priced around the size of your fleet.
           </h2>
-          <p style={{ fontSize: 15, color: COLORS.textMuted, margin: "0 0 40px", maxWidth: 560 }}>
-            Placeholder figures — talk to us and we'll confirm what's right for your
-            fleet size. All plans include the live map, task board, and driver app.
+          <p style={{ fontSize: 15, color: COLORS.textMuted, margin: "0 0 32px", maxWidth: 560 }}>
+            Every fleet is different — number of vehicles, routes, and how many
+            client portals you need all factor in. Tell us about your operation and
+            we'll put together a quote that fits.
           </p>
         </Reveal>
 
-        <div className="fp-pricing-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
-          {[
-            { name: "Starter", price: "R450", unit: "per vehicle / month", fits: "1–10 vehicles", features: ["Live tracking & route phases", "Task board", "Driver app", "Email support"], featured: false },
-            { name: "Growth", price: "R380", unit: "per vehicle / month", fits: "11–40 vehicles", features: ["Everything in Starter", "Client portal access", "Audit trail", "Priority support"], featured: true },
-            { name: "Fleet", price: "Custom", unit: "volume pricing", fits: "41+ vehicles", features: ["Everything in Growth", "Multi-branch support", "Dedicated onboarding", "SLA on request"], featured: false },
-          ].map((plan) => (
-            <Reveal key={plan.name}>
-              <div
-                className="fp-card"
-                style={{
-                  border: plan.featured ? `1.5px solid ${COLORS.blue}` : `1px solid ${COLORS.line}`,
-                  padding: "28px 24px",
-                  height: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                {plan.featured && (
-                  <div style={{ marginBottom: 12 }}>
-                    <Pill color={COLORS.blueLight}>most common fit</Pill>
-                  </div>
-                )}
-                <h3 style={{ fontWeight: 600, fontSize: 19, margin: "0 0 4px" }}>{plan.name}</h3>
-                <p style={{ fontSize: 13, color: COLORS.textMuted, margin: "0 0 18px" }}>{plan.fits}</p>
-                <div style={{ marginBottom: 18 }}>
-                  <span style={{ fontWeight: 700, fontSize: 30 }}>{plan.price}</span>
-                  {plan.price !== "Custom" && <span style={{ fontSize: 13, color: COLORS.textMuted, marginLeft: 6 }}>{plan.unit}</span>}
-                </div>
-                <ul style={{ listStyle: "none", margin: "0 0 24px", padding: 0, flex: 1 }}>
-                  {plan.features.map((f) => (
-                    <li key={f} style={{ fontSize: 13.5, padding: "8px 0", borderTop: `1px solid ${COLORS.line}`, color: COLORS.textMuted }}>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <button className={plan.featured ? "fp-btn fp-btn-solid" : "fp-btn"} onClick={onSignup} style={{ width: "100%" }}>
-                  {plan.price === "Custom" ? "Talk to sales" : "Get started"}
-                </button>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-        <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 18 }}>
-          Prices shown exclude VAT. Final pricing confirmed during onboarding.
-        </p>
+        <Reveal>
+          <div
+            className="fp-card"
+            style={{
+              padding: "40px 32px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 24,
+            }}
+          >
+            <div>
+              <h3 style={{ fontWeight: 600, fontSize: 20, margin: "0 0 8px" }}>Get a quote for your fleet</h3>
+              <p style={{ fontSize: 14, color: COLORS.textMuted, margin: 0, maxWidth: 440 }}>
+                Live tracking, the task board, the driver app, and client portal access —
+                we'll confirm what's included and the price once we know your fleet size.
+              </p>
+            </div>
+            <a href="#contact">
+              <button className="fp-btn fp-btn-solid" style={{ whiteSpace: "nowrap" }}>
+                Contact us for pricing
+              </button>
+            </a>
+          </div>
+        </Reveal>
       </section>
 
       <Divider />
