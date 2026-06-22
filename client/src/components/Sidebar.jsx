@@ -98,7 +98,7 @@ export default function Sidebar({ role = "admin", user = {} }) {
         onClick={() => {
           localStorage.removeItem("fleetpro_auth");
           localStorage.removeItem("fleetpro_token");
-          window.location.reload();
+          window.location.href = "/";
         }}
         className={`p-3 text-sm font-semibold text-red-500 hover:text-red-400 hover:bg-slate-800 transition-colors ${
           collapsed ? "text-center" : "text-left"
