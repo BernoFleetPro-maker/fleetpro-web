@@ -111,10 +111,14 @@ export default function Sidebar({ role = "admin", user = {} }) {
       {/* Footer — only when expanded */}
       {!collapsed && (
         <div className="px-4 py-3 text-xs text-slate-400 border-t border-slate-700">
+          {user.tenantDisplayName && (
+            <div className="text-sm font-bold text-white mb-1">{user.tenantDisplayName}</div>
+          )}
           Logged in as<br />
           <strong className="text-slate-300">{user.displayName || user.clientName || user.username || "Admin"}</strong>
           {role === "client" && <span className="ml-1 text-blue-400">(Client)</span>}
           {role === "controller" && <span className="ml-1 text-purple-400">(Controller)</span>}
+          {role === "admin" && <span className="ml-1 text-green-400">(Admin)</span>}
         </div>
       )}
     </div>
