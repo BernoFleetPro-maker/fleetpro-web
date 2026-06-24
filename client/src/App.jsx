@@ -5,6 +5,7 @@ import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
+import SuperAdminPanel from "./pages/SuperAdminPanel";
 
 import MapView from "./pages/MapView";
 import Tasks from "./pages/Tasks";
@@ -59,7 +60,24 @@ export default function App() {
     return <LoggedOutRoutes />;
   }
 
-  const role           = payload.role || "admin";
+  const role = payload.role || "admin";
+
+  // Super admin gets a completely separate, simple panel — no Sidebar,
+  // no MapView, no tenant-scoped routes. It manages every tenant, so it
+  // shouldn't be nested inside a layout built for a single tenant's view.
+  if (role === "superadmin") {
+    const token = localStorage.getItem("fleetpro_token");
+    return (
+      <SuperAdminPanel
+        token={token}
+        onLogout={() => {
+          localStorage.removeItem("fleetpro_token");
+          window.location.reload();
+        }}
+      />
+    );
+  }
+
   const isAdmin        = role === "admin";
   const isController   = role === "controller";
   const hasFullAccess  = isAdmin || isController;
