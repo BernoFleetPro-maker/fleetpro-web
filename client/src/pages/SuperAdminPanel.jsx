@@ -62,6 +62,7 @@ const labelClass = "text-slate-400 text-xs block mb-1";
 // ── TENANTS LIST ──────────────────────────────────────────────────────────────
 function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
   const [showForm, setShowForm] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [form, setForm] = useState({
     name: "", displayName: "", subdomain: "",
     adminName: "", adminUsername: "", adminPassword: "", adminEmail: "",
@@ -89,10 +90,18 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
     }
   }
 
-  async function toggleActive(id, active) {
-    await api.put(`/superadmin/tenants/${id}`, { active }, authHeaders);
+  async function archiveTenant(id) {
+    if (!window.confirm("Archive this company? It will be hidden from the main list but all its data stays safe and it can be restored anytime.")) return;
+    await api.put(`/superadmin/tenants/${id}`, { active: false }, authHeaders);
     reload();
   }
+
+  async function restoreTenant(id) {
+    await api.put(`/superadmin/tenants/${id}`, { active: true }, authHeaders);
+    reload();
+  }
+
+  const visibleTenants = tenants.filter(t => showArchived ? !t.active : t.active);
 
   return (
     <div>
@@ -157,8 +166,22 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
         )}
       </div>
 
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-semibold text-slate-300">
+          {showArchived ? "Archived companies" : "Active companies"}
+        </h3>
+        <button
+          onClick={() => setShowArchived(s => !s)}
+          className="text-xs text-slate-400 hover:text-white underline"
+        >
+          {showArchived ? "← Back to active companies" : "View archived companies"}
+        </button>
+      </div>
+
       {loading ? (
         <p className="text-slate-400">Loading...</p>
+      ) : visibleTenants.length === 0 ? (
+        <p className="text-slate-500 text-sm">{showArchived ? "No archived companies." : "No active companies yet."}</p>
       ) : (
         <table className="w-full text-sm">
           <thead>
@@ -166,7 +189,6 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
               <th className="text-left py-2">Company</th>
               <th className="text-left py-2">Head admin</th>
               <th className="text-left py-2">Subdomain</th>
-              <th className="text-left py-2">Status</th>
               <th className="text-left py-2">Drivers</th>
               <th className="text-left py-2">Tasks</th>
               <th className="text-left py-2">Vehicles</th>
@@ -174,7 +196,7 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
             </tr>
           </thead>
           <tbody>
-            {tenants.map(t => (
+            {visibleTenants.map(t => (
               <tr key={t.id} className="border-b border-slate-800 hover:bg-slate-800/40">
                 <td className="py-2">
                   <button onClick={() => onOpenTenant(t)} className="text-blue-400 hover:text-blue-300 hover:underline font-medium">
@@ -183,18 +205,19 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
                 </td>
                 <td className="py-2 text-slate-300">{t.controllers?.[0]?.name || "—"}</td>
                 <td className="py-2">{t.subdomain}</td>
-                <td className="py-2">
-                  <span className={`text-xs px-2 py-0.5 rounded ${t.active ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300"}`}>
-                    {t.active ? "Active" : "Inactive"}
-                  </span>
-                </td>
                 <td className="py-2">{t._count.drivers}</td>
                 <td className="py-2">{t._count.tasks}</td>
                 <td className="py-2">{t._count.vehicles}</td>
                 <td className="py-2">
-                  <button onClick={() => toggleActive(t.id, !t.active)} className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">
-                    {t.active ? "Deactivate" : "Activate"}
-                  </button>
+                  {showArchived ? (
+                    <button onClick={() => restoreTenant(t.id)} className="bg-green-900 hover:bg-green-800 text-green-200 text-xs px-3 py-1 rounded">
+                      Restore
+                    </button>
+                  ) : (
+                    <button onClick={() => archiveTenant(t.id)} className="bg-red-900 hover:bg-red-800 text-red-200 text-xs px-3 py-1 rounded">
+                      Archive
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
