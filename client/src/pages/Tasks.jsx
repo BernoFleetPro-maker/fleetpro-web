@@ -739,7 +739,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
           Searching all dates for <span className="text-white font-medium">"{searchTerm}"</span>
           <button onClick={() => setSearchTerm("")} className="ml-3 text-blue-400 hover:text-blue-300">Clear search</button>
         </div>
-      ) : selectedDate && (
+      ) : selectedDate ? (
         <div className="text-xs text-slate-400 mb-3">
           Showing: <span className="text-white font-medium">
             {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-ZA", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
@@ -748,6 +748,11 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
           {selectedDate !== todayYMD && (
             <button onClick={() => handleDateSelect(todayYMD)} className="ml-3 text-green-400 hover:text-green-300">Back to today</button>
           )}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-400 mb-3">
+          Showing: <span className="text-white font-medium">All dates</span>
+          <button onClick={() => handleDateSelect(todayYMD)} className="ml-3 text-green-400 hover:text-green-300">Back to today</button>
         </div>
       )}
 
