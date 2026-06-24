@@ -3,7 +3,7 @@ import api from "../api";
 
 export default function SuperAdminPanel({ token, onLogout }) {
   const [tenants, setTenants] = useState([]);
-  const [selectedTenant, setSelectedTenant] = useState(null); // null = show tenant list
+  const [selectedTenant, setSelectedTenant] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const authHeaders = { headers: { Authorization: `Bearer ${token}` } };
@@ -22,14 +22,16 @@ export default function SuperAdminPanel({ token, onLogout }) {
 
   useEffect(() => { loadTenants(); }, []);
 
-  // If a tenant is selected, show its dedicated detail view instead of the list
   if (selectedTenant) {
+    // Keep the detail view in sync if data changes after an edit
+    const fresh = tenants.find(t => t.id === selectedTenant.id) || selectedTenant;
     return (
       <TenantDetailView
-        tenant={selectedTenant}
+        tenant={fresh}
         authHeaders={authHeaders}
         onBack={() => { setSelectedTenant(null); loadTenants(); }}
         onLogout={onLogout}
+        reload={loadTenants}
       />
     );
   }
@@ -40,7 +42,7 @@ export default function SuperAdminPanel({ token, onLogout }) {
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-xl font-bold">FleetPro Super Admin</h1>
-            <p className="text-slate-400 text-sm">Click a company to manage its controllers and clients</p>
+            <p className="text-slate-400 text-sm">Create companies and their head admin login. Day-to-day staff and client accounts are managed by each company's own admin.</p>
           </div>
           <button onClick={onLogout} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">
             Log out
@@ -53,26 +55,34 @@ export default function SuperAdminPanel({ token, onLogout }) {
   );
 }
 
-// ── Shared styles ────────────────────────────────────────────────────────────
 const fieldClass = "flex-1 p-2 rounded bg-[#0f1724] text-white border border-slate-600 focus:border-blue-500 focus:outline-none text-sm";
 const cardClass  = "bg-[#1e293b] border border-slate-700 rounded-xl p-5 mb-6";
+const labelClass = "text-slate-400 text-xs block mb-1";
 
-// ── TENANTS LIST (top level) ─────────────────────────────────────────────────
+// ── TENANTS LIST ──────────────────────────────────────────────────────────────
 function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
-  const [name, setName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [subdomain, setSubdomain] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    name: "", displayName: "", subdomain: "",
+    adminName: "", adminUsername: "", adminPassword: "", adminEmail: "",
+  });
   const [error, setError] = useState("");
+
+  function update(field, value) {
+    setForm(f => ({ ...f, [field]: value }));
+  }
 
   async function createTenant() {
     setError("");
-    if (!name || !displayName || !subdomain) {
-      setError("All fields are required");
+    const { name, displayName, subdomain, adminName, adminUsername, adminPassword } = form;
+    if (!name || !displayName || !subdomain || !adminName || !adminUsername || !adminPassword) {
+      setError("Company details and head admin name, username, and password are all required");
       return;
     }
     try {
-      await api.post("/superadmin/tenants", { name, displayName, subdomain }, authHeaders);
-      setName(""); setDisplayName(""); setSubdomain("");
+      await api.post("/superadmin/tenants", form, authHeaders);
+      setForm({ name: "", displayName: "", subdomain: "", adminName: "", adminUsername: "", adminPassword: "", adminEmail: "" });
+      setShowForm(false);
       reload();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to create tenant");
@@ -87,16 +97,64 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
   return (
     <div>
       <div className={cardClass}>
-        <h3 className="text-sm font-semibold mb-3">Create new tenant</h3>
-        <div className="flex gap-2 mb-3">
-          <input className={fieldClass} placeholder="Internal name (e.g. Trucker)" value={name} onChange={e => setName(e.target.value)} />
-          <input className={fieldClass} placeholder="Display name (e.g. FleetPro Trucker)" value={displayName} onChange={e => setDisplayName(e.target.value)} />
-          <input className={fieldClass} placeholder="Subdomain (e.g. trucker)" value={subdomain} onChange={e => setSubdomain(e.target.value)} />
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-sm font-semibold">Create new company</h3>
+          {!showForm && (
+            <button onClick={() => setShowForm(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
+              + New company
+            </button>
+          )}
         </div>
-        {error && <p className="text-red-400 text-sm mb-2">{error}</p>}
-        <button onClick={createTenant} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
-          Create tenant
-        </button>
+
+        {showForm && (
+          <>
+            <p className="text-xs text-slate-500 mb-3">Company details</p>
+            <div className="flex gap-2 mb-4">
+              <div className="flex-1">
+                <label className={labelClass}>Internal name</label>
+                <input className={fieldClass} placeholder="e.g. Trucker" value={form.name} onChange={e => update("name", e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className={labelClass}>Display name</label>
+                <input className={fieldClass} placeholder="e.g. FleetPro Trucker" value={form.displayName} onChange={e => update("displayName", e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className={labelClass}>Subdomain</label>
+                <input className={fieldClass} placeholder="e.g. trucker" value={form.subdomain} onChange={e => update("subdomain", e.target.value)} />
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-3">Head admin login (this person manages everything else for this company)</p>
+            <div className="flex gap-2 mb-4">
+              <div className="flex-1">
+                <label className={labelClass}>Admin full name</label>
+                <input className={fieldClass} placeholder="e.g. Berno" value={form.adminName} onChange={e => update("adminName", e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className={labelClass}>Admin username</label>
+                <input className={fieldClass} placeholder="Username" value={form.adminUsername} onChange={e => update("adminUsername", e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className={labelClass}>Admin password</label>
+                <input className={fieldClass} type="password" placeholder="Password" value={form.adminPassword} onChange={e => update("adminPassword", e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className={labelClass}>Admin email (optional, for password reset later)</label>
+                <input className={fieldClass} placeholder="name@company.com" value={form.adminEmail} onChange={e => update("adminEmail", e.target.value)} />
+              </div>
+            </div>
+
+            {error && <p className="text-red-400 text-sm mb-2">{error}</p>}
+            <div className="flex gap-2">
+              <button onClick={createTenant} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
+                Create company
+              </button>
+              <button onClick={() => { setShowForm(false); setError(""); }} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {loading ? (
@@ -106,13 +164,12 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
           <thead>
             <tr className="text-slate-400 border-b border-slate-700">
               <th className="text-left py-2">Company</th>
+              <th className="text-left py-2">Head admin</th>
               <th className="text-left py-2">Subdomain</th>
               <th className="text-left py-2">Status</th>
               <th className="text-left py-2">Drivers</th>
               <th className="text-left py-2">Tasks</th>
               <th className="text-left py-2">Vehicles</th>
-              <th className="text-left py-2">Controllers</th>
-              <th className="text-left py-2">Clients</th>
               <th className="text-left py-2"></th>
             </tr>
           </thead>
@@ -120,13 +177,11 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
             {tenants.map(t => (
               <tr key={t.id} className="border-b border-slate-800 hover:bg-slate-800/40">
                 <td className="py-2">
-                  <button
-                    onClick={() => onOpenTenant(t)}
-                    className="text-blue-400 hover:text-blue-300 hover:underline font-medium"
-                  >
+                  <button onClick={() => onOpenTenant(t)} className="text-blue-400 hover:text-blue-300 hover:underline font-medium">
                     {t.displayName}
                   </button>
                 </td>
+                <td className="py-2 text-slate-300">{t.controllers?.[0]?.name || "—"}</td>
                 <td className="py-2">{t.subdomain}</td>
                 <td className="py-2">
                   <span className={`text-xs px-2 py-0.5 rounded ${t.active ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300"}`}>
@@ -136,13 +191,8 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
                 <td className="py-2">{t._count.drivers}</td>
                 <td className="py-2">{t._count.tasks}</td>
                 <td className="py-2">{t._count.vehicles}</td>
-                <td className="py-2">{t._count.controllers}</td>
-                <td className="py-2">{t._count.clients}</td>
                 <td className="py-2">
-                  <button
-                    onClick={() => toggleActive(t.id, !t.active)}
-                    className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded"
-                  >
+                  <button onClick={() => toggleActive(t.id, !t.active)} className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">
                     {t.active ? "Deactivate" : "Activate"}
                   </button>
                 </td>
@@ -155,230 +205,125 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
   );
 }
 
-// ── TENANT DETAIL VIEW (after clicking a company) ────────────────────────────
-function TenantDetailView({ tenant, authHeaders, onBack, onLogout }) {
-  const [activeTab, setActiveTab] = useState("controllers");
-  const [controllers, setControllers] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [loading, setLoading] = useState(true);
+// ── TENANT DETAIL VIEW — company info + head admin info, both editable ──────
+function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
+  const [editingCompany, setEditingCompany] = useState(false);
+  const [editingAdmin, setEditingAdmin] = useState(false);
 
-  async function loadData() {
-    setLoading(true);
+  const admin = tenant.controllers?.[0] || null;
+
+  const [companyForm, setCompanyForm] = useState({
+    name: tenant.name, displayName: tenant.displayName, subdomain: tenant.subdomain,
+  });
+  const [adminForm, setAdminForm] = useState({
+    name: admin?.name || "", username: admin?.username || "", email: admin?.email || "", password: "",
+  });
+  const [error, setError] = useState("");
+
+  async function saveCompany() {
+    setError("");
     try {
-      const [c, cl] = await Promise.all([
-        api.get("/superadmin/controllers", authHeaders),
-        api.get("/superadmin/clients", authHeaders),
-      ]);
-      // Filter to only this tenant's controllers/clients
-      setControllers(c.data.filter(x => x.tenantId === tenant.id));
-      setClients(cl.data.filter(x => x.tenantId === tenant.id));
+      await api.put(`/superadmin/tenants/${tenant.id}`, companyForm, authHeaders);
+      setEditingCompany(false);
+      reload();
     } catch (err) {
-      console.error("Failed to load tenant data:", err);
-    } finally {
-      setLoading(false);
+      setError(err.response?.data?.error || "Failed to update company");
     }
   }
 
-  useEffect(() => { loadData(); }, [tenant.id]);
+  async function saveAdmin() {
+    setError("");
+    try {
+      const payload = { ...adminForm };
+      if (!payload.password) delete payload.password; // don't overwrite with blank
+      await api.put(`/superadmin/tenants/${tenant.id}/admin`, payload, authHeaders);
+      setEditingAdmin(false);
+      reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to update admin login");
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#0f1724] text-white p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex justify-between items-center mb-2">
-          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm flex items-center gap-1">
-            ← Back to all tenants
-          </button>
-          <button onClick={onLogout} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">
-            Log out
-          </button>
-        </div>
-
+      <div className="max-w-2xl mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-xl font-bold">{tenant.displayName}</h1>
-            <p className="text-slate-400 text-sm">Subdomain: {tenant.subdomain} · Manage this company's controllers and clients</p>
+          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">← Back to all companies</button>
+          <button onClick={onLogout} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Log out</button>
+        </div>
+
+        {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+
+        {/* Company details card */}
+        <div className={cardClass}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-semibold">Company details</h3>
+            {!editingCompany && (
+              <button onClick={() => setEditingCompany(true)} className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">Edit</button>
+            )}
           </div>
+
+          {editingCompany ? (
+            <>
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1"><label className={labelClass}>Internal name</label><input className={fieldClass} value={companyForm.name} onChange={e => setCompanyForm(f => ({ ...f, name: e.target.value }))} /></div>
+                <div className="flex-1"><label className={labelClass}>Display name</label><input className={fieldClass} value={companyForm.displayName} onChange={e => setCompanyForm(f => ({ ...f, displayName: e.target.value }))} /></div>
+                <div className="flex-1"><label className={labelClass}>Subdomain</label><input className={fieldClass} value={companyForm.subdomain} onChange={e => setCompanyForm(f => ({ ...f, subdomain: e.target.value }))} /></div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={saveCompany} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Save</button>
+                <button onClick={() => setEditingCompany(false)} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Cancel</button>
+              </div>
+            </>
+          ) : (
+            <div className="text-sm space-y-1">
+              <p><span className="text-slate-400">Display name:</span> {tenant.displayName}</p>
+              <p><span className="text-slate-400">Internal name:</span> {tenant.name}</p>
+              <p><span className="text-slate-400">Subdomain:</span> {tenant.subdomain}</p>
+            </div>
+          )}
         </div>
 
-        <div className="flex gap-2 mb-6 border-b border-slate-700">
-          {["controllers", "clients"].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm capitalize border-b-2 ${
-                activeTab === tab ? "border-blue-500 text-white" : "border-transparent text-slate-400"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+        {/* Head admin card */}
+        <div className={cardClass}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-semibold">Head admin login</h3>
+            {!editingAdmin && (
+              <button onClick={() => setEditingAdmin(true)} className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">Edit</button>
+            )}
+          </div>
+
+          {editingAdmin ? (
+            <>
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1"><label className={labelClass}>Full name</label><input className={fieldClass} value={adminForm.name} onChange={e => setAdminForm(f => ({ ...f, name: e.target.value }))} /></div>
+                <div className="flex-1"><label className={labelClass}>Username</label><input className={fieldClass} value={adminForm.username} onChange={e => setAdminForm(f => ({ ...f, username: e.target.value }))} /></div>
+              </div>
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1"><label className={labelClass}>Email</label><input className={fieldClass} value={adminForm.email} onChange={e => setAdminForm(f => ({ ...f, email: e.target.value }))} /></div>
+                <div className="flex-1"><label className={labelClass}>New password (leave blank to keep current)</label><input className={fieldClass} type="password" value={adminForm.password} onChange={e => setAdminForm(f => ({ ...f, password: e.target.value }))} /></div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={saveAdmin} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Save</button>
+                <button onClick={() => setEditingAdmin(false)} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Cancel</button>
+              </div>
+            </>
+          ) : admin ? (
+            <div className="text-sm space-y-1">
+              <p><span className="text-slate-400">Name:</span> {admin.name}</p>
+              <p><span className="text-slate-400">Username:</span> {admin.username}</p>
+              <p><span className="text-slate-400">Email:</span> {admin.email || "—"}</p>
+            </div>
+          ) : (
+            <p className="text-slate-500 text-sm">No head admin found for this company.</p>
+          )}
         </div>
 
-        {loading ? (
-          <p className="text-slate-400">Loading...</p>
-        ) : activeTab === "controllers" ? (
-          <ControllersTab controllers={controllers} tenant={tenant} authHeaders={authHeaders} reload={loadData} />
-        ) : (
-          <ClientsTab clients={clients} tenant={tenant} authHeaders={authHeaders} reload={loadData} />
-        )}
+        <p className="text-xs text-slate-500">
+          Staff (controller) and client logins for this company are managed by their own admin,
+          from inside the regular FleetPro web app — not from here.
+        </p>
       </div>
-    </div>
-  );
-}
-
-// ── CONTROLLERS TAB — scoped to one tenant, no dropdown needed anymore ───────
-function ControllersTab({ controllers, tenant, authHeaders, reload }) {
-  const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-
-  async function createController() {
-    setError("");
-    if (!name || !username || !password) {
-      setError("All fields are required");
-      return;
-    }
-    try {
-      await api.post("/superadmin/controllers", { name, username, password, tenantId: tenant.id }, authHeaders);
-      setName(""); setUsername(""); setPassword("");
-      reload();
-    } catch (err) {
-      setError(err.response?.data?.error || "Failed to create controller");
-    }
-  }
-
-  async function deleteController(id) {
-    if (!window.confirm("Delete this controller login? This cannot be undone.")) return;
-    await api.delete(`/superadmin/controllers/${id}`, authHeaders);
-    reload();
-  }
-
-  return (
-    <div>
-      <div className={cardClass}>
-        <h3 className="text-sm font-semibold mb-3">Add controller to {tenant.displayName}</h3>
-        <div className="flex gap-2 mb-3">
-          <input className={fieldClass} placeholder="Full name" value={name} onChange={e => setName(e.target.value)} />
-          <input className={fieldClass} placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
-          <input className={fieldClass} type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-        </div>
-        {error && <p className="text-red-400 text-sm mb-2">{error}</p>}
-        <button onClick={createController} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
-          Create controller
-        </button>
-      </div>
-
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-slate-400 border-b border-slate-700">
-            <th className="text-left py-2">Name</th>
-            <th className="text-left py-2">Username</th>
-            <th className="text-left py-2"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {controllers.length === 0 ? (
-            <tr><td colSpan="3" className="py-4 text-slate-500">No controllers yet for this company</td></tr>
-          ) : controllers.map(c => (
-            <tr key={c.id} className="border-b border-slate-800">
-              <td className="py-2">{c.name}</td>
-              <td className="py-2">{c.username}</td>
-              <td className="py-2">
-                <button
-                  onClick={() => deleteController(c.id)}
-                  className="bg-red-900 hover:bg-red-800 text-red-200 text-xs px-3 py-1 rounded"
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ── CLIENTS TAB — scoped to one tenant, no dropdown needed anymore ───────────
-function ClientsTab({ clients, tenant, authHeaders, reload }) {
-  const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [permission, setPermission] = useState("view");
-  const [error, setError] = useState("");
-
-  async function createClient() {
-    setError("");
-    if (!name || !username || !password) {
-      setError("All fields are required");
-      return;
-    }
-    try {
-      await api.post("/superadmin/clients", { name, username, password, tenantId: tenant.id, permission }, authHeaders);
-      setName(""); setUsername(""); setPassword(""); setPermission("view");
-      reload();
-    } catch (err) {
-      setError(err.response?.data?.error || "Failed to create client");
-    }
-  }
-
-  async function deleteClient(id) {
-    if (!window.confirm("Delete this client login? This cannot be undone.")) return;
-    await api.delete(`/superadmin/clients/${id}`, authHeaders);
-    reload();
-  }
-
-  return (
-    <div>
-      <div className={cardClass}>
-        <h3 className="text-sm font-semibold mb-3">Add client to {tenant.displayName}</h3>
-        <div className="flex gap-2 mb-3">
-          <input className={fieldClass} placeholder="Full name / company contact" value={name} onChange={e => setName(e.target.value)} />
-          <input className={fieldClass} placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
-          <input className={fieldClass} type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-        </div>
-        <div className="flex gap-2 mb-3">
-          <select className={fieldClass} value={permission} onChange={e => setPermission(e.target.value)}>
-            <option value="view">View only</option>
-            <option value="full">Full access</option>
-          </select>
-        </div>
-        {error && <p className="text-red-400 text-sm mb-2">{error}</p>}
-        <button onClick={createClient} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
-          Create client
-        </button>
-      </div>
-
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-slate-400 border-b border-slate-700">
-            <th className="text-left py-2">Name</th>
-            <th className="text-left py-2">Username</th>
-            <th className="text-left py-2">Permission</th>
-            <th className="text-left py-2"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {clients.length === 0 ? (
-            <tr><td colSpan="4" className="py-4 text-slate-500">No clients yet for this company</td></tr>
-          ) : clients.map(c => (
-            <tr key={c.id} className="border-b border-slate-800">
-              <td className="py-2">{c.name}</td>
-              <td className="py-2">{c.username}</td>
-              <td className="py-2">{c.permission}</td>
-              <td className="py-2">
-                <button
-                  onClick={() => deleteClient(c.id)}
-                  className="bg-red-900 hover:bg-red-800 text-red-200 text-xs px-3 py-1 rounded"
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
