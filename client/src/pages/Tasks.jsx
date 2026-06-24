@@ -362,6 +362,9 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
     } catch {}
   };
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const todayYMD = new Date().toISOString().slice(0, 10);
+
   const [showForm,      setShowForm]      = useState(false);
   const [editingId,     setEditingId]     = useState(null);
   const [form,          setForm]          = useState(EMPTY_FORM);
@@ -584,8 +587,29 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
 
   const driverName    = (id) => drivers.find(d => d.id === id)?.name || "—";
   const vehicleReg    = (id) => vehicles.find(v => v.id === id)?.registration || "—";
+
+  // Search matches order number, title, load/dropoff location, and notes —
+  // covers what a client is most likely to ask about when calling in.
+  const matchesSearch = (t) => {
+    if (!searchTerm.trim()) return true;
+    const q = searchTerm.trim().toLowerCase();
+    return (
+      (t.orderNumber || "").toLowerCase().includes(q) ||
+      (t.title || "").toLowerCase().includes(q) ||
+      (t.loadLocation || "").toLowerCase().includes(q) ||
+      (t.dropoffLocation || "").toLowerCase().includes(q) ||
+      (t.notes || "").toLowerCase().includes(q)
+    );
+  };
+
+  // While searching, ignore the date filter entirely — search always looks
+  // across every task, regardless of which date is currently selected.
   const tasksForStatus = (status) =>
-    tasks.filter(t => t.status === status && (!selectedDate || !t.date || t.date === selectedDate));
+    tasks.filter(t =>
+      t.status === status &&
+      matchesSearch(t) &&
+      (searchTerm.trim() || !selectedDate || !t.date || t.date === selectedDate)
+    );
 
   const openCreate = () => {
     setForm({ ...EMPTY_FORM, date: selectedDate, clientId: hasFullAccess ? "" : (clientId || "") });
@@ -698,17 +722,32 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="🔍 Search order #, location, notes..."
+            className="bg-[#1e293b] border border-slate-600 text-white text-sm px-3 py-1.5 rounded w-64 focus:outline-none focus:border-blue-500"
+          />
           <TaskCalendar selectedDate={selectedDate} onSelect={handleDateSelect} tasksByDate={tasksByDate} />
           {(hasFullAccess || canEdit) && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
         </div>
       </div>
 
-      {selectedDate && (
+      {searchTerm.trim() ? (
+        <div className="text-xs text-slate-400 mb-3">
+          Searching all dates for <span className="text-white font-medium">"{searchTerm}"</span>
+          <button onClick={() => setSearchTerm("")} className="ml-3 text-blue-400 hover:text-blue-300">Clear search</button>
+        </div>
+      ) : selectedDate && (
         <div className="text-xs text-slate-400 mb-3">
           Showing: <span className="text-white font-medium">
             {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-ZA", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
           </span>
           <button onClick={() => handleDateSelect("")} className="ml-3 text-blue-400 hover:text-blue-300">Show all</button>
+          {selectedDate !== todayYMD && (
+            <button onClick={() => handleDateSelect(todayYMD)} className="ml-3 text-green-400 hover:text-green-300">Back to today</button>
+          )}
         </div>
       )}
 
