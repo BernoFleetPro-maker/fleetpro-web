@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 
 import LandingPage from "./pages/LandingPage";
@@ -34,8 +34,13 @@ function authFetch(url, opts = {}) {
 // the sidebar badge for every logged-in role. /api/positions is already
 // scoped per-role (clients only see what they're allowed to), so counting
 // `available === true` there gives the right number for whoever's asking.
-function useAvailableVehicleCount(enabled) {
+function useAvailableVehicleCount(enabled, tenantId) {
   const [count, setCount] = useState(0);
+  // Authoritative set of currently-available vehicle ids. SSE events mutate
+  // it instantly (add/delete are idempotent, so duplicate events are safe);
+  // the periodic poll below rebuilds it from scratch as a reconciliation
+  // pass in case an event is ever missed.
+  const availableIdsRef = useRef(new Set());
 
   useEffect(() => {
     if (!enabled) { setCount(0); return; }
@@ -46,7 +51,10 @@ function useAvailableVehicleCount(enabled) {
         const res = await authFetch(`${API}/positions`);
         const data = await res.json();
         if (!cancelled && Array.isArray(data)) {
-          setCount(data.filter(v => v.available === true).length);
+          availableIdsRef.current = new Set(
+            data.filter(v => v.available === true && v.vehicleId).map(v => v.vehicleId)
+          );
+          setCount(availableIdsRef.current.size);
         }
       } catch {}
     };
@@ -54,10 +62,10 @@ function useAvailableVehicleCount(enabled) {
     refresh();
     const poll = setInterval(refresh, 30000);
 
-    // SSE push — plays the notification sound (mute-aware) and refreshes the
-    // count immediately instead of waiting for the next poll. Exponential
-    // backoff on drop, same pattern as Tasks.jsx — the 30s poll above keeps
-    // the count itself fresh even if the stream never reconnects.
+    // SSE push — updates the count and plays the notification sound (mute-
+    // aware) the instant an event arrives, instead of waiting for the next
+    // poll. Exponential backoff on drop, same pattern as Tasks.jsx — the 30s
+    // poll above keeps the count correct even if the stream never reconnects.
     let sse;
     let sseRetries = 0;
     let sseRetryTimeout;
@@ -70,9 +78,17 @@ function useAvailableVehicleCount(enabled) {
           sseRetries = 0;
           try {
             const msg = JSON.parse(e.data);
-            if (msg.type === "vehicle_available") {
+            // Broadcasts aren't tenant-scoped server-side — filter here so a
+            // controller/client token only reacts to its own tenant's vehicles.
+            // (30s poll self-corrects if this ever misses something.)
+            if (tenantId && msg.data?.tenantId && msg.data.tenantId !== tenantId) return;
+            if (msg.type === "vehicle_available" && msg.data?.id) {
+              availableIdsRef.current.add(msg.data.id);
+              setCount(availableIdsRef.current.size);
               playAvailableSound();
-              refresh();
+            } else if (msg.type === "vehicle_unavailable" && msg.data?.id) {
+              availableIdsRef.current.delete(msg.data.id);
+              setCount(availableIdsRef.current.size);
             }
           } catch {}
         };
@@ -89,7 +105,7 @@ function useAvailableVehicleCount(enabled) {
     connectSSE();
 
     return () => { cancelled = true; clearInterval(poll); clearTimeout(sseRetryTimeout); if (sse) sse.close(); };
-  }, [enabled]);
+  }, [enabled, tenantId]);
 
   return count;
 }
@@ -133,7 +149,7 @@ export default function App() {
   const payload = getAuthPayload();
   // Called unconditionally (Rules of Hooks) — internally no-ops when logged
   // out or on the super admin panel, which has no Sidebar to show a badge on.
-  const availableCount = useAvailableVehicleCount(!!payload && payload.role !== "superadmin");
+  const availableCount = useAvailableVehicleCount(!!payload && payload.role !== "superadmin", payload?.tenantId);
 
   if (!payload) {
     return <LoggedOutRoutes />;

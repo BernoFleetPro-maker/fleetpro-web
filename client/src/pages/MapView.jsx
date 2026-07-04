@@ -24,6 +24,7 @@ export default function MapView({ role = "admin", clientId = null }) {
   const routeLinesRef    = useRef({});
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null); // tracks selected vehicle for route highlight
+  const lastPositionsRef = useRef([]);   // last fetched (post-filter) positions — patched instantly by SSE
 
   // ── Route highlight styles ─────────────────────────────────────────────────
   // No selection:  all routes weight 3, opacity 0.75
@@ -556,6 +557,7 @@ export default function MapView({ role = "admin", clientId = null }) {
             );
             console.log("[FleetPro] Visible vehicles after filter:", positions.map(v => v.descrip));
           }
+          lastPositionsRef.current = positions;
           drawOrUpdateVehicles(positions);
           await drawPoints(positions);
 
@@ -584,7 +586,56 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
       fetchAll();
       const interval = setInterval(fetchAll, 30000);
-      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; delete window._fleetproGoToTask; delete window._fleetproToggleAvailable; };
+
+      // SSE — reacts to vehicle_available/vehicle_unavailable the instant they
+      // arrive instead of waiting for the next 30s poll. If the vehicle isn't
+      // already in our last-known list (e.g. a client seeing a vehicle that
+      // just became available for the first time), fall back to a full
+      // fetchAll() since we don't have its lat/lon/etc. to draw a marker from.
+      let sse;
+      let sseRetries = 0;
+      let sseRetryTimeout;
+      const MAX_SSE_RETRIES = 5;
+
+      const connectSSE = () => {
+        try {
+          sse = new EventSource(`${API}/stream/events`);
+          sse.onmessage = (e) => {
+            sseRetries = 0;
+            try {
+              const msg = JSON.parse(e.data);
+              if (msg.type !== "vehicle_available" && msg.type !== "vehicle_unavailable") return;
+              const vehicleId = msg.data?.id;
+              if (!vehicleId) return;
+              const list = lastPositionsRef.current;
+              const idx  = list.findIndex(v => v.vehicleId === vehicleId);
+              if (idx === -1) {
+                if (msg.type === "vehicle_available") fetchAll();
+                return;
+              }
+              const updated = [...list];
+              updated[idx] = { ...updated[idx], available: msg.type === "vehicle_available" };
+              lastPositionsRef.current = updated;
+              drawOrUpdateVehicles(updated);
+            } catch {}
+          };
+          sse.onerror = () => {
+            sse.close();
+            if (sseRetries < MAX_SSE_RETRIES) {
+              const delay = Math.min(1000 * Math.pow(2, sseRetries), 30000);
+              sseRetries++;
+              sseRetryTimeout = setTimeout(connectSSE, delay);
+            }
+          };
+        } catch {}
+      };
+      connectSSE();
+
+      return () => {
+        clearInterval(interval); clearInterval(keepalive);
+        clearTimeout(sseRetryTimeout); if (sse) sse.close();
+        delete window._fleetproOverride; delete window._fleetproGoToTask; delete window._fleetproToggleAvailable;
+      };
     }
     initWhenReady();
     return () => { if (pollTimer) clearTimeout(pollTimer); };

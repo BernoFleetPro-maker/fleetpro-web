@@ -38,7 +38,9 @@ export default function Settings() {
 
   const payload = getAuthPayload();
   const role    = payload?.role || "admin";
-  const canChangePassword = role === "controller" || role === "client";
+  // Clients only get the Notifications section — password changes for them
+  // are out of scope here now, same as everything else on this page.
+  const canChangePassword = role === "controller";
 
   const isAdminOrController = role === "admin" || role === "controller";
 
@@ -129,7 +131,8 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Permission Levels explanation */}
+      {/* Permission Levels explanation — admin/controller only */}
+      {isAdminOrController && (
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
         <div className="bg-slate-50 border-b border-slate-200 px-5 py-3">
           <h3 className="font-semibold text-slate-700">🔐 Permission Levels</h3>
@@ -167,6 +170,7 @@ export default function Settings() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Client Permissions — admin/controller only */}
       {isAdminOrController && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
@@ -269,7 +273,8 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Admin credentials */}
+      {/* Admin credentials — admin/controller only */}
+      {isAdminOrController && (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
         <h3 className="font-semibold text-amber-800 mb-2">🔑 Admin Credentials</h3>
         <p className="text-sm text-amber-700">Admin username and password are set as environment variables in Railway:</p>
@@ -279,6 +284,7 @@ export default function Settings() {
         </ul>
         <p className="text-xs text-amber-600 mt-2">To change, update these in Railway project settings and redeploy.</p>
       </div>
+      )}
     </div>
   );
 }
