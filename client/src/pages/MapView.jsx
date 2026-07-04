@@ -88,23 +88,46 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position, html); lbl.setMap(map); return lbl;
   }
 
-  // Small amber "Available to load" tag rendered above the vehicle marker —
+  // One-time global stylesheet injection for the bobbing animation — a CSS
+  // @keyframes loop is used instead of JS so it stays smooth even with many
+  // "available" markers animating on screen at once.
+  function ensureAvailableBobStyle() {
+    if (document.getElementById("fp-avail-bob-style")) return;
+    const style = document.createElement("style");
+    style.id = "fp-avail-bob-style";
+    style.textContent = `
+      @keyframes fpAvailBob {
+        0%, 100% { transform: translateY(0); }
+        50%      { transform: translateY(-6px); }
+      }
+      .fp-avail-bob { animation: fpAvailBob 1.8s ease-in-out infinite; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // Small amber "Available to load" tag rendered directly above the vehicle
+  // marker, with a downward-pointing triangle whose tip touches the marker —
   // separate overlay from the reg/speed label so it can be added/removed
   // independently as availability changes.
   function createAvailableLabelOverlay(map, position) {
     const g = window.google; if (!g) return null;
+    ensureAvailableBobStyle();
     function LO(pos) { this.position = pos; this.div = null; }
     LO.prototype = new g.maps.OverlayView();
     LO.prototype.onAdd = function () {
       const div = document.createElement("div");
       div.style.cssText = "position:absolute;transform:translate(-50%,-100%);z-index:999;pointer-events:none;";
-      div.innerHTML = `<div style="background:#f59e0b;padding:2px 7px;border-radius:6px;font-size:10px;text-align:center;color:#3a2500;font-weight:700;border:1px solid #b45309;white-space:nowrap;">↑ Available to load</div>`;
+      div.innerHTML = `
+        <div class="fp-avail-bob" style="display:flex;flex-direction:column;align-items:center;">
+          <div style="background:#f59e0b;padding:2px 7px;border-radius:6px;font-size:10px;text-align:center;color:#3a2500;font-weight:700;border:1px solid #b45309;white-space:nowrap;">Available to load</div>
+          <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #f59e0b;"></div>
+        </div>`;
       this.div = div; this.getPanes().overlayLayer.appendChild(div);
     };
     LO.prototype.draw = function () {
       const proj = this.getProjection(); if (!proj || !this.div) return;
       const pos = proj.fromLatLngToDivPixel(this.position);
-      this.div.style.left = pos.x + "px"; this.div.style.top = (pos.y - 12) + "px";
+      this.div.style.left = pos.x + "px"; this.div.style.top = pos.y + "px";
     };
     LO.prototype.onRemove = function () { if (this.div?.parentNode) this.div.parentNode.removeChild(this.div); this.div = null; };
     LO.prototype.updatePosition = function (pos) { this.position = pos; this.draw(); };
