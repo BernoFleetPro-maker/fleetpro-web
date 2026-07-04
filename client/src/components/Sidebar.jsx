@@ -18,14 +18,15 @@ const ADMIN_LINKS = [
 ];
 
 const CLIENT_LINKS = [
-  { to: "/",     icon: "📍", label: "Map" },
-  { to: "/tasks", icon: "📋", label: "Tasks" },
+  { to: "/",         icon: "📍", label: "Map" },
+  { to: "/tasks",    icon: "📋", label: "Tasks" },
+  { to: "/settings", icon: "⚙",  label: "Settings" },
 ];
 
 // Controllers get same links as admin
 const CONTROLLER_LINKS = ADMIN_LINKS;
 
-export default function Sidebar({ role = "admin", user = {} }) {
+export default function Sidebar({ role = "admin", user = {}, availableCount = 0 }) {
   const LINKS = role === "admin" ? ADMIN_LINKS
               : role === "controller" ? CONTROLLER_LINKS
               : CLIENT_LINKS;
@@ -75,7 +76,7 @@ export default function Sidebar({ role = "admin", user = {} }) {
               to={item.to}
               title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-3 hover:bg-slate-700 transition-colors ${
+                `relative flex items-center gap-3 px-3 py-3 hover:bg-slate-700 transition-colors ${
                   isActive ? "bg-slate-800" : ""
                 } ${collapsed ? "justify-center" : ""}`
               }
@@ -86,7 +87,20 @@ export default function Sidebar({ role = "admin", user = {} }) {
                 <span className="text-lg leading-none">{item.icon}</span>
               )}
               {!collapsed && (
-                <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                <span className="text-sm font-medium whitespace-nowrap flex items-center gap-2">
+                  {item.label}
+                  {item.to === "/" && availableCount > 0 && (
+                    <span
+                      className="bg-amber-500 text-[#3a2500] text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
+                      title={`${availableCount} vehicle${availableCount === 1 ? "" : "s"} available to load`}
+                    >
+                      {availableCount}
+                    </span>
+                  )}
+                </span>
+              )}
+              {collapsed && item.to === "/" && availableCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
               )}
             </NavLink>
           );

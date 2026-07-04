@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { isAvailableSoundEnabled, setAvailableSoundEnabled } from "../utils/soundPrefs";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
@@ -40,6 +41,13 @@ export default function Settings() {
   const canChangePassword = role === "controller" || role === "client";
 
   const isAdminOrController = role === "admin" || role === "controller";
+
+  const [soundEnabled, setSoundEnabled] = useState(() => isAvailableSoundEnabled());
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setAvailableSoundEnabled(next);
+  };
 
   const loadClients = async () => {
     if (!isAdminOrController) { setLoading(false); return; } // clients can't see other clients
@@ -97,6 +105,29 @@ export default function Settings() {
     <div className="p-6 max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold text-slate-800 mb-1">⚙️ Settings</h2>
       <p className="text-slate-500 text-sm mb-6">System configuration and access control</p>
+
+      {/* Notifications — every role, stored per-device in localStorage only */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+        <div className="bg-slate-50 border-b border-slate-200 px-5 py-3">
+          <h3 className="font-semibold text-slate-700">🔊 Notifications</h3>
+        </div>
+        <div className="p-5 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Play sound when a vehicle becomes available</p>
+            <p className="text-xs text-slate-500 mt-0.5">Applies only to this device/browser.</p>
+          </div>
+          <button
+            onClick={toggleSound}
+            role="switch"
+            aria-checked={soundEnabled}
+            className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${soundEnabled ? "bg-amber-500" : "bg-slate-300"}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${soundEnabled ? "translate-x-5" : ""}`}
+            />
+          </button>
+        </div>
+      </div>
 
       {/* Permission Levels explanation */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">

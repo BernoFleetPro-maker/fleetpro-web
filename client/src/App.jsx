@@ -1,5 +1,5 @@
 // src/App.jsx
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 
 import LandingPage from "./pages/LandingPage";
@@ -17,6 +17,82 @@ import Settings from "./pages/Settings";
 
 import Clients from "./pages/Clients";
 import Controllers from "./pages/Controllers";
+
+import { playAvailableSound } from "./utils/soundPrefs";
+
+const API = "https://fleetpro-backend-production.up.railway.app/api";
+
+function authFetch(url, opts = {}) {
+  const token = localStorage.getItem("fleetpro_token") || "";
+  return fetch(url, {
+    ...opts,
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, ...(opts.headers || {}) },
+  });
+}
+
+// Live count of vehicles currently marked "available to load" — visible in
+// the sidebar badge for every logged-in role. /api/positions is already
+// scoped per-role (clients only see what they're allowed to), so counting
+// `available === true` there gives the right number for whoever's asking.
+function useAvailableVehicleCount(enabled) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) { setCount(0); return; }
+    let cancelled = false;
+
+    const refresh = async () => {
+      try {
+        const res = await authFetch(`${API}/positions`);
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data)) {
+          setCount(data.filter(v => v.available === true).length);
+        }
+      } catch {}
+    };
+
+    refresh();
+    const poll = setInterval(refresh, 30000);
+
+    // SSE push — plays the notification sound (mute-aware) and refreshes the
+    // count immediately instead of waiting for the next poll. Exponential
+    // backoff on drop, same pattern as Tasks.jsx — the 30s poll above keeps
+    // the count itself fresh even if the stream never reconnects.
+    let sse;
+    let sseRetries = 0;
+    let sseRetryTimeout;
+    const MAX_SSE_RETRIES = 5;
+
+    const connectSSE = () => {
+      try {
+        sse = new EventSource(`${API}/stream/events`);
+        sse.onmessage = (e) => {
+          sseRetries = 0;
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === "vehicle_available") {
+              playAvailableSound();
+              refresh();
+            }
+          } catch {}
+        };
+        sse.onerror = () => {
+          sse.close();
+          if (sseRetries < MAX_SSE_RETRIES) {
+            const delay = Math.min(1000 * Math.pow(2, sseRetries), 30000);
+            sseRetries++;
+            sseRetryTimeout = setTimeout(connectSSE, delay);
+          }
+        };
+      } catch {}
+    };
+    connectSSE();
+
+    return () => { cancelled = true; clearInterval(poll); clearTimeout(sseRetryTimeout); if (sse) sse.close(); };
+  }, [enabled]);
+
+  return count;
+}
 
 function getAuthPayload() {
   const token = localStorage.getItem("fleetpro_token");
@@ -55,6 +131,9 @@ function LoggedOutRoutes() {
 
 export default function App() {
   const payload = getAuthPayload();
+  // Called unconditionally (Rules of Hooks) — internally no-ops when logged
+  // out or on the super admin panel, which has no Sidebar to show a badge on.
+  const availableCount = useAvailableVehicleCount(!!payload && payload.role !== "superadmin");
 
   if (!payload) {
     return <LoggedOutRoutes />;
@@ -85,7 +164,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={{ ...payload, displayName }} />
+      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"               element={<MapView role={role} clientId={payload.clientId} />} />
@@ -96,7 +175,9 @@ export default function App() {
           {hasFullAccess && <Route path="/dropoff-points" element={<DropoffPoints />} />}
           {hasFullAccess && <Route path="/clients"        element={<Clients />} />}
           {hasFullAccess && <Route path="/controllers"    element={<Controllers />} />}
-          {hasFullAccess && <Route path="/settings"       element={<Settings />} />}
+          {/* Settings is now open to every role — it self-filters its sections
+              (client permissions, password change) based on role internally. */}
+          <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<MapView role={role} clientId={payload.clientId} />} />
         </Routes>
       </div>
