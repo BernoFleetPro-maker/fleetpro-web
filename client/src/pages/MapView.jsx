@@ -88,6 +88,29 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position, html); lbl.setMap(map); return lbl;
   }
 
+  // Small amber "Available to load" tag rendered above the vehicle marker —
+  // separate overlay from the reg/speed label so it can be added/removed
+  // independently as availability changes.
+  function createAvailableLabelOverlay(map, position) {
+    const g = window.google; if (!g) return null;
+    function LO(pos) { this.position = pos; this.div = null; }
+    LO.prototype = new g.maps.OverlayView();
+    LO.prototype.onAdd = function () {
+      const div = document.createElement("div");
+      div.style.cssText = "position:absolute;transform:translate(-50%,-100%);z-index:999;pointer-events:none;";
+      div.innerHTML = `<div style="background:#f59e0b;padding:2px 7px;border-radius:6px;font-size:10px;text-align:center;color:#3a2500;font-weight:700;border:1px solid #b45309;white-space:nowrap;">↑ Available to load</div>`;
+      this.div = div; this.getPanes().overlayLayer.appendChild(div);
+    };
+    LO.prototype.draw = function () {
+      const proj = this.getProjection(); if (!proj || !this.div) return;
+      const pos = proj.fromLatLngToDivPixel(this.position);
+      this.div.style.left = pos.x + "px"; this.div.style.top = (pos.y - 12) + "px";
+    };
+    LO.prototype.onRemove = function () { if (this.div?.parentNode) this.div.parentNode.removeChild(this.div); this.div = null; };
+    LO.prototype.updatePosition = function (pos) { this.position = pos; this.draw(); };
+    const lbl = new LO(position); lbl.setMap(map); return lbl;
+  }
+
   function formatDropoffDate(date, time) {
     if (!date) return null;
     try {
@@ -153,6 +176,16 @@ export default function MapView({ role = "admin", clientId = null }) {
         <button id="fleetpro-loc-btn" onclick="window._fleetproShowLocMenu(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Current Location</button>
         ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Save Point</button>` : ""}
       </div>
+      ${(isAdmin || role === 'controller') && v.vehicleId ? `
+      <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:10px;font-weight:600;color:#333;">Available to Load</span>
+        <label style="position:relative;display:inline-block;width:34px;height:18px;cursor:pointer;">
+          <input type="checkbox" id="fleetpro-avail-input" ${v.available ? "checked" : ""} onchange="window._fleetproToggleAvailable('${v.vehicleId}',${v.available ? "true" : "false"},this)" style="opacity:0;width:0;height:0;">
+          <span style="position:absolute;inset:0;background:${v.available ? '#f59e0b' : '#ccc'};border-radius:18px;transition:.15s;"></span>
+          <span style="position:absolute;height:14px;width:14px;left:${v.available ? '18px' : '2px'};top:2px;background:#fff;border-radius:50%;transition:.15s;"></span>
+        </label>
+      </div>` : ""}
       ${taskSection}
     </div>`;
   }
@@ -255,11 +288,19 @@ export default function MapView({ role = "admin", clientId = null }) {
         mk.labelOverlay.updatePosition(pos);
         g.maps.event.clearListeners(mk.marker, "click");
         mk.marker.addListener("click", onMarkerClick);
+        if (v.available) {
+          if (mk.availableOverlay) mk.availableOverlay.updatePosition(pos);
+          else mk.availableOverlay = createAvailableLabelOverlay(map, pos);
+        } else if (mk.availableOverlay) {
+          mk.availableOverlay.setMap(null);
+          mk.availableOverlay = null;
+        }
       } else {
         const marker = new g.maps.Marker({ map, position:pos, icon, zIndex:10 });
         const labelOverlay = createLabelOverlay(map, pos, labelHtml);
+        const availableOverlay = v.available ? createAvailableLabelOverlay(map, pos) : null;
         marker.addListener("click", onMarkerClick);
-        markersRef.current[id] = { marker, labelOverlay };
+        markersRef.current[id] = { marker, labelOverlay, availableOverlay };
       }
       updateRouteAndEta(v);
     });
@@ -441,6 +482,37 @@ export default function MapView({ role = "admin", clientId = null }) {
         }).catch(() => {});
       };
 
+      window._fleetproToggleAvailable = (vehicleDbId, wasAvailable, checkboxEl) => {
+        const nextValue = !wasAvailable;
+        // Track/knob are the two <span> siblings drawn right after the checkbox
+        // — flip them immediately for instant feedback, revert on failure.
+        const track = checkboxEl?.nextElementSibling;
+        const knob  = track?.nextElementSibling;
+        const applyVisual = (isOn) => {
+          if (track) track.style.background = isOn ? "#f59e0b" : "#ccc";
+          if (knob)  knob.style.left = isOn ? "18px" : "2px";
+        };
+        applyVisual(nextValue);
+        authFetch(`${API}/vehicles/${vehicleDbId}/available`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ available: nextValue }),
+        }).then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (checkboxEl) checkboxEl.checked = wasAvailable;
+            applyVisual(wasAvailable);
+            alert(data.error || "Failed to update availability");
+            return;
+          }
+          fetchAll();
+        }).catch(() => {
+          if (checkboxEl) checkboxEl.checked = wasAvailable;
+          applyVisual(wasAvailable);
+          alert("Failed to update availability — network error");
+        });
+      };
+
       const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
 
       async function fetchAll() {
@@ -448,12 +520,16 @@ export default function MapView({ role = "admin", clientId = null }) {
           let positions = await authFetch(`${API}/positions`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
           if (!isAdmin && clientId) {
-            console.log("[FleetPro] Client filter — clientId:", clientId, "positions:", positions.map(v => ({ reg: v.descrip, taskClientId: v.activeTask?.clientId })));
+            console.log("[FleetPro] Client filter — clientId:", clientId, "positions:", positions.map(v => ({ reg: v.descrip, available: v.available, taskClientId: v.activeTask?.clientId })));
+            // Backend already scopes this response for client-role users, but we
+            // keep this as a second guard: available vehicles are visible to any
+            // client, everything else must be tied to this client's own task.
             positions = positions.filter(v =>
-              v.activeTask && (
+              v.available === true ||
+              (v.activeTask && (
                 v.activeTask.clientId === clientId ||
                 String(v.activeTask.clientId) === String(clientId)
-              )
+              ))
             );
             console.log("[FleetPro] Visible vehicles after filter:", positions.map(v => v.descrip));
           }
@@ -485,7 +561,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
       fetchAll();
       const interval = setInterval(fetchAll, 30000);
-      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; delete window._fleetproGoToTask; };
+      return () => { clearInterval(interval); clearInterval(keepalive); delete window._fleetproOverride; delete window._fleetproGoToTask; delete window._fleetproToggleAvailable; };
     }
     initWhenReady();
     return () => { if (pollTimer) clearTimeout(pollTimer); };
