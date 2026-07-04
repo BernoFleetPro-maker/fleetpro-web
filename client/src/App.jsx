@@ -36,11 +36,16 @@ function authFetch(url, opts = {}) {
 // `available === true` there gives the right number for whoever's asking.
 function useAvailableVehicleCount(enabled, tenantId) {
   const [count, setCount] = useState(0);
-  // Authoritative set of currently-available vehicle ids. SSE events mutate
-  // it instantly (add/delete are idempotent, so duplicate events are safe);
-  // the periodic poll below rebuilds it from scratch as a reconciliation
-  // pass in case an event is ever missed.
+  // Authoritative set of currently-available vehicle ids that also have live
+  // position data — i.e. the same set the map is able to draw a marker for.
+  // The periodic poll below rebuilds both refs from scratch as reconciliation.
   const availableIdsRef = useRef(new Set());
+  // Every vehicleId present in the last /api/positions response, available
+  // or not. Used to decide whether an SSE event can be applied to the count
+  // immediately, or whether we first need a refetch (e.g. a vehicle just
+  // marked available whose tracker hasn't reported a position yet — counting
+  // it before it's fetched would show a badge number with no matching marker).
+  const knownIdsRef = useRef(new Set());
 
   useEffect(() => {
     if (!enabled) { setCount(0); return; }
@@ -51,6 +56,7 @@ function useAvailableVehicleCount(enabled, tenantId) {
         const res = await authFetch(`${API}/positions`);
         const data = await res.json();
         if (!cancelled && Array.isArray(data)) {
+          knownIdsRef.current = new Set(data.filter(v => v.vehicleId).map(v => v.vehicleId));
           availableIdsRef.current = new Set(
             data.filter(v => v.available === true && v.vehicleId).map(v => v.vehicleId)
           );
@@ -83,9 +89,16 @@ function useAvailableVehicleCount(enabled, tenantId) {
             // (30s poll self-corrects if this ever misses something.)
             if (tenantId && msg.data?.tenantId && msg.data.tenantId !== tenantId) return;
             if (msg.type === "vehicle_available" && msg.data?.id) {
-              availableIdsRef.current.add(msg.data.id);
-              setCount(availableIdsRef.current.size);
-              playAvailableSound();
+              playAvailableSound(); // always notify — even if we can't count it yet
+              if (knownIdsRef.current.has(msg.data.id)) {
+                availableIdsRef.current.add(msg.data.id);
+                setCount(availableIdsRef.current.size);
+              } else {
+                // Not in our last position fetch (no live GPS yet, most likely)
+                // — refetch instead of guessing, so the badge never shows a
+                // number the map can't back up with a visible marker.
+                refresh();
+              }
             } else if (msg.type === "vehicle_unavailable" && msg.data?.id) {
               availableIdsRef.current.delete(msg.data.id);
               setCount(availableIdsRef.current.size);

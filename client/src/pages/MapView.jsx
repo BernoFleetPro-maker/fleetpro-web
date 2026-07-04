@@ -284,8 +284,11 @@ export default function MapView({ role = "admin", clientId = null }) {
     }
     const activeInfo = map.activeInfoWindow;
 
+    const seenIds = new Set();
+
     data.forEach(v => {
       const id   = v.descrip || `veh-${v.id}`;
+      seenIds.add(id);
       const pos  = new g.maps.LatLng(v.lat, v.lon);
       const icon = getSymbolIcon(v.speed, v.heading);
       const labelHtml = `${v.descrip||"—"}<br/>${v.speed||0} km/h`;
@@ -328,6 +331,23 @@ export default function MapView({ role = "admin", clientId = null }) {
       }
       updateRouteAndEta(v);
     });
+
+    // Remove markers for vehicles no longer in this data set — e.g. a client
+    // that just lost visibility of a vehicle which became unavailable (and
+    // has no active task). Without this, the marker (and its amber "Available
+    // to load" tag) would sit on the map forever, since the loop above only
+    // ever adds/updates markers, never prunes ones that dropped out.
+    Object.keys(markersRef.current).forEach(id => {
+      if (seenIds.has(id)) return;
+      const mk = markersRef.current[id];
+      if (mk.marker)          mk.marker.setMap(null);
+      if (mk.labelOverlay)    mk.labelOverlay.setMap(null);
+      if (mk.availableOverlay) mk.availableOverlay.setMap(null);
+      if (routeLinesRef.current[id]) { routeLinesRef.current[id].setMap(null); delete routeLinesRef.current[id]; }
+      delete vehicleRouteRef.current[id];
+      delete markersRef.current[id];
+    });
+
     // Reapply styles after all vehicles drawn
     applyRouteStyles();
   }
@@ -539,22 +559,25 @@ export default function MapView({ role = "admin", clientId = null }) {
 
       const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
 
+      // Backend already scopes /positions for client-role users, but we keep
+      // this as a second guard — and reuse it below so the SSE instant-patch
+      // path applies the exact same rule (a vehicle with no active task that
+      // just went unavailable must disappear for a client, not just lose its
+      // amber tag).
+      const isVisibleForClient = (v) =>
+        v.available === true ||
+        (v.activeTask && (
+          v.activeTask.clientId === clientId ||
+          String(v.activeTask.clientId) === String(clientId)
+        ));
+
       async function fetchAll() {
         try {
           let positions = await authFetch(`${API}/positions`).then(r=>r.json());
           if (!Array.isArray(positions)) positions = [];
           if (!isAdmin && clientId) {
             console.log("[FleetPro] Client filter — clientId:", clientId, "positions:", positions.map(v => ({ reg: v.descrip, available: v.available, taskClientId: v.activeTask?.clientId })));
-            // Backend already scopes this response for client-role users, but we
-            // keep this as a second guard: available vehicles are visible to any
-            // client, everything else must be tied to this client's own task.
-            positions = positions.filter(v =>
-              v.available === true ||
-              (v.activeTask && (
-                v.activeTask.clientId === clientId ||
-                String(v.activeTask.clientId) === String(clientId)
-              ))
-            );
+            positions = positions.filter(isVisibleForClient);
             console.log("[FleetPro] Visible vehicles after filter:", positions.map(v => v.descrip));
           }
           lastPositionsRef.current = positions;
@@ -613,8 +636,17 @@ export default function MapView({ role = "admin", clientId = null }) {
                 if (msg.type === "vehicle_available") fetchAll();
                 return;
               }
-              const updated = [...list];
-              updated[idx] = { ...updated[idx], available: msg.type === "vehicle_available" };
+              const patched = { ...list[idx], available: msg.type === "vehicle_available" };
+              let updated;
+              if (!isAdmin && clientId && !isVisibleForClient(patched)) {
+                // No longer visible to this client at all (not just missing
+                // the amber tag) — drop it so the cleanup pass in
+                // drawOrUpdateVehicles removes its marker too.
+                updated = list.filter((_, i) => i !== idx);
+              } else {
+                updated = [...list];
+                updated[idx] = patched;
+              }
               lastPositionsRef.current = updated;
               drawOrUpdateVehicles(updated);
             } catch {}
