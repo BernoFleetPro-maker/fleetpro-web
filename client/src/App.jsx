@@ -93,9 +93,15 @@ function useAvailableVehicleCount(enabled, tenantId) {
               if (knownIdsRef.current.has(msg.data.id)) {
                 availableIdsRef.current.add(msg.data.id);
                 setCount(availableIdsRef.current.size);
+              } else if (msg.data.position) {
+                // Vehicle wasn't in our last fetch, but the event carries its
+                // last-known position — count it immediately, no refetch needed.
+                knownIdsRef.current.add(msg.data.id);
+                availableIdsRef.current.add(msg.data.id);
+                setCount(availableIdsRef.current.size);
               } else {
-                // Not in our last position fetch (no live GPS yet, most likely)
-                // — refetch instead of guessing, so the badge never shows a
+                // No cached position at all (vehicle has no live GPS) —
+                // refetch instead of guessing, so the badge never shows a
                 // number the map can't back up with a visible marker.
                 refresh();
               }

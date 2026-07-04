@@ -633,7 +633,20 @@ export default function MapView({ role = "admin", clientId = null }) {
               const list = lastPositionsRef.current;
               const idx  = list.findIndex(v => v.vehicleId === vehicleId);
               if (idx === -1) {
-                if (msg.type === "vehicle_available") fetchAll();
+                if (msg.type === "vehicle_available") {
+                  if (msg.data.position) {
+                    // Full position piggybacked on the event (lat/lon/speed/etc,
+                    // already available:true) — draw the marker immediately,
+                    // no fetchAll() round-trip needed.
+                    const updated = [...list, msg.data.position];
+                    lastPositionsRef.current = updated;
+                    drawOrUpdateVehicles(updated);
+                  } else {
+                    // No cached position at all (vehicle has no live GPS yet)
+                    // — nothing to draw from locally, fall back to a refetch.
+                    fetchAll();
+                  }
+                }
                 return;
               }
               const patched = { ...list[idx], available: msg.type === "vehicle_available" };
