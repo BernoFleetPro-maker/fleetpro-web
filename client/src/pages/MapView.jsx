@@ -176,7 +176,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         <button id="fleetpro-loc-btn" onclick="window._fleetproShowLocMenu(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Current Location</button>
         ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Save Point</button>` : ""}
       </div>
-      ${(isAdmin || role === 'controller') && v.vehicleId ? `
+      ${(isAdmin || role === 'controller') && v.vehicleId && t?.status !== 'inprogress' ? `
       <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <span style="font-size:10px;font-weight:600;color:#333;">Available to Load</span>
