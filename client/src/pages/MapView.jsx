@@ -26,6 +26,10 @@ export default function MapView({ role = "admin", clientId = null }) {
   const activeVehicleRef = useRef(null); // tracks selected vehicle for route highlight
   const lastPositionsRef = useRef([]);   // last fetched (post-filter) positions — patched instantly by SSE
   const clientsRef       = useRef(null); // null = not fetched yet; [] once fetched (admin/controller only)
+  // Draft visibility choice while turning a vehicle available — nothing is
+  // sent to the backend (so nothing becomes visible to anyone) until the
+  // admin clicks Accept. Keyed by vehicleId. { availableToAll, clientIds }
+  const pendingRef       = useRef({});
 
   // ── Route highlight styles ─────────────────────────────────────────────────
   // No selection:  all routes weight 3, opacity 0.75
@@ -136,19 +140,24 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position); lbl.setMap(map); return lbl;
   }
 
-  // "Visible to" picker for an available vehicle — an "All Clients" toggle
-  // (same style as the Available switch, for consistency) that reveals a
-  // searchable checklist of the tenant's clients when switched off. The
-  // checklist stays populated either way so flipping the toggle back and
-  // forth doesn't lose a previously ticked selection.
-  function buildVisibilityPicker(v) {
-    const availableToAll     = v.availableToAll !== false; // default true
-    const availableClientIds = (v.availableClientIds || []).map(String);
+  // "Visible to" picker — an "All Clients" toggle (same style as the
+  // Available switch, for consistency) that reveals a searchable checklist
+  // of the tenant's clients when switched off. When `staging` is true,
+  // every change here only edits the in-memory pendingRef draft (no network
+  // call) — the actual save happens only when Accept is clicked. When false
+  // (editing an already-available vehicle's audience), changes save as they
+  // happen, same as before.
+  function buildVisibilityPicker({ vehicleId, availableToAll, availableClientIds, staging }) {
+    const allOn = availableToAll !== false; // default true
+    const ids   = (availableClientIds || []).map(String);
     const clients = clientsRef.current || [];
+    const allToggleHandler   = staging ? `window._fleetproStagingSetAll('${vehicleId}', this.checked)` : `window._fleetproSetVisibilityMode('${vehicleId}', this.checked)`;
+    const clientCheckHandler = staging ? `window._fleetproStagingToggleClient('${vehicleId}')`          : `window._fleetproToggleClientVisibility('${vehicleId}')`;
+
     const clientRows = clients.length
       ? clients.map(c => `
           <label class="fp-client-row" data-name="${(c.name || "").toLowerCase().replace(/"/g, "")}" style="display:flex;align-items:center;gap:6px;font-size:11px;color:#333;padding:3px 2px;cursor:pointer;">
-            <input type="checkbox" value="${c.id}" ${availableClientIds.includes(String(c.id)) ? "checked" : ""} onchange="window._fleetproToggleClientVisibility('${v.vehicleId}')">
+            <input type="checkbox" value="${c.id}" ${ids.includes(String(c.id)) ? "checked" : ""} onchange="${clientCheckHandler}">
             <span>${c.name}</span>
           </label>`).join("")
       : `<div style="font-size:10px;color:#999;padding:4px 2px;">No clients yet</div>`;
@@ -158,15 +167,15 @@ export default function MapView({ role = "admin", clientId = null }) {
         <div style="display:flex;align-items:center;justify-content:space-between;">
           <span style="font-size:10px;font-weight:600;color:#333;">Visible to All Clients</span>
           <label style="position:relative;display:inline-block;width:34px;height:18px;cursor:pointer;">
-            <input type="checkbox" ${availableToAll ? "checked" : ""} onchange="window._fleetproSetVisibilityMode('${v.vehicleId}', this.checked)" style="opacity:0;width:0;height:0;">
-            <span style="position:absolute;inset:0;background:${availableToAll ? '#f59e0b' : '#ccc'};border-radius:18px;transition:.15s;"></span>
-            <span style="position:absolute;height:14px;width:14px;left:${availableToAll ? '18px' : '2px'};top:2px;background:#fff;border-radius:50%;transition:.15s;"></span>
+            <input type="checkbox" ${allOn ? "checked" : ""} onchange="${allToggleHandler}" style="opacity:0;width:0;height:0;">
+            <span style="position:absolute;inset:0;background:${allOn ? '#f59e0b' : '#ccc'};border-radius:18px;transition:.15s;"></span>
+            <span style="position:absolute;height:14px;width:14px;left:${allOn ? '18px' : '2px'};top:2px;background:#fff;border-radius:50%;transition:.15s;"></span>
           </label>
         </div>
-        <div id="fleetpro-client-picker-${v.vehicleId}" style="margin-top:5px;${availableToAll ? "display:none;" : ""}">
-          <input type="text" placeholder="Search clients…" oninput="window._fleetproFilterClients('${v.vehicleId}', this.value)"
+        <div id="fleetpro-client-picker-${vehicleId}" style="margin-top:5px;${allOn ? "display:none;" : ""}">
+          <input type="text" placeholder="Search clients…" oninput="window._fleetproFilterClients('${vehicleId}', this.value)"
             style="width:100%;font-size:10px;padding:4px 6px;border-radius:4px;border:1px solid #ccc;margin-bottom:4px;box-sizing:border-box;">
-          <div id="fleetpro-client-checklist-${v.vehicleId}" style="max-height:110px;overflow-y:auto;border:1px solid #eee;border-radius:4px;padding:4px 6px;">
+          <div id="fleetpro-client-checklist-${vehicleId}" style="max-height:110px;overflow-y:auto;border:1px solid #eee;border-radius:4px;padding:4px 6px;">
             ${clientRows}
           </div>
         </div>
@@ -228,6 +237,39 @@ export default function MapView({ role = "admin", clientId = null }) {
           <button onclick="window._fleetproOverride('${id}','to_drop','${t.id}')" style="background:#43a047;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;">🏁 → Dropoff</button>
         </div>`;
     }
+
+    let availabilitySection = "";
+    if ((isAdmin || role === 'controller') && v.vehicleId && t?.status !== 'inprogress') {
+      // A pending draft means the admin just flipped the toggle on but
+      // hasn't hit Accept yet — nothing has been saved, so nothing is
+      // actually visible to any client until they confirm.
+      const pending  = pendingRef.current[v.vehicleId];
+      const staging  = !!pending;
+      const showAsOn = v.available || staging;
+
+      availabilitySection = `
+      <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:10px;font-weight:600;color:#333;">Available to Load</span>
+        <label style="position:relative;display:inline-block;width:34px;height:18px;cursor:pointer;">
+          <input type="checkbox" ${showAsOn ? "checked" : ""} onchange="window._fleetproOnAvailableToggle('${v.vehicleId}',this.checked)" style="opacity:0;width:0;height:0;">
+          <span style="position:absolute;inset:0;background:${showAsOn ? '#f59e0b' : '#ccc'};border-radius:18px;transition:.15s;"></span>
+          <span style="position:absolute;height:14px;width:14px;left:${showAsOn ? '18px' : '2px'};top:2px;background:#fff;border-radius:50%;transition:.15s;"></span>
+        </label>
+      </div>
+      ${showAsOn ? buildVisibilityPicker({
+        vehicleId: v.vehicleId,
+        availableToAll: staging ? pending.availableToAll : v.availableToAll,
+        availableClientIds: staging ? pending.clientIds : v.availableClientIds,
+        staging,
+      }) : ""}
+      ${staging ? `
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button onclick="window._fleetproConfirmAvailability('${v.vehicleId}')" style="flex:1;background:#16a34a;color:#fff;border:none;border-radius:5px;padding:6px;font-size:11px;font-weight:700;cursor:pointer;">✓ Accept</button>
+        <button onclick="window._fleetproCancelAvailability('${v.vehicleId}')" style="flex:1;background:#94a3b8;color:#fff;border:none;border-radius:5px;padding:6px;font-size:11px;font-weight:700;cursor:pointer;">✕ Cancel</button>
+      </div>` : ""}`;
+    }
+
     return `<div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.35;width:100%;max-width:240px;box-sizing:border-box;overflow:hidden;word-break:break-word;">
       <div style="font-weight:700;color:#111;font-size:13px;margin-bottom:2px;">${v.descrip || "Unknown"}</div>
       <div style="color:#555;font-size:10px;"><strong>Updated:</strong> ${formatDate(v.dt)}</div>
@@ -238,17 +280,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         <button id="fleetpro-loc-btn" onclick="window._fleetproShowLocMenu(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Current Location</button>
         ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Save Point</button>` : ""}
       </div>
-      ${(isAdmin || role === 'controller') && v.vehicleId && t?.status !== 'inprogress' ? `
-      <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-size:10px;font-weight:600;color:#333;">Available to Load</span>
-        <label style="position:relative;display:inline-block;width:34px;height:18px;cursor:pointer;">
-          <input type="checkbox" id="fleetpro-avail-input" ${v.available ? "checked" : ""} onchange="window._fleetproToggleAvailable('${v.vehicleId}',${v.available ? "true" : "false"},this)" style="opacity:0;width:0;height:0;">
-          <span style="position:absolute;inset:0;background:${v.available ? '#f59e0b' : '#ccc'};border-radius:18px;transition:.15s;"></span>
-          <span style="position:absolute;height:14px;width:14px;left:${v.available ? '18px' : '2px'};top:2px;background:#fff;border-radius:50%;transition:.15s;"></span>
-        </label>
-      </div>
-      ${v.available ? buildVisibilityPicker(v) : ""}` : ""}
+      ${availabilitySection}
       ${taskSection}
     </div>`;
   }
@@ -317,6 +349,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       map.activeInfoWindow = new g.maps.InfoWindow({ maxWidth: 280 });
       // X button closed → reset highlight
       map.activeInfoWindow.addListener("closeclick", () => {
+        discardPendingForActivePopup();
         activeVehicleRef.current = null;
         applyRouteStyles();
       });
@@ -335,11 +368,13 @@ export default function MapView({ role = "admin", clientId = null }) {
       const onMarkerClick = () => {
         // Click same vehicle again → deselect and reset
         if (activeVehicleRef.current === id) {
+          discardPendingForActivePopup();
           activeVehicleRef.current = null;
           activeInfo.close();
           applyRouteStyles();
           return;
         }
+        discardPendingForActivePopup(); // switching away from whatever else was open
         activeVehicleRef.current = id;
         activeInfo.setContent(buildInfoHtml(v));
         activeInfo.open(map, markersRef.current[id]?.marker);
@@ -407,12 +442,31 @@ export default function MapView({ role = "admin", clientId = null }) {
     updated[idx] = merged;
     lastPositionsRef.current = updated;
     drawOrUpdateVehicles(updated);
+    if (refreshPopup) refreshOpenPopupFor(vehicleDbId);
+  }
 
-    if (!refreshPopup) return;
-    const id = merged.descrip || `veh-${merged.id}`;
+  // Re-renders the currently open popup's content from the latest known data
+  // for this vehicle — used both after a real save and after purely local
+  // draft edits (staging a pending Accept/Cancel), so the popup never goes
+  // stale without a full close/reopen.
+  function refreshOpenPopupFor(vehicleDbId) {
+    const v = lastPositionsRef.current.find(x => x.vehicleId === vehicleDbId);
+    if (!v) return;
+    const id = v.descrip || `veh-${v.id}`;
     if (activeVehicleRef.current === id && mapInstance.current?.activeInfoWindow) {
-      mapInstance.current.activeInfoWindow.setContent(buildInfoHtml(merged));
+      mapInstance.current.activeInfoWindow.setContent(buildInfoHtml(v));
     }
+  }
+
+  // Discards any unsaved availability draft for whichever vehicle popup is
+  // currently open — called whenever that popup is about to close or be
+  // replaced, so an abandoned draft (closed via the X, or by opening another
+  // marker) doesn't linger and reappear later.
+  function discardPendingForActivePopup() {
+    const openId = activeVehicleRef.current;
+    if (!openId) return;
+    const v = lastPositionsRef.current.find(x => (x.descrip || `veh-${x.id}`) === openId);
+    if (v && pendingRef.current[v.vehicleId]) delete pendingRef.current[v.vehicleId];
   }
 
   async function drawPoints(positions) {
@@ -456,6 +510,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         mapInstance.current = new g.maps.Map(mapRef.current, { center:{lat:-26.1,lng:28.1},zoom:8,streetViewControl:false,mapTypeControl:true });
         // Click empty map → reset route highlight and close popup
         mapInstance.current.addListener("click", () => {
+          discardPendingForActivePopup();
           activeVehicleRef.current = null;
           applyRouteStyles();
           if (mapInstance.current?.activeInfoWindow) mapInstance.current.activeInfoWindow.close();
@@ -593,47 +648,91 @@ export default function MapView({ role = "admin", clientId = null }) {
       // the PATCH succeeds — no fetchAll() round-trip. The backend's own SSE
       // broadcast (which this browser also receives) reconciles everything
       // else shortly after, so this is purely for zero-lag local feedback.
-      window._fleetproToggleAvailable = (vehicleDbId, wasAvailable, checkboxEl) => {
-        const nextValue = !wasAvailable;
-        // Track/knob are the two <span> siblings drawn right after the checkbox
-        // — flip them immediately for instant feedback, revert on failure.
-        const track = checkboxEl?.nextElementSibling;
-        const knob  = track?.nextElementSibling;
-        const applyVisual = (isOn) => {
-          if (track) track.style.background = isOn ? "#f59e0b" : "#ccc";
-          if (knob)  knob.style.left = isOn ? "18px" : "2px";
-        };
-        applyVisual(nextValue);
+      // Flipping "Available to Load" ON never saves by itself — it opens a
+      // draft (Accept/Cancel) so the admin can choose who sees it *before*
+      // anything actually goes live. Flipping it OFF on an already-saved
+      // available vehicle still applies immediately (there's no oversharing
+      // risk in hiding something), and flipping OFF a still-unsaved draft
+      // just cancels it — nothing was ever sent to the backend.
+      window._fleetproOnAvailableToggle = (vehicleDbId, checked) => {
+        const v = lastPositionsRef.current.find(x => x.vehicleId === vehicleDbId);
+        if (!v) return;
+
+        if (checked) {
+          if (v.available) return; // already live — nothing to stage
+          pendingRef.current[vehicleDbId] = {
+            availableToAll: v.availableToAll !== false,
+            clientIds: (v.availableClientIds || []).slice(),
+          };
+          refreshOpenPopupFor(vehicleDbId);
+          return;
+        }
+
+        if (pendingRef.current[vehicleDbId]) {
+          delete pendingRef.current[vehicleDbId];
+          refreshOpenPopupFor(vehicleDbId);
+          return;
+        }
+
         authFetch(`${API}/vehicles/${vehicleDbId}/available`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ available: nextValue }),
+          body: JSON.stringify({ available: false }),
         }).then(async (res) => {
           const data = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            if (checkboxEl) checkboxEl.checked = wasAvailable;
-            applyVisual(wasAvailable);
-            alert(data.error || "Failed to update availability");
-            return;
-          }
-          // Reopen the same popup with the "Visible to" picker included the
-          // instant availability turns on — no closing/reopening needed.
+          if (!res.ok) { alert(data.error || "Failed to update availability"); refreshOpenPopupFor(vehicleDbId); return; }
           applyLocalAvailabilityUpdate(vehicleDbId, {
             available: data.available, availableToAll: data.availableToAll, availableClientIds: data.availableClientIds,
           });
-        }).catch(() => {
-          if (checkboxEl) checkboxEl.checked = wasAvailable;
-          applyVisual(wasAvailable);
-          alert("Failed to update availability — network error");
-        });
+        }).catch(() => { alert("Failed to update availability — network error"); refreshOpenPopupFor(vehicleDbId); });
       };
 
-      // Flip the "Visible to All Clients" switch for an available vehicle.
-      // clientIds is left untouched here so a previous custom selection isn't
-      // lost just by flipping back to "All" and forth again.
+      // Draft-only edits — these never touch the backend, they just update
+      // pendingRef until Accept is clicked.
+      window._fleetproStagingSetAll = (vehicleDbId, checked) => {
+        const pending = pendingRef.current[vehicleDbId];
+        if (!pending) return;
+        pending.availableToAll = checked;
+        const picker = document.getElementById(`fleetpro-client-picker-${vehicleDbId}`);
+        if (picker) picker.style.display = checked ? "none" : "block";
+      };
+      window._fleetproStagingToggleClient = (vehicleDbId) => {
+        const pending = pendingRef.current[vehicleDbId];
+        if (!pending) return;
+        const checklist = document.getElementById(`fleetpro-client-checklist-${vehicleDbId}`);
+        if (!checklist) return;
+        pending.clientIds = Array.from(checklist.querySelectorAll("input[type=checkbox]:checked")).map(el => el.value);
+      };
+
+      // Accept — this is the only moment the vehicle actually becomes
+      // available/visible. Cancel — discard the draft, nothing was ever sent.
+      window._fleetproConfirmAvailability = (vehicleDbId) => {
+        const pending = pendingRef.current[vehicleDbId];
+        if (!pending) return;
+        authFetch(`${API}/vehicles/${vehicleDbId}/available`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ available: true, availableToAll: pending.availableToAll, clientIds: pending.clientIds }),
+        }).then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) { alert(data.error || "Failed to mark vehicle available"); return; }
+          delete pendingRef.current[vehicleDbId];
+          applyLocalAvailabilityUpdate(vehicleDbId, {
+            available: data.available, availableToAll: data.availableToAll, availableClientIds: data.availableClientIds,
+          });
+        }).catch(() => alert("Failed to mark vehicle available — network error"));
+      };
+      window._fleetproCancelAvailability = (vehicleDbId) => {
+        delete pendingRef.current[vehicleDbId];
+        refreshOpenPopupFor(vehicleDbId);
+      };
+
+      // Flip the "Visible to All Clients" switch for an *already available*
+      // vehicle (editing its audience after the fact) — saves immediately,
+      // since it's not the first-time-exposure moment Accept/Cancel guards.
+      // clientIds is left untouched here so a previous custom selection
+      // isn't lost just by flipping back to "All" and forth again.
       window._fleetproSetVisibilityMode = (vehicleDbId, allChecked) => {
-        // Show/hide the search+checklist immediately — don't wait on the
-        // network round-trip just to reveal the picker.
         const picker = document.getElementById(`fleetpro-client-picker-${vehicleDbId}`);
         if (picker) picker.style.display = allChecked ? "none" : "block";
         authFetch(`${API}/vehicles/${vehicleDbId}/available`, {
@@ -651,6 +750,7 @@ export default function MapView({ role = "admin", clientId = null }) {
 
       // Re-reads every checked client checkbox in the picker and sends the
       // full set — simpler than tracking individual add/remove deltas.
+      // Only used for editing an already-available vehicle's audience.
       window._fleetproToggleClientVisibility = (vehicleDbId) => {
         const checklist = document.getElementById(`fleetpro-client-checklist-${vehicleDbId}`);
         if (!checklist) return;
@@ -826,7 +926,9 @@ export default function MapView({ role = "admin", clientId = null }) {
       return () => {
         clearInterval(interval); clearInterval(keepalive);
         clearTimeout(sseRetryTimeout); if (sse) sse.close();
-        delete window._fleetproOverride; delete window._fleetproGoToTask; delete window._fleetproToggleAvailable;
+        delete window._fleetproOverride; delete window._fleetproGoToTask;
+        delete window._fleetproOnAvailableToggle; delete window._fleetproStagingSetAll; delete window._fleetproStagingToggleClient;
+        delete window._fleetproConfirmAvailability; delete window._fleetproCancelAvailability;
         delete window._fleetproSetVisibilityMode; delete window._fleetproToggleClientVisibility;
         delete window._fleetproFilterClients;
       };
