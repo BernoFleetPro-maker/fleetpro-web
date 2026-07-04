@@ -25,6 +25,7 @@ export default function MapView({ role = "admin", clientId = null }) {
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null); // tracks selected vehicle for route highlight
   const lastPositionsRef = useRef([]);   // last fetched (post-filter) positions — patched instantly by SSE
+  const clientsRef       = useRef(null); // null = not fetched yet; [] once fetched (admin/controller only)
 
   // ── Route highlight styles ─────────────────────────────────────────────────
   // No selection:  all routes weight 3, opacity 0.75
@@ -135,6 +136,35 @@ export default function MapView({ role = "admin", clientId = null }) {
     const lbl = new LO(position); lbl.setMap(map); return lbl;
   }
 
+  // "Visible to" picker for an available vehicle — a mode dropdown (All vs
+  // Select Clients) plus a checklist that's only interactive in custom mode.
+  // The checklist stays in the DOM either way so switching modes back and
+  // forth doesn't lose previously ticked clients.
+  function buildVisibilityPicker(v) {
+    const availableToAll     = v.availableToAll !== false; // default true
+    const availableClientIds = (v.availableClientIds || []).map(String);
+    const clients = clientsRef.current || [];
+    const checklistHtml = clients.length
+      ? clients.map(c => `
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:#333;padding:2px 0;cursor:pointer;">
+            <input type="checkbox" value="${c.id}" ${availableClientIds.includes(String(c.id)) ? "checked" : ""} onchange="window._fleetproToggleClientVisibility('${v.vehicleId}')">
+            ${c.name}
+          </label>`).join("")
+      : `<div style="font-size:10px;color:#999;padding:2px 0;">No clients yet</div>`;
+
+    return `
+      <div style="margin-top:6px;">
+        <div style="font-size:10px;color:#666;margin-bottom:3px;">Visible to:</div>
+        <select onchange="window._fleetproSetVisibilityMode('${v.vehicleId}', this.value)" style="width:100%;font-size:10px;padding:3px;border-radius:4px;border:1px solid #ccc;margin-bottom:4px;box-sizing:border-box;">
+          <option value="all" ${availableToAll ? "selected" : ""}>All Clients</option>
+          <option value="custom" ${!availableToAll ? "selected" : ""}>Select Clients…</option>
+        </select>
+        <div id="fleetpro-client-checklist-${v.vehicleId}" style="max-height:90px;overflow-y:auto;border:1px solid #eee;border-radius:4px;padding:4px 6px;opacity:${availableToAll ? 0.4 : 1};pointer-events:${availableToAll ? "none" : "auto"};">
+          ${checklistHtml}
+        </div>
+      </div>`;
+  }
+
   function formatDropoffDate(date, time) {
     if (!date) return null;
     try {
@@ -209,7 +239,8 @@ export default function MapView({ role = "admin", clientId = null }) {
           <span style="position:absolute;inset:0;background:${v.available ? '#f59e0b' : '#ccc'};border-radius:18px;transition:.15s;"></span>
           <span style="position:absolute;height:14px;width:14px;left:${v.available ? '18px' : '2px'};top:2px;background:#fff;border-radius:50%;transition:.15s;"></span>
         </label>
-      </div>` : ""}
+      </div>
+      ${v.available ? buildVisibilityPicker(v) : ""}` : ""}
       ${taskSection}
     </div>`;
   }
@@ -557,19 +588,70 @@ export default function MapView({ role = "admin", clientId = null }) {
         });
       };
 
+      // Switch between "All Clients" and "Select Clients…" for an available
+      // vehicle. clientIds is left untouched here so a previous custom
+      // selection isn't lost just by flipping back to "All" and forth again.
+      window._fleetproSetVisibilityMode = (vehicleDbId, mode) => {
+        const toAll = mode === "all";
+        const checklist = document.getElementById(`fleetpro-client-checklist-${vehicleDbId}`);
+        if (checklist) {
+          checklist.style.opacity = toAll ? "0.4" : "1";
+          checklist.style.pointerEvents = toAll ? "none" : "auto";
+        }
+        authFetch(`${API}/vehicles/${vehicleDbId}/available`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ available: true, availableToAll: toAll }),
+        }).then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) { alert(data.error || "Failed to update visibility"); return; }
+          fetchAll();
+        }).catch(() => alert("Failed to update visibility — network error"));
+      };
+
+      // Re-reads every checked client checkbox in the picker and sends the
+      // full set — simpler than tracking individual add/remove deltas.
+      window._fleetproToggleClientVisibility = (vehicleDbId) => {
+        const checklist = document.getElementById(`fleetpro-client-checklist-${vehicleDbId}`);
+        if (!checklist) return;
+        const clientIds = Array.from(checklist.querySelectorAll("input[type=checkbox]:checked")).map(el => el.value);
+        authFetch(`${API}/vehicles/${vehicleDbId}/available`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ available: true, availableToAll: false, clientIds }),
+        }).then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) { alert(data.error || "Failed to update visibility"); return; }
+          fetchAll();
+        }).catch(() => alert("Failed to update visibility — network error"));
+      };
+
       const keepalive = setInterval(() => fetch(`${API}/health`).catch(()=>{}), 2*60*1000);
 
       // Backend already scopes /positions for client-role users, but we keep
       // this as a second guard — and reuse it below so the SSE instant-patch
       // path applies the exact same rule (a vehicle with no active task that
-      // just went unavailable must disappear for a client, not just lose its
-      // amber tag).
+      // just went unavailable, or was restricted away from this client,
+      // must disappear for a client, not just lose its amber tag).
       const isVisibleForClient = (v) =>
-        v.available === true ||
+        (v.available === true && (
+          v.availableToAll !== false ||
+          (v.availableClientIds || []).includes(clientId) ||
+          (v.availableClientIds || []).map(String).includes(String(clientId))
+        )) ||
         (v.activeTask && (
           v.activeTask.clientId === clientId ||
           String(v.activeTask.clientId) === String(clientId)
         ));
+
+      // Client list for the "visible to" picker — admin/controller only,
+      // fetched once since it rarely changes during a session.
+      if ((isAdmin || role === "controller") && clientsRef.current === null) {
+        clientsRef.current = [];
+        authFetch(`${API}/clients`).then(r => r.json()).then(data => {
+          if (Array.isArray(data)) clientsRef.current = data;
+        }).catch(() => {});
+      }
 
       async function fetchAll() {
         try {
@@ -632,24 +714,34 @@ export default function MapView({ role = "admin", clientId = null }) {
               if (!vehicleId) return;
               const list = lastPositionsRef.current;
               const idx  = list.findIndex(v => v.vehicleId === vehicleId);
+
               if (idx === -1) {
-                if (msg.type === "vehicle_available") {
-                  if (msg.data.position) {
-                    // Full position piggybacked on the event (lat/lon/speed/etc,
-                    // already available:true) — draw the marker immediately,
-                    // no fetchAll() round-trip needed.
+                if (msg.type === "vehicle_available" && msg.data.position) {
+                  // Full position piggybacked on the event (lat/lon/speed/
+                  // availableToAll/etc) — draw the marker immediately, no
+                  // fetchAll() round-trip needed. Still respect per-client
+                  // visibility before adding it for a client-role viewer.
+                  if (isAdmin || !clientId || isVisibleForClient(msg.data.position)) {
                     const updated = [...list, msg.data.position];
                     lastPositionsRef.current = updated;
                     drawOrUpdateVehicles(updated);
-                  } else {
-                    // No cached position at all (vehicle has no live GPS yet)
-                    // — nothing to draw from locally, fall back to a refetch.
-                    fetchAll();
                   }
+                } else if (msg.type === "vehicle_available") {
+                  // No cached position at all (vehicle has no live GPS yet)
+                  // — nothing to draw from locally, fall back to a refetch.
+                  fetchAll();
                 }
                 return;
               }
-              const patched = { ...list[idx], available: msg.type === "vehicle_available" };
+
+              // Already known locally — prefer the full piggybacked position
+              // so availableToAll/availableClientIds stay in sync too, not
+              // just the available flag (e.g. an admin narrowing which
+              // clients can see an already-available vehicle).
+              const patched = msg.data.position
+                ? { ...list[idx], ...msg.data.position }
+                : { ...list[idx], available: msg.type === "vehicle_available" };
+
               let updated;
               if (!isAdmin && clientId && !isVisibleForClient(patched)) {
                 // No longer visible to this client at all (not just missing
@@ -680,6 +772,7 @@ export default function MapView({ role = "admin", clientId = null }) {
         clearInterval(interval); clearInterval(keepalive);
         clearTimeout(sseRetryTimeout); if (sse) sse.close();
         delete window._fleetproOverride; delete window._fleetproGoToTask; delete window._fleetproToggleAvailable;
+        delete window._fleetproSetVisibilityMode; delete window._fleetproToggleClientVisibility;
       };
     }
     initWhenReady();

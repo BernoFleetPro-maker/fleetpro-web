@@ -34,7 +34,7 @@ function authFetch(url, opts = {}) {
 // the sidebar badge for every logged-in role. /api/positions is already
 // scoped per-role (clients only see what they're allowed to), so counting
 // `available === true` there gives the right number for whoever's asking.
-function useAvailableVehicleCount(enabled, tenantId) {
+function useAvailableVehicleCount(enabled, tenantId, role, clientId) {
   const [count, setCount] = useState(0);
   // Authoritative set of currently-available vehicle ids that also have live
   // position data — i.e. the same set the map is able to draw a marker for.
@@ -68,6 +68,17 @@ function useAvailableVehicleCount(enabled, tenantId) {
     refresh();
     const poll = setInterval(refresh, 30000);
 
+    // A vehicle can now be restricted to specific clients — this is the only
+    // way to know for sure whether a given position is meant for *this*
+    // viewer. Admin/controller always see everything.
+    const isVisibleToMe = (pos) => {
+      if (role !== "client") return true;
+      return pos.available === true && (
+        pos.availableToAll !== false ||
+        (pos.availableClientIds || []).map(String).includes(String(clientId))
+      );
+    };
+
     // SSE push — updates the count and plays the notification sound (mute-
     // aware) the instant an event arrives, instead of waiting for the next
     // poll. Exponential backoff on drop, same pattern as Tasks.jsx — the 30s
@@ -89,16 +100,28 @@ function useAvailableVehicleCount(enabled, tenantId) {
             // (30s poll self-corrects if this ever misses something.)
             if (tenantId && msg.data?.tenantId && msg.data.tenantId !== tenantId) return;
             if (msg.type === "vehicle_available" && msg.data?.id) {
-              playAvailableSound(); // always notify — even if we can't count it yet
-              if (knownIdsRef.current.has(msg.data.id)) {
+              const pos = msg.data.position;
+              if (pos) {
+                // We have the full position — this is the only way to know
+                // for sure this client is allowed to see it (an admin may
+                // have narrowed the client list while leaving available on).
+                if (isVisibleToMe(pos)) {
+                  knownIdsRef.current.add(msg.data.id);
+                  availableIdsRef.current.add(msg.data.id);
+                  setCount(availableIdsRef.current.size);
+                  playAvailableSound();
+                } else {
+                  // Available, but not for this client — make sure it isn't
+                  // still counted from before it got restricted.
+                  availableIdsRef.current.delete(msg.data.id);
+                  setCount(availableIdsRef.current.size);
+                }
+              } else if (knownIdsRef.current.has(msg.data.id)) {
+                // No position data, but we've already confirmed visibility
+                // for this vehicle via a previous fetch.
                 availableIdsRef.current.add(msg.data.id);
                 setCount(availableIdsRef.current.size);
-              } else if (msg.data.position) {
-                // Vehicle wasn't in our last fetch, but the event carries its
-                // last-known position — count it immediately, no refetch needed.
-                knownIdsRef.current.add(msg.data.id);
-                availableIdsRef.current.add(msg.data.id);
-                setCount(availableIdsRef.current.size);
+                playAvailableSound();
               } else {
                 // No cached position at all (vehicle has no live GPS) —
                 // refetch instead of guessing, so the badge never shows a
@@ -124,7 +147,7 @@ function useAvailableVehicleCount(enabled, tenantId) {
     connectSSE();
 
     return () => { cancelled = true; clearInterval(poll); clearTimeout(sseRetryTimeout); if (sse) sse.close(); };
-  }, [enabled, tenantId]);
+  }, [enabled, tenantId, role, clientId]);
 
   return count;
 }
@@ -168,7 +191,9 @@ export default function App() {
   const payload = getAuthPayload();
   // Called unconditionally (Rules of Hooks) — internally no-ops when logged
   // out or on the super admin panel, which has no Sidebar to show a badge on.
-  const availableCount = useAvailableVehicleCount(!!payload && payload.role !== "superadmin", payload?.tenantId);
+  const availableCount = useAvailableVehicleCount(
+    !!payload && payload.role !== "superadmin", payload?.tenantId, payload?.role, payload?.clientId
+  );
 
   if (!payload) {
     return <LoggedOutRoutes />;
