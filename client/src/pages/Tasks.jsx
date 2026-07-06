@@ -245,6 +245,93 @@ function PodModal({ task, drivers, vehicles, onClose }) {
   );
 }
 
+// ── Route history modal — controller/admin only, reuses the Google Maps JS
+// API already loaded globally (index.html) for the main map view. ────────────
+function RouteModal({ task, onClose }) {
+  const [route,   setRoute]   = useState(null); // { acceptedAt, completedAt, points }
+  const [loading, setLoading] = useState(true);
+  const mapRef = useRef(null);
+
+  useEffect(() => {
+    if (!task?.id) return;
+    setLoading(true);
+    authFetch(`${API}/tasks/${task.id}/route`)
+      .then(r => r.json())
+      .then(data => setRoute(data))
+      .catch(() => setRoute({ acceptedAt: null, completedAt: null, points: [] }))
+      .finally(() => setLoading(false));
+  }, [task?.id]);
+
+  useEffect(() => {
+    if (!route?.points?.length) return;
+    let pollTimer;
+    function initMap() {
+      const g = window.google;
+      if (!g?.maps || !mapRef.current) { pollTimer = setTimeout(initMap, 200); return; }
+
+      const path = route.points.map(p => ({ lat: p.lat, lng: p.lng }));
+      const map = new g.maps.Map(mapRef.current, {
+        zoom: 10, center: path[0], streetViewControl: false, mapTypeControl: false,
+      });
+      const bounds = new g.maps.LatLngBounds();
+      path.forEach(p => bounds.extend(p));
+      map.fitBounds(bounds);
+
+      new g.maps.Polyline({ path, strokeColor: "#1e88e5", strokeOpacity: 0.85, strokeWeight: 4, map });
+
+      new g.maps.Marker({
+        position: path[0], map, title: "Accepted here",
+        icon: { path: g.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#16a34a", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
+      });
+      new g.maps.Marker({
+        position: path[path.length - 1], map, title: "Completed here",
+        icon: { path: g.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#dc2626", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
+      });
+    }
+    initMap();
+    return () => { if (pollTimer) clearTimeout(pollTimer); };
+  }, [route]);
+
+  if (!task) return null;
+  const fmt = (d) => d ? new Date(d).toLocaleString("en-ZA") : "—";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="bg-[#1e293b] rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-600">
+        <div className="flex items-center justify-between p-5 border-b border-slate-700">
+          <h2 className="text-lg font-bold text-white">
+            🗺 Route — {task.title || task.loadLocation || "Task"}
+            {task.orderNumber && <span className="ml-2 text-slate-400 font-normal text-sm">#{task.orderNumber}</span>}
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">▶ Accepted At</div>
+              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.acceptedAt)}</div>
+            </div>
+            <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">✅ Completed At</div>
+              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.completedAt)}</div>
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-slate-300 mb-2">Route</div>
+            {loading ? (
+              <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-400 text-sm animate-pulse">Loading route…</div>
+            ) : !route?.points?.length ? (
+              <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">No route data available for this task</div>
+            ) : (
+              <div ref={mapRef} style={{ width: "100%", height: "320px", borderRadius: "8px", overflow: "hidden" }} />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Smart location input: saved points first, Google Places fallback ──────────
 function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
   const [suggestions, setSuggestions]   = useState([]);
@@ -371,6 +458,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
   const [saving,        setSaving]        = useState(false);
   const [formError,     setFormError]     = useState("");
   const [podTask,       setPodTask]       = useState(null);
+  const [routeTask,     setRouteTask]     = useState(null);
   const [viewTask,      setViewTask]      = useState(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const lastOptimisticRef = useRef(0);
@@ -857,7 +945,10 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                         {hasFullAccess ? (
                           <>
                             {task.status === "completed" && (
-                              <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
+                              <>
+                                <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
+                                <button onClick={() => setRouteTask(task)} className="px-1 py-0 bg-blue-900 hover:bg-blue-800 rounded text-[9px] font-medium">🗺 View Route</button>
+                              </>
                             )}
                             <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
                             <button onClick={() => handleDelete(task.id)} className="px-1 py-0 bg-red-900 hover:bg-red-700 rounded text-[9px]">🗑 Del</button>
@@ -898,6 +989,8 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
       </div>
 
       {podTask && <PodModal task={podTask} drivers={drivers} vehicles={vehicles} onClose={() => setPodTask(null)} />}
+
+      {routeTask && <RouteModal task={routeTask} onClose={() => setRouteTask(null)} />}
 
       {viewTask && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setViewTask(null)}>
