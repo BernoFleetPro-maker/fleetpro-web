@@ -248,7 +248,7 @@ function PodModal({ task, drivers, vehicles, onClose }) {
 // ── Route history modal — controller/admin only, reuses the Google Maps JS
 // API already loaded globally (index.html) for the main map view. ────────────
 function RouteModal({ task, onClose }) {
-  const [route,   setRoute]   = useState(null); // { acceptedAt, completedAt, points }
+  const [route,   setRoute]   = useState(null); // { acceptedAt, arrivedLoadAt, arrivedDropAt, completedAt, points, distanceToLoadKm, distanceToDropKm }
   const [loading, setLoading] = useState(true);
   const mapRef = useRef(null);
 
@@ -258,7 +258,7 @@ function RouteModal({ task, onClose }) {
     authFetch(`${API}/tasks/${task.id}/route`)
       .then(r => r.json())
       .then(data => setRoute(data))
-      .catch(() => setRoute({ acceptedAt: null, completedAt: null, points: [] }))
+      .catch(() => setRoute({ acceptedAt: null, arrivedLoadAt: null, arrivedDropAt: null, completedAt: null, points: [], distanceToLoadKm: 0, distanceToDropKm: 0 }))
       .finally(() => setLoading(false));
   }, [task?.id]);
 
@@ -277,7 +277,26 @@ function RouteModal({ task, onClose }) {
       path.forEach(p => bounds.extend(p));
       map.fitBounds(bounds);
 
-      new g.maps.Polyline({ path, strokeColor: "#1e88e5", strokeOpacity: 0.85, strokeWeight: 4, map });
+      // Split into a blue "to loading point" leg and a green "to dropoff
+      // point" leg — same colors used everywhere else in the app for these
+      // two phases. The last point of the blue leg is repeated as the first
+      // point of the green leg so the two lines visually connect with no gap.
+      const loadLeg = [], dropLeg = [];
+      route.points.forEach(p => {
+        const isDropPhase = p.phase === "to_drop" || p.phase === "at_drop";
+        if (isDropPhase) {
+          if (dropLeg.length === 0 && loadLeg.length > 0) dropLeg.push(loadLeg[loadLeg.length - 1]);
+          dropLeg.push(p);
+        } else {
+          loadLeg.push(p);
+        }
+      });
+      if (loadLeg.length > 1) {
+        new g.maps.Polyline({ path: loadLeg.map(p => ({ lat: p.lat, lng: p.lng })), strokeColor: "#1e88e5", strokeOpacity: 0.85, strokeWeight: 4, map });
+      }
+      if (dropLeg.length > 1) {
+        new g.maps.Polyline({ path: dropLeg.map(p => ({ lat: p.lat, lng: p.lng })), strokeColor: "#43a047", strokeOpacity: 0.85, strokeWeight: 4, map });
+      }
 
       new g.maps.Marker({
         position: path[0], map, title: "Accepted here",
@@ -312,6 +331,14 @@ function RouteModal({ task, onClose }) {
               <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.acceptedAt)}</div>
             </div>
             <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">📦 Arrived at Loading</div>
+              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.arrivedLoadAt)}</div>
+            </div>
+            <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">🏁 Arrived at Dropoff</div>
+              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.arrivedDropAt)}</div>
+            </div>
+            <div className="bg-slate-800 rounded-lg p-3">
               <div className="text-xs text-slate-400 mb-1">✅ Completed At</div>
               <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.completedAt)}</div>
             </div>
@@ -323,7 +350,17 @@ function RouteModal({ task, onClose }) {
             ) : !route?.points?.length ? (
               <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">No route data available for this task</div>
             ) : (
-              <div ref={mapRef} style={{ width: "100%", height: "320px", borderRadius: "8px", overflow: "hidden" }} />
+              <div style={{ position: "relative" }}>
+                <div ref={mapRef} style={{ width: "100%", height: "320px", borderRadius: "8px", overflow: "hidden" }} />
+                <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 6, pointerEvents: "none" }}>
+                  <span style={{ background: "rgba(30,136,229,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6 }}>
+                    📦 To Load: {route.distanceToLoadKm} km
+                  </span>
+                  <span style={{ background: "rgba(67,160,71,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6 }}>
+                    🏁 To Dropoff: {route.distanceToDropKm} km
+                  </span>
+                </div>
+              </div>
             )}
           </div>
         </div>
