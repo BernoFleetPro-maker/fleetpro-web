@@ -291,7 +291,7 @@ function buildStaticMapUrl(route) {
     } else loadLeg.push(p);
   });
 
-  const params = ["size=800x500", "maptype=roadmap"];
+  const params = ["size=480x300", "maptype=roadmap"];
   if (loadLeg.length > 1) params.push("path=color:0x1e88e5ff|weight:4|" + loadLeg.map(p => `${p.lat},${p.lng}`).join("|"));
   if (dropLeg.length > 1) params.push("path=color:0x43a047ff|weight:4|" + dropLeg.map(p => `${p.lat},${p.lng}`).join("|"));
 
@@ -452,7 +452,7 @@ function RouteModal({ task, drivers, vehicles, onClose }) {
           .card { border:1px solid #ddd; border-radius:6px; padding:10px; }
           .card .label { font-size:11px; color:#666; }
           .card .value { font-size:14px; font-weight:600; }
-          img { width:100%; border-radius:8px; border:1px solid #ddd; margin-bottom:20px; }
+          img { width:60%; display:block; margin:0 auto 20px; border-radius:8px; border:1px solid #ddd; }
           table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
           th, td { border:1px solid #ddd; padding:6px 8px; text-align:left; }
           th { background:#f3f4f6; }
@@ -484,7 +484,19 @@ function RouteModal({ task, drivers, vehicles, onClose }) {
     let printed = false;
     const triggerPrint = () => { if (printed) return; printed = true; win.focus(); win.print(); };
     const imgEl = win.document.querySelector("img");
-    if (imgEl) { imgEl.onload = triggerPrint; imgEl.onerror = triggerPrint; }
+    if (imgEl) {
+      imgEl.onload = triggerPrint;
+      // Static Maps request failed (e.g. that API isn't enabled for the key,
+      // or the URL got too long) — swap in a text fallback instead of
+      // printing a broken-image icon, then continue with the rest of the report.
+      imgEl.onerror = () => {
+        const fallback = win.document.createElement("p");
+        fallback.textContent = "Map image unavailable — the route map could not be loaded.";
+        fallback.style.cssText = "color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;text-align:center;margin-bottom:20px;";
+        imgEl.replaceWith(fallback);
+        triggerPrint();
+      };
+    }
     setTimeout(triggerPrint, imgEl ? 3000 : 300); // safety net either way
   }
 
