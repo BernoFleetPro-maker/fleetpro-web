@@ -444,22 +444,6 @@ function DriverInfoModal({ driver, onClose, onChange }) {
     }
   };
 
-  // Cloudinary's fl_attachment delivery flag forces a real Save-As download
-  // (correct Content-Disposition) with a friendly filename, instead of just
-  // opening the file the way View does.
-  const handleDownload = async (documentId, typeName) => {
-    try {
-      const res = await authFetch(`${API}/${driver.id}/documents/${documentId}`);
-      const data = await res.json();
-      if (!data.fileUrl) { setModalError("Could not download document."); return; }
-      const friendlyName = `${driver.name}-${typeName}`.replace(/\s+/g, "_");
-      const downloadUrl = data.fileUrl.replace("/upload/", `/upload/fl_attachment:${encodeURIComponent(friendlyName)}/`);
-      window.open(downloadUrl, "_blank", "noopener,noreferrer");
-    } catch {
-      setModalError("Could not download document.");
-    }
-  };
-
   const handleUpload = async (typeId, file, expiryDate) => {
     setBusy(true);
     setModalError("");
@@ -618,15 +602,6 @@ function DriverInfoModal({ driver, onClose, onChange }) {
                               View
                             </button>
                           )}
-                          {doc && (
-                            <button
-                              onClick={() => handleDownload(doc.id, type.name)}
-                              className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded"
-                              title="Download in its original format"
-                            >
-                              Download
-                            </button>
-                          )}
                           <button
                             onClick={() => setUploadingTypeId(uploadingTypeId === type.id ? null : type.id)}
                             className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded"
@@ -711,8 +686,20 @@ function DocumentUploadRow({ defaultExpiry, hasExistingDoc, busy, onSubmit, onSa
   const canSave = !!file || dateOnlyChange;
 
   const handleSave = () => {
-    if (file) onSubmit(file, expiry);
-    else if (dateOnlyChange) onSaveDateOnly(expiry);
+    if (file) {
+      // Replacing a document that already had an expiry date, with the
+      // date field now blank, is easy to do without noticing — confirm
+      // rather than silently drop a date someone already set.
+      if (hasExistingDoc && normalizedDefault && !expiry) {
+        const ok = window.confirm(
+          `This document currently expires ${normalizedDefault} — continue uploading without setting an expiry date?`
+        );
+        if (!ok) return;
+      }
+      onSubmit(file, expiry);
+    } else if (dateOnlyChange) {
+      onSaveDateOnly(expiry);
+    }
   };
 
   return (
