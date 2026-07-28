@@ -28,6 +28,7 @@ export default function Drivers() {
   const [infoDriver, setInfoDriver] = useState(null); // driver whose Info modal is open
   const [search, setSearch] = useState("");
   const [showBin, setShowBin] = useState(false);
+  const [binCount, setBinCount] = useState(0);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -47,8 +48,17 @@ export default function Drivers() {
     }
   };
 
+  const fetchBinCount = async () => {
+    try {
+      const res = await authFetch(`${API}/deleted`);
+      const data = await res.json();
+      setBinCount(Array.isArray(data) ? data.length : 0);
+    } catch {}
+  };
+
   useEffect(() => {
     fetchDrivers();
+    fetchBinCount();
     // Load inprogress tasks so we know which drivers can be tracked on map
     fetch("https://fleetpro-backend-production.up.railway.app/api/tasks", {
       headers: { "Authorization": `Bearer ${getToken()}` }
@@ -92,6 +102,7 @@ export default function Drivers() {
       await authFetch(`${API}/${id}`, { method: "DELETE" });
       showToast("Driver moved to Bin.");
       fetchDrivers();
+      fetchBinCount();
     } catch {
       showToast("Failed to delete driver — please try again.");
     }
@@ -140,10 +151,15 @@ export default function Drivers() {
         <h2 className="text-xl font-bold text-gray-800">Drivers</h2>
         <button
           onClick={() => setShowBin(true)}
-          className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-sm font-medium"
+          className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-sm font-medium"
           title="View deleted drivers"
         >
           🗑 Bin
+          {binCount > 0 && (
+            <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+              {binCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -255,7 +271,10 @@ export default function Drivers() {
       )}
 
       {showBin && (
-        <BinModal onClose={() => setShowBin(false)} onChange={fetchDrivers} />
+        <BinModal
+          onClose={() => setShowBin(false)}
+          onChange={() => { fetchDrivers(); fetchBinCount(); }}
+        />
       )}
     </div>
   );
@@ -425,6 +444,22 @@ function DriverInfoModal({ driver, onClose, onChange }) {
     }
   };
 
+  // Cloudinary's fl_attachment delivery flag forces a real Save-As download
+  // (correct Content-Disposition) with a friendly filename, instead of just
+  // opening the file the way View does.
+  const handleDownload = async (documentId, typeName) => {
+    try {
+      const res = await authFetch(`${API}/${driver.id}/documents/${documentId}`);
+      const data = await res.json();
+      if (!data.fileUrl) { setModalError("Could not download document."); return; }
+      const friendlyName = `${driver.name}-${typeName}`.replace(/\s+/g, "_");
+      const downloadUrl = data.fileUrl.replace("/upload/", `/upload/fl_attachment:${encodeURIComponent(friendlyName)}/`);
+      window.open(downloadUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      setModalError("Could not download document.");
+    }
+  };
+
   const handleUpload = async (typeId, file, expiryDate) => {
     setBusy(true);
     setModalError("");
@@ -581,6 +616,15 @@ function DriverInfoModal({ driver, onClose, onChange }) {
                               className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded"
                             >
                               View
+                            </button>
+                          )}
+                          {doc && (
+                            <button
+                              onClick={() => handleDownload(doc.id, type.name)}
+                              className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded"
+                              title="Download in its original format"
+                            >
+                              Download
                             </button>
                           )}
                           <button
