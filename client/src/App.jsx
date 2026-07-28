@@ -178,6 +178,31 @@ function useExpiringDocsCount(enabled) {
   return count;
 }
 
+// Same pattern as useExpiringDocsCount above — combined vehicle+trailer
+// count (the sidebar only has one "Vehicles" nav item covering both).
+function useExpiringVehicleDocsCount(enabled) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) { setCount(0); return; }
+    let cancelled = false;
+
+    const refresh = async () => {
+      try {
+        const res = await authFetch(`${API}/vehicles/expiring-count`);
+        const data = await res.json();
+        if (!cancelled && typeof data.count === "number") setCount(data.count);
+      } catch {}
+    };
+
+    refresh();
+    const poll = setInterval(refresh, 60000);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [enabled]);
+
+  return count;
+}
+
 function getAuthPayload() {
   const token = localStorage.getItem("fleetpro_token");
   if (!token) return null;
@@ -223,6 +248,9 @@ export default function App() {
   const expiringDocsCount = useExpiringDocsCount(
     !!payload && (payload.role === "admin" || payload.role === "controller")
   );
+  const expiringVehicleDocsCount = useExpiringVehicleDocsCount(
+    !!payload && (payload.role === "admin" || payload.role === "controller")
+  );
 
   if (!payload) {
     return <LoggedOutRoutes />;
@@ -253,7 +281,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} />
+      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"               element={<MapView role={role} clientId={payload.clientId} />} />
