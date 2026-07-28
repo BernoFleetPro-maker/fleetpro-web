@@ -26,6 +26,8 @@ export default function Drivers() {
   const [toast, setToast] = useState("");
   const [activeTasks, setActiveTasks] = useState([]); // inprogress tasks for map nav
   const [infoDriver, setInfoDriver] = useState(null); // driver whose Info modal is open
+  const [search, setSearch] = useState("");
+  const [showBin, setShowBin] = useState(false);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -85,15 +87,21 @@ export default function Drivers() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this driver? This will also remove them from any assigned tasks.")) return;
+    if (!window.confirm("Delete this driver? They'll move to the Bin and can be restored within 12 months.")) return;
     try {
       await authFetch(`${API}/${id}`, { method: "DELETE" });
-      showToast("Driver deleted.");
+      showToast("Driver moved to Bin.");
       fetchDrivers();
     } catch {
       showToast("Failed to delete driver — please try again.");
     }
   };
+
+  const filteredDrivers = drivers.filter((d) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return d.name.toLowerCase().includes(q) || d.phone.toLowerCase().includes(q);
+  });
 
   const handleViewOnMap = (driver) => {
     const task = activeTasks.find(t => t.assignedDriverId === driver.id);
@@ -128,7 +136,16 @@ export default function Drivers() {
   return (
     <div className="p-6 max-w-3xl">
       {toast && <div className="fixed top-4 right-4 z-50 bg-slate-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg">{toast}</div>}
-      <h2 className="text-xl font-bold mb-4 text-gray-800">Drivers</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-gray-800">Drivers</h2>
+        <button
+          onClick={() => setShowBin(true)}
+          className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-sm font-medium"
+          title="View deleted drivers"
+        >
+          🗑 Bin
+        </button>
+      </div>
 
       {/* Add / Edit Form */}
       <div className="bg-white border rounded-lg p-4 mb-6 shadow-sm">
@@ -181,14 +198,34 @@ export default function Drivers() {
           <button onClick={fetchDrivers} className="ml-3 underline">Retry</button>
         </div>
       )}
+      {!loading && !error && drivers.length > 0 && (
+        <input
+          type="text"
+          placeholder="Search drivers by name or phone..."
+          className="border p-2 rounded w-full text-sm mb-3"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      )}
       {!loading && !error && drivers.length === 0 && (
         <p className="text-gray-400 text-sm">No drivers added yet.</p>
       )}
+      {!loading && !error && drivers.length > 0 && filteredDrivers.length === 0 && (
+        <p className="text-gray-400 text-sm">No drivers match "{search}".</p>
+      )}
       <ul className="space-y-2">
-        {drivers.map((d) => (
+        {filteredDrivers.map((d) => (
           <li key={d.id} className="flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm">
             <div>
               <span className="font-bold text-gray-800">{d.name}</span>
+              {d.expiringDocsCount > 0 && (
+                <span
+                  className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle"
+                  title={`${d.expiringDocsCount} document${d.expiringDocsCount === 1 ? "" : "s"} need${d.expiringDocsCount === 1 ? "s" : ""} attention — open Info to view`}
+                >
+                  {d.expiringDocsCount}
+                </span>
+              )}
               <span className="text-gray-500 text-sm ml-2">— {d.phone}</span>
             </div>
             <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -214,8 +251,124 @@ export default function Drivers() {
       </ul>
 
       {infoDriver && (
-        <DriverInfoModal driver={infoDriver} onClose={() => setInfoDriver(null)} />
+        <DriverInfoModal driver={infoDriver} onClose={() => setInfoDriver(null)} onChange={fetchDrivers} />
       )}
+
+      {showBin && (
+        <BinModal onClose={() => setShowBin(false)} onChange={fetchDrivers} />
+      )}
+    </div>
+  );
+}
+
+// ─── Bin modal — deleted drivers, restorable within 12 months ───────────────
+function BinModal({ onClose, onChange }) {
+  const [deleted, setDeleted] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalError, setModalError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+
+  const load = () => {
+    setLoading(true);
+    setModalError("");
+    authFetch(`${API}/deleted`)
+      .then((r) => r.json())
+      .then((data) => setDeleted(Array.isArray(data) ? data : []))
+      .catch(() => setModalError("Could not load the bin. Please try again."))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleRestore = async (id) => {
+    setBusyId(id);
+    setModalError("");
+    try {
+      const res = await authFetch(`${API}/${id}/restore`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to restore driver"); return; }
+      load();
+      onChange?.();
+    } catch {
+      setModalError("Could not restore driver. Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handlePermanentDelete = async (id, name) => {
+    if (!window.confirm(`Permanently delete ${name}? This cannot be undone.`)) return;
+    setBusyId(id);
+    setModalError("");
+    try {
+      const res = await authFetch(`${API}/${id}/permanent`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to permanently delete driver"); return; }
+      load();
+      onChange?.();
+    } catch {
+      setModalError("Could not permanently delete driver. Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="bg-[#1e293b] rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-600"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-slate-700">
+          <h2 className="text-lg font-bold text-white">🗑 Bin</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          {modalError && (
+            <div className="bg-red-950 border border-red-800 text-red-300 text-sm px-3 py-2 rounded">{modalError}</div>
+          )}
+          <p className="text-xs text-slate-500">
+            Deleted drivers are kept here for 12 months and can be restored. After that they're removed automatically.
+          </p>
+
+          {loading ? (
+            <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+          ) : deleted.length === 0 ? (
+            <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">The bin is empty.</div>
+          ) : (
+            <div className="space-y-2">
+              {deleted.map((d) => (
+                <div key={d.id} className="bg-slate-800 rounded-lg p-3 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-white text-sm font-medium">{d.name}</div>
+                    <div className="text-xs text-slate-500">— {d.phone}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Deleted {new Date(d.deletedAt).toLocaleDateString("en-ZA")} — permanently deleted after {new Date(d.purgeAt).toLocaleDateString("en-ZA")}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      disabled={busyId === d.id}
+                      onClick={() => handleRestore(d.id)}
+                      className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-2 py-1 rounded font-medium"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      disabled={busyId === d.id}
+                      onClick={() => handlePermanentDelete(d.id, d.name)}
+                      className="text-xs bg-red-950 hover:bg-red-900 text-red-300 disabled:opacity-50 px-2 py-1 rounded"
+                    >
+                      Delete Permanently
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -225,7 +378,7 @@ export default function Drivers() {
 // this modal opens (not on the main Drivers list), and a document's actual
 // file is only fetched when "View" is clicked — keeps the list page fast as
 // documents accumulate.
-function DriverInfoModal({ driver, onClose }) {
+function DriverInfoModal({ driver, onClose, onChange }) {
   const [types, setTypes] = useState([]);
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -245,6 +398,7 @@ function DriverInfoModal({ driver, onClose }) {
       .then(([typesData, docsData]) => {
         setTypes(Array.isArray(typesData) ? typesData : []);
         setDocs(Array.isArray(docsData) ? docsData : []);
+        onChange?.(); // keep the list's badge counts in sync right away, not just on next poll
       })
       .catch(() => setModalError("Could not load documents. Please try again."))
       .finally(() => setLoading(false));
@@ -292,6 +446,37 @@ function DriverInfoModal({ driver, onClose }) {
       setModalError("Could not upload document. Please try again.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleUpdateExpiry = async (documentId, expiryDate) => {
+    setBusy(true);
+    setModalError("");
+    try {
+      const res = await authFetch(`${API}/${driver.id}/documents/${documentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ expiryDate: expiryDate || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to update expiry date"); return; }
+      setUploadingTypeId(null);
+      loadAll();
+    } catch {
+      setModalError("Could not update expiry date. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId) => {
+    if (!window.confirm("Delete this document? You'll need to upload it again later if it's still needed.")) return;
+    try {
+      const res = await authFetch(`${API}/${driver.id}/documents/${documentId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to delete document"); return; }
+      loadAll();
+    } catch {
+      setModalError("Could not delete document. Please try again.");
     }
   };
 
@@ -404,14 +589,25 @@ function DriverInfoModal({ driver, onClose }) {
                           >
                             {doc ? "Replace" : "+ Upload"}
                           </button>
+                          {doc && (
+                            <button
+                              onClick={() => handleDeleteDocument(doc.id)}
+                              className="text-xs bg-red-950 hover:bg-red-900 text-red-300 px-2 py-1 rounded"
+                              title="Delete this document"
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </div>
                       {uploadingTypeId === type.id && (
                         <DocumentUploadRow
                           defaultExpiry={doc?.expiryDate}
+                          hasExistingDoc={!!doc}
                           busy={busy}
                           onCancel={() => setUploadingTypeId(null)}
                           onSubmit={(file, expiryDate) => handleUpload(type.id, file, expiryDate)}
+                          onSaveDateOnly={(expiryDate) => doc && handleUpdateExpiry(doc.id, expiryDate)}
                         />
                       )}
                     </div>
@@ -459,9 +655,22 @@ function DriverInfoModal({ driver, onClose }) {
   );
 }
 
-function DocumentUploadRow({ defaultExpiry, busy, onSubmit, onCancel }) {
+// Save works two ways: pick a file → full upload (with whatever date is
+// set); no file but an existing document and a changed date → date-only
+// PATCH, so correcting/adding an expiry date never requires re-selecting
+// the same file again.
+function DocumentUploadRow({ defaultExpiry, hasExistingDoc, busy, onSubmit, onSaveDateOnly, onCancel }) {
   const [file, setFile] = useState(null);
-  const [expiry, setExpiry] = useState(defaultExpiry ? defaultExpiry.slice(0, 10) : "");
+  const normalizedDefault = defaultExpiry ? defaultExpiry.slice(0, 10) : "";
+  const [expiry, setExpiry] = useState(normalizedDefault);
+  const dateOnlyChange = !file && hasExistingDoc && expiry !== normalizedDefault;
+  const canSave = !!file || dateOnlyChange;
+
+  const handleSave = () => {
+    if (file) onSubmit(file, expiry);
+    else if (dateOnlyChange) onSaveDateOnly(expiry);
+  };
+
   return (
     <div className="mt-2 pt-2 border-t border-slate-700 flex flex-wrap items-center gap-2">
       <input
@@ -478,13 +687,16 @@ function DocumentUploadRow({ defaultExpiry, busy, onSubmit, onCancel }) {
         className="bg-slate-900 border border-slate-600 text-white text-xs px-2 py-1 rounded"
       />
       <button
-        disabled={!file || busy}
-        onClick={() => onSubmit(file, expiry)}
+        disabled={!canSave || busy}
+        onClick={handleSave}
         className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-2 py-1 rounded font-medium"
       >
         {busy ? "Saving…" : "Save"}
       </button>
       <button onClick={onCancel} className="text-xs text-slate-400 hover:text-white px-2">Cancel</button>
+      {hasExistingDoc && !file && (
+        <span className="text-[11px] text-slate-500 basis-full">Tip: change just the date above to update it without re-uploading.</span>
+      )}
     </div>
   );
 }
