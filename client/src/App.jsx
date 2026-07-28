@@ -152,6 +152,32 @@ function useAvailableVehicleCount(enabled, tenantId, role, clientId) {
   return count;
 }
 
+// Count of driver documents expiring within 30 days — controller/admin only
+// (not client-visible). A document's expiry doesn't change in real time the
+// way vehicle availability does, so a periodic poll is enough — no SSE.
+function useExpiringDocsCount(enabled) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) { setCount(0); return; }
+    let cancelled = false;
+
+    const refresh = async () => {
+      try {
+        const res = await authFetch(`${API}/drivers/expiring-count`);
+        const data = await res.json();
+        if (!cancelled && typeof data.count === "number") setCount(data.count);
+      } catch {}
+    };
+
+    refresh();
+    const poll = setInterval(refresh, 60000);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [enabled]);
+
+  return count;
+}
+
 function getAuthPayload() {
   const token = localStorage.getItem("fleetpro_token");
   if (!token) return null;
@@ -194,6 +220,9 @@ export default function App() {
   const availableCount = useAvailableVehicleCount(
     !!payload && payload.role !== "superadmin", payload?.tenantId, payload?.role, payload?.clientId
   );
+  const expiringDocsCount = useExpiringDocsCount(
+    !!payload && (payload.role === "admin" || payload.role === "controller")
+  );
 
   if (!payload) {
     return <LoggedOutRoutes />;
@@ -224,7 +253,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} />
+      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"               element={<MapView role={role} clientId={payload.clientId} />} />

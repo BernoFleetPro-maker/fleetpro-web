@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 
-const API = "https://fleetpro-backend-production.up.railway.app/api/drivers";
+const ROOT_API = "https://fleetpro-backend-production.up.railway.app/api";
+const API = `${ROOT_API}/drivers`;
 
 // ── Auth helper — attaches JWT token to every API request ───────────────────
 function getToken() {
@@ -24,6 +25,7 @@ export default function Drivers() {
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
   const [activeTasks, setActiveTasks] = useState([]); // inprogress tasks for map nav
+  const [infoDriver, setInfoDriver] = useState(null); // driver whose Info modal is open
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -197,12 +199,292 @@ export default function Drivers() {
               >
                 🗺 Map
               </button>
+              <button
+                onClick={() => setInfoDriver(d)}
+                className="flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-xs font-medium"
+                title="View driver info & compliance documents"
+              >
+                ℹ️ Info
+              </button>
               <button onClick={() => startEdit(d)} className="text-blue-600 hover:underline text-sm">Edit</button>
               <button onClick={() => handleDelete(d.id)} className="text-red-600 hover:underline text-sm">Delete</button>
             </div>
           </li>
         ))}
       </ul>
+
+      {infoDriver && (
+        <DriverInfoModal driver={infoDriver} onClose={() => setInfoDriver(null)} />
+      )}
+    </div>
+  );
+}
+
+// ─── Driver Info modal — details + compliance documents ─────────────────────
+// Document types and the driver's uploaded documents are only fetched when
+// this modal opens (not on the main Drivers list), and a document's actual
+// file is only fetched when "View" is clicked — keeps the list page fast as
+// documents accumulate.
+function DriverInfoModal({ driver, onClose }) {
+  const [types, setTypes] = useState([]);
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [addingType, setAddingType] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [uploadingTypeId, setUploadingTypeId] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [modalError, setModalError] = useState("");
+
+  const loadAll = () => {
+    setLoading(true);
+    setModalError("");
+    Promise.all([
+      authFetch(`${ROOT_API}/document-types?appliesTo=driver`).then(r => r.json()),
+      authFetch(`${API}/${driver.id}/documents`).then(r => r.json()),
+    ])
+      .then(([typesData, docsData]) => {
+        setTypes(Array.isArray(typesData) ? typesData : []);
+        setDocs(Array.isArray(docsData) ? docsData : []);
+      })
+      .catch(() => setModalError("Could not load documents. Please try again."))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadAll(); }, [driver.id]);
+
+  const docForType = (typeId) => docs.find(d => d.documentTypeId === typeId);
+
+  const isExpiringSoon = (dateStr) => {
+    if (!dateStr) return false;
+    const in30 = new Date(Date.now() + 30 * 86400000);
+    return new Date(dateStr) <= in30;
+  };
+
+  const handleView = async (documentId) => {
+    try {
+      const res = await authFetch(`${API}/${driver.id}/documents/${documentId}`);
+      const data = await res.json();
+      if (data.fileUrl) window.open(data.fileUrl, "_blank", "noopener,noreferrer");
+      else setModalError("Could not open document.");
+    } catch {
+      setModalError("Could not open document.");
+    }
+  };
+
+  const handleUpload = async (typeId, file, expiryDate) => {
+    setBusy(true);
+    setModalError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("documentTypeId", typeId);
+      if (expiryDate) fd.append("expiryDate", expiryDate);
+      const res = await fetch(`${API}/${driver.id}/documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to upload document"); return; }
+      setUploadingTypeId(null);
+      loadAll();
+    } catch {
+      setModalError("Could not upload document. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAddType = async () => {
+    if (!newTypeName.trim()) return;
+    setBusy(true);
+    setModalError("");
+    try {
+      const res = await authFetch(`${ROOT_API}/document-types`, {
+        method: "POST",
+        body: JSON.stringify({ name: newTypeName.trim(), appliesTo: "driver" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to add document type"); return; }
+      setNewTypeName("");
+      setAddingType(false);
+      loadAll();
+    } catch {
+      setModalError("Could not add document type. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteType = async (typeId) => {
+    if (!window.confirm("Remove this document type? Any uploaded documents under it must be removed first.")) return;
+    try {
+      const res = await authFetch(`${ROOT_API}/document-types/${typeId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to delete document type"); return; }
+      loadAll();
+    } catch {
+      setModalError("Could not delete document type. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="bg-[#1e293b] rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-600"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-slate-700">
+          <div>
+            <h2 className="text-lg font-bold text-white">{driver.name}</h2>
+            <span className="text-xs text-slate-400">{driver.phone}</span>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {modalError && (
+            <div className="bg-red-950 border border-red-800 text-red-300 text-sm px-3 py-2 rounded">{modalError}</div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">👤 Name</div>
+              <div className="text-white text-sm font-medium">{driver.name}</div>
+            </div>
+            <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">📞 Phone</div>
+              <div className="text-white text-sm font-medium">{driver.phone}</div>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-sm font-semibold text-slate-300 mb-2">📄 Compliance Documents</div>
+            {loading ? (
+              <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+            ) : (
+              <div className="space-y-2">
+                {types.map((type) => {
+                  const doc = docForType(type.id);
+                  const expiring = doc && isExpiringSoon(doc.expiryDate);
+                  return (
+                    <div key={type.id} className="bg-slate-800 rounded-lg p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-white text-sm font-medium flex items-center gap-2">
+                            {type.name}
+                            {!type.isFixed && (
+                              <button
+                                onClick={() => handleDeleteType(type.id)}
+                                className="text-slate-500 hover:text-red-400 text-xs"
+                                title="Remove custom document type"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          <div className={`text-xs mt-0.5 ${expiring ? "text-red-400 font-semibold" : "text-slate-400"}`}>
+                            {doc
+                              ? `Expires: ${doc.expiryDate ? new Date(doc.expiryDate).toLocaleDateString("en-ZA") : "No expiry date"}${expiring ? " ⚠️ Expiring soon" : ""}`
+                              : "Not uploaded"}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {doc && (
+                            <button
+                              onClick={() => handleView(doc.id)}
+                              className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded"
+                            >
+                              View
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setUploadingTypeId(uploadingTypeId === type.id ? null : type.id)}
+                            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded"
+                          >
+                            {doc ? "Replace" : "+ Upload"}
+                          </button>
+                        </div>
+                      </div>
+                      {uploadingTypeId === type.id && (
+                        <DocumentUploadRow
+                          defaultExpiry={doc?.expiryDate}
+                          busy={busy}
+                          onCancel={() => setUploadingTypeId(null)}
+                          onSubmit={(file, expiryDate) => handleUpload(type.id, file, expiryDate)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+                {types.length === 0 && (
+                  <div className="bg-slate-800 rounded-lg p-4 text-center text-slate-500 text-sm">No document types yet.</div>
+                )}
+              </div>
+            )}
+
+            {addingType ? (
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={newTypeName}
+                  onChange={(e) => setNewTypeName(e.target.value)}
+                  placeholder="e.g. Induction Certificate"
+                  className="flex-1 bg-slate-900 border border-slate-600 text-white text-sm px-3 py-1.5 rounded focus:outline-none focus:border-blue-500"
+                  onKeyDown={(e) => e.key === "Enter" && handleAddType()}
+                />
+                <button
+                  onClick={handleAddType}
+                  disabled={busy || !newTypeName.trim()}
+                  className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded font-medium"
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setAddingType(false); setNewTypeName(""); }}
+                  className="text-xs text-slate-400 hover:text-white px-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setAddingType(true)} className="mt-3 text-sm text-blue-400 hover:text-blue-300 font-medium">
+                + Add document type
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentUploadRow({ defaultExpiry, busy, onSubmit, onCancel }) {
+  const [file, setFile] = useState(null);
+  const [expiry, setExpiry] = useState(defaultExpiry ? defaultExpiry.slice(0, 10) : "");
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-700 flex flex-wrap items-center gap-2">
+      <input
+        type="file"
+        accept="image/*,.pdf"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+        className="text-xs text-slate-300 max-w-[180px]"
+      />
+      <input
+        type="date"
+        value={expiry}
+        onChange={(e) => setExpiry(e.target.value)}
+        title="Expiry date (leave blank if this document type doesn't expire)"
+        className="bg-slate-900 border border-slate-600 text-white text-xs px-2 py-1 rounded"
+      />
+      <button
+        disabled={!file || busy}
+        onClick={() => onSubmit(file, expiry)}
+        className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-2 py-1 rounded font-medium"
+      >
+        {busy ? "Saving…" : "Save"}
+      </button>
+      <button onClick={onCancel} className="text-xs text-slate-400 hover:text-white px-2">Cancel</button>
     </div>
   );
 }

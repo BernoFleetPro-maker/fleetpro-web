@@ -26,7 +26,7 @@ const CLIENT_LINKS = [
 // Controllers get same links as admin
 const CONTROLLER_LINKS = ADMIN_LINKS;
 
-export default function Sidebar({ role = "admin", user = {}, availableCount = 0 }) {
+export default function Sidebar({ role = "admin", user = {}, availableCount = 0, expiringDocsCount = 0 }) {
   const LINKS = role === "admin" ? ADMIN_LINKS
               : role === "controller" ? CONTROLLER_LINKS
               : CLIENT_LINKS;
@@ -97,10 +97,21 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0 
                       {availableCount}
                     </span>
                   )}
+                  {item.to === "/drivers" && expiringDocsCount > 0 && (
+                    <span
+                      className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
+                      title={`${expiringDocsCount} driver document${expiringDocsCount === 1 ? "" : "s"} expiring within 30 days`}
+                    >
+                      {expiringDocsCount}
+                    </span>
+                  )}
                 </span>
               )}
               {collapsed && item.to === "/" && availableCount > 0 && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
+              )}
+              {collapsed && item.to === "/drivers" && expiringDocsCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
               )}
             </NavLink>
           );
