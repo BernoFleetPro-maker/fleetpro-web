@@ -1,20 +1,23 @@
 // src/components/Sidebar.jsx
 import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
+import { canSeeStaffItem } from "../utils/staffAccess";
 
-const ADMIN_LINKS = [
-  { to: "/",               icon: "📍", label: "Map" },
-  { to: "/tasks",          icon: "📋", label: "Tasks" },
+// Shared by admin and staff — staff additionally get filtered by their own
+// permissions (see canSeeStaffItem below); admin always sees everything.
+const MAIN_LINKS = [
+  { to: "/",               icon: "📍", label: "Map",            key: "map" },
+  { to: "/tasks",          icon: "📋", label: "Tasks",          key: "tasks" },
   { divider: true },
   { section: "Management" },
-  { to: "/drivers",        icon: "🧑‍✈️", label: "Drivers" },
-  { to: "/vehicles",       icon: "🚚", label: "Vehicles" },
-  { to: "/loading-points", icon: "📦", label: "Loading Points" },
-  { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points" },
-  { to: "/clients",        icon: "🏢", label: "Clients" },
-  { to: "/controllers",    icon: "👔", label: "Controllers", svgIcon: true },
+  { to: "/drivers",        icon: "🧑‍✈️", label: "Drivers",        key: "drivers" },
+  { to: "/vehicles",       icon: "🚚", label: "Vehicles",       key: "vehicles" },
+  { to: "/loading-points", icon: "📦", label: "Loading Points", key: "loadingPoints" },
+  { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points", key: "dropoffPoints" },
+  { to: "/clients",        icon: "🏢", label: "Clients",        key: "clients" },
+  { to: "/staff",          icon: "👔", label: "Staff",          key: "staff", svgIcon: true },
   { divider: true },
-  { to: "/settings",       icon: "⚙",  label: "Settings" },
+  { to: "/settings",       icon: "⚙",  label: "Settings",       key: "settings" },
 ];
 
 const CLIENT_LINKS = [
@@ -23,13 +26,36 @@ const CLIENT_LINKS = [
   { to: "/settings", icon: "⚙",  label: "Settings" },
 ];
 
-// Controllers get same links as admin
-const CONTROLLER_LINKS = ADMIN_LINKS;
+// After filtering by permission, drop any divider/section marker left with
+// no real link in its group — e.g. the whole "Management" section header
+// (and its surrounding dividers) disappears if every item under it is
+// hidden. Segments are split at each divider; empty segments (no `.to`
+// item) are dropped, then dividers are re-inserted only between the
+// segments that survive.
+function pruneDanglingMarkers(items) {
+  const segments = [[]];
+  for (const item of items) {
+    if (item.divider) { segments.push([]); continue; }
+    segments[segments.length - 1].push(item);
+  }
+  const nonEmpty = segments.filter(seg => seg.some(i => i.to));
+  const result = [];
+  nonEmpty.forEach((seg, i) => {
+    if (i > 0) result.push({ divider: true });
+    result.push(...seg);
+  });
+  return result;
+}
 
-export default function Sidebar({ role = "admin", user = {}, availableCount = 0, expiringDocsCount = 0, expiringVehicleDocsCount = 0 }) {
-  const LINKS = role === "admin" ? ADMIN_LINKS
-              : role === "controller" ? CONTROLLER_LINKS
+export default function Sidebar({ role = "admin", user = {}, availableCount = 0, expiringDocsCount = 0, expiringVehicleDocsCount = 0, canUseFeature = () => true }) {
+  const isStaff = role === "staff";
+  // Clients is tenant-wide gated (clientPortal) on top of any per-staff key —
+  // applies uniformly here since canUseFeature already bypasses for admin.
+  const featureVisible = (item) => item.key !== "clients" || canUseFeature("clientPortal");
+  const LINKS = role === "admin" ? MAIN_LINKS.filter(featureVisible)
+              : isStaff ? pruneDanglingMarkers(MAIN_LINKS.filter(item => canSeeStaffItem(role, user.permissions, item.key) && featureVisible(item)))
               : CLIENT_LINKS;
+  const showAvailableBadge = canUseFeature("availableToLoad");
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("sidebar_collapsed") === "true"
   );
@@ -89,7 +115,7 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0,
               {!collapsed && (
                 <span className="text-sm font-medium whitespace-nowrap flex items-center gap-2">
                   {item.label}
-                  {item.to === "/" && availableCount > 0 && (
+                  {item.to === "/" && showAvailableBadge && availableCount > 0 && (
                     <span
                       className="bg-amber-500 text-[#3a2500] text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
                       title={`${availableCount} vehicle${availableCount === 1 ? "" : "s"} available to load`}
@@ -115,7 +141,7 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0,
                   )}
                 </span>
               )}
-              {collapsed && item.to === "/" && availableCount > 0 && (
+              {collapsed && item.to === "/" && showAvailableBadge && availableCount > 0 && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
               )}
               {collapsed && item.to === "/drivers" && expiringDocsCount > 0 && (
@@ -153,7 +179,7 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0,
           Logged in as<br />
           <strong className="text-slate-300">{user.displayName || user.clientName || user.username || "Admin"}</strong>
           {role === "client" && <span className="ml-1 text-blue-400">(Client)</span>}
-          {role === "controller" && <span className="ml-1 text-purple-400">(Controller)</span>}
+          {role === "staff" && <span className="ml-1 text-purple-400">(Staff)</span>}
           {role === "admin" && <span className="ml-1 text-green-400">(Admin)</span>}
         </div>
       )}

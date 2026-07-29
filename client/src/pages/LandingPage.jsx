@@ -364,7 +364,7 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
         <Reveal>
           <Eyebrow>How it works</Eyebrow>
           <h2 style={{ fontWeight: 600, fontSize: 28, margin: "0 0 40px", maxWidth: 560, letterSpacing: "-0.01em" }}>
-            A task moves itself from "loading" to "delivered" — your controller
+            A task moves itself from "loading" to "delivered" — your staff
             never has to chase an update.
           </h2>
         </Reveal>
@@ -403,7 +403,7 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
         <Reveal>
           <Eyebrow>What's included</Eyebrow>
           <h2 style={{ fontWeight: 600, fontSize: 28, margin: "0 0 36px", maxWidth: 560, letterSpacing: "-0.01em" }}>
-            Everything a controller, a driver, and a client each need to see — and
+            Everything a staff member, a driver, and a client each need to see — and
             nothing they don't.
           </h2>
         </Reveal>
@@ -412,7 +412,7 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
           { tag: "live map", title: "Live vehicle tracking", body: "Every truck's position, refreshed continuously, with route lines colour-coded by phase so you can tell at a glance who's heading to load and who's heading to drop." },
           { tag: "kanban", title: "A task board that updates itself", body: "Unassigned, to do, in progress, completed — tasks move across the board in real time across every browser your team has open, no refresh required." },
           { tag: "pod", title: "Proof of delivery photos", body: "Drivers capture photos and notes on delivery. They're available to your client portal within seconds, stored securely off your main database." },
-          { tag: "roles", title: "Built for who's actually using it", body: "Admins and controllers get full access and an audit trail of who changed what. Clients see only their own loads. Drivers get one screen and one job." },
+          { tag: "roles", title: "Built for who's actually using it", body: "Admins get full access with an audit trail of who changed what. Staff only see what you give them access to. Clients see only their own loads. Drivers get one screen and one job." },
           { tag: "alerts", title: "Push notifications that reach the right driver", body: "New tasks and updates land on the driver's phone the moment they're assigned — not five minutes later, and never on someone else's phone." },
         ].map((row, i) => (
           <Reveal key={row.tag} delay={i * 60}>

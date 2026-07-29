@@ -15,7 +15,7 @@ function authFetch(url, opts = {}) {
   return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
 }
 
-export default function MapView({ role = "admin", clientId = null }) {
+export default function MapView({ role = "admin", clientId = null, canUseFeature = () => true }) {
   const isAdmin = role === "admin";
   const mapRef           = useRef(null);
   const mapInstance      = useRef(null);
@@ -25,7 +25,7 @@ export default function MapView({ role = "admin", clientId = null }) {
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null); // tracks selected vehicle for route highlight
   const lastPositionsRef = useRef([]);   // last fetched (post-filter) positions — patched instantly by SSE
-  const clientsRef       = useRef(null); // null = not fetched yet; [] once fetched (admin/controller only)
+  const clientsRef       = useRef(null); // null = not fetched yet; [] once fetched (admin/staff only)
   // Draft visibility choice while turning a vehicle available — nothing is
   // sent to the backend (so nothing becomes visible to anyone) until the
   // admin clicks Accept. Keyed by vehicleId. { availableToAll, clientIds }
@@ -243,7 +243,7 @@ export default function MapView({ role = "admin", clientId = null }) {
     }
 
     let availabilitySection = "";
-    if ((isAdmin || role === 'controller') && v.vehicleId && t?.status !== 'inprogress') {
+    if ((isAdmin || role === 'staff') && canUseFeature("availableToLoad") && v.vehicleId && t?.status !== 'inprogress') {
       // A pending draft means the admin just flipped the toggle on but
       // hasn't hit Accept yet — nothing has been saved, so nothing is
       // actually visible to any client until they confirm.
@@ -281,7 +281,7 @@ export default function MapView({ role = "admin", clientId = null }) {
       <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
       <div style="display:flex;gap:4px;justify-content:center;">
         <button id="fleetpro-loc-btn" onclick="window._fleetproShowLocMenu(${v.lat},${v.lon},'${v.descrip||'Vehicle'}')" style="background:#1e88e5;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Current Location</button>
-        ${isAdmin || role === 'controller' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Save Point</button>` : ""}
+        ${isAdmin || role === 'staff' ? `<button onclick="window._fleetproSaveLocation(${v.lat},${v.lon},'${v.address||''}')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;flex:1;text-align:center;">Save Point</button>` : ""}
       </div>
       ${availabilitySection}
       ${taskSection}
@@ -800,9 +800,9 @@ export default function MapView({ role = "admin", clientId = null }) {
           String(v.activeTask.clientId) === String(clientId)
         ));
 
-      // Client list for the "visible to" picker — admin/controller only,
+      // Client list for the "visible to" picker — admin/staff only,
       // fetched once since it rarely changes during a session.
-      if ((isAdmin || role === "controller") && clientsRef.current === null) {
+      if ((isAdmin || role === "staff") && clientsRef.current === null) {
         clientsRef.current = [];
         authFetch(`${API}/clients`).then(r => r.json()).then(data => {
           if (Array.isArray(data)) clientsRef.current = data;

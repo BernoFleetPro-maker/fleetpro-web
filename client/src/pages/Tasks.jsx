@@ -304,7 +304,7 @@ function buildStaticMapUrl(route) {
   return `https://maps.googleapis.com/maps/api/staticmap?${params.join("&")}`;
 }
 
-// ── Route history modal — controller/admin only, reuses the Google Maps JS
+// ── Route history modal — staff/admin only, reuses the Google Maps JS
 // API already loaded globally (index.html) for the main map view. ────────────
 function RouteModal({ task, drivers, vehicles, onClose }) {
   const [route,   setRoute]   = useState(null); // { acceptedAt, arrivedLoadAt, arrivedDropAt, completedAt, points, distanceToLoadKm, distanceToDropKm, stops }
@@ -653,11 +653,11 @@ function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
   );
 }
 
-export default function Tasks({ role = "admin", clientId = null, permission = "view", userName = "" }) {
+export default function Tasks({ role = "admin", clientId = null, permissions = null, userName = "", canUseFeature = () => true }) {
   const isAdmin      = role === "admin";
-  const isController = role === "controller";
-  const hasFullAccess = isAdmin || isController;
-  const canEdit  = hasFullAccess || permission === "full";
+  const isStaff = role === "staff";
+  const hasFullAccess = isAdmin || isStaff;
+  const canEdit  = hasFullAccess || permissions?.canCreateTasks === true;
   const [tasks,         setTasks]         = useState([]);
   const [drivers,       setDrivers]       = useState([]);
   const [vehicles,      setVehicles]      = useState([]);
@@ -1181,8 +1181,8 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                           <>
                             {task.status === "completed" && (
                               <>
-                                <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
-                                <button onClick={() => setRouteTask(task)} className="px-1 py-0 bg-blue-900 hover:bg-blue-800 rounded text-[9px] font-medium">🗺 View Route</button>
+                                {canUseFeature("podPhotos") && <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>}
+                                {canUseFeature("routeHistory") && <button onClick={() => setRouteTask(task)} className="px-1 py-0 bg-blue-900 hover:bg-blue-800 rounded text-[9px] font-medium">🗺 View Route</button>}
                               </>
                             )}
                             <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
@@ -1199,7 +1199,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                           </>
                         ) : canEdit ? (
                           <>
-                            {task.status === "completed" && (
+                            {task.status === "completed" && canUseFeature("podPhotos") && (
                               <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
                             )}
                             <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
@@ -1207,7 +1207,7 @@ export default function Tasks({ role = "admin", clientId = null, permission = "v
                           </>
                         ) : (
                           <>
-                            {task.status === "completed" && (
+                            {task.status === "completed" && canUseFeature("podPhotos") && (
                               <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
                             )}
                             <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>

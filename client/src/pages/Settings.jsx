@@ -1,19 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { isAvailableSoundEnabled, setAvailableSoundEnabled } from "../utils/soundPrefs";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
-
-// ── Auth helper — attaches JWT token to every API request ───────────────────
-function getToken() {
-  try { return localStorage.getItem("fleetpro_token") || ""; } catch { return ""; }
-}
-function authHeaders(extra = {}) {
-  return { "Content-Type": "application/json", "Authorization": `Bearer ${getToken()}`, ...extra };
-}
-function authFetch(url, opts = {}) {
-  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
-}
-
 
 function getAuthPayload() {
   try {
@@ -23,11 +11,30 @@ function getAuthPayload() {
   } catch { return null; }
 }
 
-export default function Settings() {
-  const [clients,  setClients]  = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [saving,   setSaving]   = useState(null);
+const ROLE_INFO = [
+  {
+    role: "Super Admin", color: "bg-slate-800 text-white",
+    summary: "Manages every company on FleetPro",
+    detail: "Creates new companies, sets each one's Admin login, and turns features on or off per company. Doesn't manage day-to-day fleet operations for any one company.",
+  },
+  {
+    role: "Admin", color: "bg-purple-100 text-purple-700",
+    summary: "Full access to everything for your company",
+    detail: "Map, Tasks, Drivers, Vehicles, Loading Points, Dropoff Points, Clients, and Staff — always, regardless of any permission toggle. Credentials are set in Railway environment variables.",
+  },
+  {
+    role: "Staff", color: "bg-indigo-100 text-indigo-700",
+    summary: "Access to whichever pages your Admin enables",
+    detail: "Full create/edit/delete on any page they can reach — see the Staff page to control which pages that is for each person. Every task action is logged with their name.",
+  },
+  {
+    role: "Client", color: "bg-blue-100 text-blue-700",
+    summary: "Sees only their own data",
+    detail: "Viewing the map, viewing tasks, and creating/editing tasks are each controlled individually by your Admin — see the Clients page. Can never delete a task.",
+  },
+];
 
+export default function Settings() {
   // Change password state
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNew,     setPwNew]     = useState("");
@@ -40,41 +47,15 @@ export default function Settings() {
   const role    = payload?.role || "admin";
   // Clients only get the Notifications section — password changes for them
   // are out of scope here now, same as everything else on this page.
-  const canChangePassword = role === "controller";
+  const canChangePassword = role === "staff";
 
-  const isAdminOrController = role === "admin" || role === "controller";
+  const isAdminOrStaff = role === "admin" || role === "staff";
 
   const [soundEnabled, setSoundEnabled] = useState(() => isAvailableSoundEnabled());
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
     setAvailableSoundEnabled(next);
-  };
-
-  const loadClients = async () => {
-    if (!isAdminOrController) { setLoading(false); return; } // clients can't see other clients
-    try {
-      const res  = await authFetch(`${API}/clients`);
-      const data = await res.json();
-      setClients(Array.isArray(data) ? data : []);
-    } catch { setClients([]); }
-    finally  { setLoading(false); }
-  };
-
-  useEffect(() => { loadClients(); }, []);
-
-  const togglePermission = async (client) => {
-    const newPermission = client.permission === "full" ? "view" : "full";
-    setSaving(client.id);
-    try {
-      await authFetch(`${API}/clients/${client.id}`, {
-        method:  "PUT",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ name: client.name, username: client.username, permission: newPermission }),
-      });
-      setClients(prev => prev.map(c => c.id === client.id ? { ...c, permission: newPermission } : c));
-    } catch { alert("Failed to update permission."); }
-    finally  { setSaving(null); }
   };
 
   const handleChangePassword = async (e) => {
@@ -85,7 +66,7 @@ export default function Settings() {
     if (pwNew !== pwConfirm) { setPwError("New passwords do not match."); return; }
     setPwSaving(true);
     try {
-      const res = await fetch(`${API}/auth/change-password`, {
+      const res = await fetch(`${API}/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -131,99 +112,29 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Permission Levels explanation — admin/controller only */}
-      {isAdminOrController && (
+      {/* Roles — informational, shown to everyone. Config for Staff/Clients
+          lives on their own pages now, not here. */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
         <div className="bg-slate-50 border-b border-slate-200 px-5 py-3">
-          <h3 className="font-semibold text-slate-700">🔐 Permission Levels</h3>
+          <h3 className="font-semibold text-slate-700">🔐 Roles</h3>
         </div>
         <div className="p-5 space-y-4">
-          <div className="flex gap-4 items-start">
-            <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-1 rounded-full mt-0.5 whitespace-nowrap">Admin</span>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Full Access</p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                All pages: Map, Tasks (create/edit/delete), Drivers, Vehicles, Loading Points, Dropoff Points, Clients, Settings.
-                Credentials managed via Railway environment variables.
-              </p>
-            </div>
-          </div>
-          <div className="border-t border-slate-100" />
-          <div className="flex gap-4 items-start">
-            <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full mt-0.5 whitespace-nowrap">View Only</span>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Client — View Only (default)</p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Map and Tasks only. Sees tasks assigned to their client account. Cannot create, edit, or delete anything.
-              </p>
-            </div>
-          </div>
-          <div className="border-t border-slate-100" />
-          <div className="flex gap-4 items-start">
-            <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full mt-0.5 whitespace-nowrap">Full Access</span>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Client — Full Access</p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Same as Admin but filtered to their assigned tasks only. Can create and edit tasks linked to their client.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* Client Permissions — admin/controller only */}
-      {isAdminOrController && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-        <div className="bg-slate-50 border-b border-slate-200 px-5 py-3 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-700">🏢 Client Permissions</h3>
-          <span className="text-xs text-slate-400">Toggle to change access level</span>
-        </div>
-
-        {loading ? (
-          <div className="px-5 py-8 text-center text-slate-400 text-sm">Loading clients...</div>
-        ) : clients.length === 0 ? (
-          <div className="px-5 py-8 text-center text-slate-400 text-sm">
-            No clients yet. Add clients from the <strong>Clients</strong> menu.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {clients.map(client => {
-              const isFull   = client.permission === "full";
-              const isSaving = saving === client.id;
-              return (
-                <div key={client.id} className="px-5 py-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">{client.name}</p>
-                    <p className="text-xs text-slate-400 font-mono mt-0.5">{client.username}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                      isFull ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
-                    }`}>
-                      {isFull ? "Full Access" : "View Only"}
-                    </span>
-                    <button
-                      onClick={() => togglePermission(client)}
-                      disabled={isSaving}
-                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                        isFull
-                          ? "border-blue-300 text-blue-600 hover:bg-blue-50"
-                          : "border-green-300 text-green-600 hover:bg-green-50"
-                      } disabled:opacity-40`}
-                    >
-                      {isSaving ? "Saving..." : isFull ? "→ Set View Only" : "→ Set Full Access"}
-                    </button>
-                  </div>
+          {ROLE_INFO.map((r, i) => (
+            <React.Fragment key={r.role}>
+              {i > 0 && <div className="border-t border-slate-100" />}
+              <div className="flex gap-4 items-start">
+                <span className={`text-xs font-bold px-2 py-1 rounded-full mt-0.5 whitespace-nowrap ${r.color}`}>{r.role}</span>
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">{r.summary}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{r.detail}</p>
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
       </div>
 
-      }{/* end client permissions */}
-
-      {/* Change Password — for controllers and clients */}
+      {/* Change Password — for staff and clients */}
       {canChangePassword && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
           <div className="bg-slate-50 border-b border-slate-200 px-5 py-3">
@@ -273,8 +184,8 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Admin credentials — admin/controller only */}
-      {isAdminOrController && (
+      {/* Admin credentials — admin/staff only */}
+      {isAdminOrStaff && (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
         <h3 className="font-semibold text-amber-800 mb-2">🔑 Admin Credentials</h3>
         <p className="text-sm text-amber-700">Admin username and password are set as environment variables in Railway:</p>

@@ -36,7 +36,7 @@ export default function LoginPage({ onLogin }) {
       <div className="bg-[#1e293b] p-8 rounded-xl shadow-xl w-80 border border-slate-700">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-white">FleetPro</h1>
-          <p className="text-slate-400 text-sm mt-1">Controller Login</p>
+          <p className="text-slate-400 text-sm mt-1">Sign in to FleetPro</p>
         </div>
 
         {error && (

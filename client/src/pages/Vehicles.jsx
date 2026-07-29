@@ -15,6 +15,17 @@ function authFetch(url, opts = {}) {
   return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
 }
 
+// Fail-open, admin bypasses — same convention as staffAccess.js, duplicated
+// here since this page reads its own token rather than receiving props.
+function canUseFeature(key) {
+  try {
+    const token = getToken();
+    if (!token) return true;
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role === "admin" || payload.tenantFeatures?.[key] !== false;
+  } catch { return true; }
+}
+
 const EMPTY_FORM = { registration: "", description: "", make: "", model: "", year: "" };
 
 export default function Vehicles() {
@@ -297,7 +308,7 @@ export default function Vehicles() {
               <li key={v.id} className="flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm">
                 <div>
                   <span className="font-bold text-gray-800 font-mono">{v.registration}</span>
-                  {v.expiringDocsCount > 0 && (
+                  {canUseFeature("complianceDocuments") && v.expiringDocsCount > 0 && (
                     <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle"
                       title={`${v.expiringDocsCount} document(s) need attention — open Info to view`}>
                       {v.expiringDocsCount}
@@ -325,7 +336,7 @@ export default function Vehicles() {
               <li key={t.id} className="flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm">
                 <div>
                   <span className="font-bold text-gray-800 font-mono">{t.registration}</span>
-                  {t.expiringDocsCount > 0 && (
+                  {canUseFeature("complianceDocuments") && t.expiringDocsCount > 0 && (
                     <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle"
                       title={`${t.expiringDocsCount} document(s) need attention — open Info to view`}>
                       {t.expiringDocsCount}
@@ -380,6 +391,7 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
   const [modalError, setModalError] = useState("");
 
   const loadAll = () => {
+    if (!canUseFeature("complianceDocuments")) { setLoading(false); return; }
     setLoading(true);
     setModalError("");
     Promise.all([
@@ -527,6 +539,11 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
             </div>
           </div>
 
+          {!canUseFeature("complianceDocuments") ? (
+            <div className="bg-slate-800 rounded-lg p-4 text-center text-slate-500 text-sm">
+              Compliance documents aren't enabled for your company.
+            </div>
+          ) : (
           <div>
             <div className="text-sm font-semibold text-slate-300 mb-2">📄 Compliance Documents</div>
             {loading ? (
@@ -591,6 +608,7 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
               <button onClick={() => setAddingType(true)} className="mt-3 text-sm text-blue-400 hover:text-blue-300 font-medium">+ Add document type</button>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

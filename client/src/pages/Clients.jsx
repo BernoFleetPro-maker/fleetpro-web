@@ -14,7 +14,31 @@ function authFetch(url, opts = {}) {
 }
 
 
-const EMPTY_FORM = { name: "", username: "", password: "" };
+const CLIENT_PERMISSION_FIELDS = [
+  { key: "canViewMap",     label: "View Map",           badge: "Map",    hint: "See vehicle positions on the map" },
+  { key: "canViewTasks",   label: "View Tasks",         badge: "Tasks",  hint: "See tasks assigned to this client" },
+  { key: "canCreateTasks", label: "Create & Edit Tasks", badge: "Create", hint: "Create new tasks and edit their own — never delete" },
+];
+const DEFAULT_CLIENT_PERMISSIONS = { canViewMap: true, canViewTasks: true, canCreateTasks: false };
+
+const EMPTY_FORM = { name: "", username: "", password: "", permissions: DEFAULT_CLIENT_PERMISSIONS };
+
+function AccessBadges({ permissions }) {
+  const p = permissions || {};
+  const active = CLIENT_PERMISSION_FIELDS.filter(f => p[f.key] === true);
+  if (active.length === 0) {
+    return <span className="bg-slate-100 text-slate-500 text-xs font-semibold px-2 py-0.5 rounded-full">No Access</span>;
+  }
+  return (
+    <div className="flex gap-1 flex-wrap">
+      {active.map(f => (
+        <span key={f.key} className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+          {f.badge}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function Clients() {
   const [clients,   setClients]   = useState([]);
@@ -37,17 +61,26 @@ export default function Clients() {
   useEffect(() => { load(); }, []);
 
   const openCreate = () => {
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, permissions: { ...DEFAULT_CLIENT_PERMISSIONS } });
     setEditingId(null);
     setError("");
     setShowForm(true);
   };
 
   const openEdit = (client) => {
-    setForm({ name: client.name, username: client.username, password: "" });
+    setForm({
+      name: client.name,
+      username: client.username,
+      password: "",
+      permissions: { ...DEFAULT_CLIENT_PERMISSIONS, ...(client.permissions || {}) },
+    });
     setEditingId(client.id);
     setError("");
     setShowForm(true);
+  };
+
+  const togglePermission = (key) => {
+    setForm(f => ({ ...f, permissions: { ...f.permissions, [key]: !f.permissions[key] } }));
   };
 
   const handleSave = async (e) => {
@@ -126,7 +159,7 @@ export default function Clients() {
               <tr>
                 <th className="text-left px-4 py-3 text-slate-600 font-semibold">Client Name</th>
                 <th className="text-left px-4 py-3 text-slate-600 font-semibold">Username</th>
-                <th className="text-left px-4 py-3 text-slate-600 font-semibold">Permission</th>
+                <th className="text-left px-4 py-3 text-slate-600 font-semibold">Access</th>
                 <th className="text-left px-4 py-3 text-slate-600 font-semibold">Created</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -137,13 +170,7 @@ export default function Clients() {
                   <td className="px-4 py-3 font-semibold text-slate-800">{client.name}</td>
                   <td className="px-4 py-3 text-slate-600 font-mono text-xs">{client.username}</td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      client.permission === "full"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-blue-100 text-blue-700"
-                    }`}>
-                      {client.permission === "full" ? "Full Access" : "View Only"}
-                    </span>
+                    <AccessBadges permissions={client.permissions} />
                   </td>
                   <td className="px-4 py-3 text-slate-400 text-xs">
                     {new Date(client.createdAt).toLocaleDateString("en-ZA")}
@@ -171,8 +198,8 @@ export default function Clients() {
         <ul className="mt-2 space-y-1 list-disc list-inside text-blue-600">
           <li>Clients log in at the same URL as admin using their username and password</li>
           <li>Passwords are not case-sensitive</li>
-          <li>Clients can only see Map and Tasks assigned to them</li>
-          <li>Clients cannot create, edit, or delete tasks</li>
+          <li>Each client only ever sees their own data — the toggles below just control which pages they can reach</li>
+          <li>Clients can never delete a task, regardless of these toggles</li>
         </ul>
       </div>
 
@@ -217,9 +244,25 @@ export default function Clients() {
                 <p className="text-[10px] text-slate-400 mt-0.5">Not case-sensitive — client can use uppercase or lowercase</p>
               </div>
 
-              <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500">
-                <strong className="text-slate-600">Permission level:</strong> View Only<br/>
-                Can see Map + Tasks assigned to them. Cannot create or edit.
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-2">Portal Access</label>
+                <div className="space-y-2">
+                  {CLIENT_PERMISSION_FIELDS.map(f => (
+                    <label key={f.key} className="flex items-start gap-2 text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.permissions[f.key] === true}
+                        onChange={() => togglePermission(f.key)}
+                        className="rounded border-slate-300 mt-0.5"
+                      />
+                      <span>
+                        <span className="block font-medium">{f.label}</span>
+                        <span className="block text-[11px] text-slate-400">{f.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2">Always limited to this client's own data, regardless of these toggles.</p>
               </div>
 
               <div className="flex gap-3 pt-2">

@@ -14,6 +14,16 @@ function authFetch(url, opts = {}) {
   return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
 }
 
+// Fail-open, admin bypasses — same convention as staffAccess.js, duplicated
+// here since this page reads its own token rather than receiving props.
+function canUseFeature(key) {
+  try {
+    const token = getToken();
+    if (!token) return true;
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role === "admin" || payload.tenantFeatures?.[key] !== false;
+  } catch { return true; }
+}
 
 export default function Drivers() {
   const [drivers, setDrivers] = useState([]);
@@ -240,7 +250,7 @@ export default function Drivers() {
           <li key={d.id} className="flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm">
             <div>
               <span className="font-bold text-gray-800">{d.name}</span>
-              {d.expiringDocsCount > 0 && (
+              {canUseFeature("complianceDocuments") && d.expiringDocsCount > 0 && (
                 <span
                   className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle"
                   title={`${d.expiringDocsCount} document${d.expiringDocsCount === 1 ? "" : "s"} need${d.expiringDocsCount === 1 ? "s" : ""} attention — open Info to view`}
@@ -414,6 +424,7 @@ function DriverInfoModal({ driver, onClose, onChange }) {
   const [modalError, setModalError] = useState("");
 
   const loadAll = () => {
+    if (!canUseFeature("complianceDocuments")) { setLoading(false); return; }
     setLoading(true);
     setModalError("");
     Promise.all([
@@ -568,6 +579,11 @@ function DriverInfoModal({ driver, onClose, onChange }) {
             </div>
           </div>
 
+          {!canUseFeature("complianceDocuments") ? (
+            <div className="bg-slate-800 rounded-lg p-4 text-center text-slate-500 text-sm">
+              Compliance documents aren't enabled for your company.
+            </div>
+          ) : (
           <div>
             <div className="text-sm font-semibold text-slate-300 mb-2">📄 Compliance Documents</div>
             {loading ? (
@@ -674,6 +690,7 @@ function DriverInfoModal({ driver, onClose, onChange }) {
               </button>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

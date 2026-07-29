@@ -59,6 +59,16 @@ const fieldClass = "flex-1 p-2 rounded bg-[#0f1724] text-white border border-sla
 const cardClass  = "bg-[#1e293b] border border-slate-700 rounded-xl p-5 mb-6";
 const labelClass = "text-slate-400 text-xs block mb-1";
 
+const FEATURE_FIELDS = [
+  { key: "clientPortal",        label: "Client Portal",         hint: "Clients can log in and use the portal" },
+  { key: "podPhotos",           label: "POD Photos",            hint: "Proof-of-delivery photos on completed tasks" },
+  { key: "pushNotifications",   label: "Push Notifications",    hint: "Driver app push notifications for new tasks" },
+  { key: "routeHistory",        label: "Route History",         hint: "Route breadcrumb history and distance tracking" },
+  { key: "complianceDocuments", label: "Compliance Documents",  hint: "Driver/vehicle/trailer document tracking" },
+  { key: "availableToLoad",     label: "Available to Load",     hint: "Vehicle availability toggle and client visibility" },
+];
+const DEFAULT_FEATURES = Object.fromEntries(FEATURE_FIELDS.map(f => [f.key, true]));
+
 // ── TENANTS LIST ──────────────────────────────────────────────────────────────
 function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
   const [showForm, setShowForm] = useState(false);
@@ -203,7 +213,7 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
                     {t.displayName}
                   </button>
                 </td>
-                <td className="py-2 text-slate-300">{t.controllers?.[0]?.name || "—"}</td>
+                <td className="py-2 text-slate-300">{t.staff?.[0]?.name || "—"}</td>
                 <td className="py-2">{t.subdomain}</td>
                 <td className="py-2">{t._count.drivers}</td>
                 <td className="py-2">{t._count.tasks}</td>
@@ -232,8 +242,9 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
 function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
   const [editingCompany, setEditingCompany] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState(false);
+  const [editingFeatures, setEditingFeatures] = useState(false);
 
-  const admin = tenant.controllers?.[0] || null;
+  const admin = tenant.staff?.[0] || null;
 
   const [companyForm, setCompanyForm] = useState({
     name: tenant.name, displayName: tenant.displayName, subdomain: tenant.subdomain,
@@ -241,6 +252,7 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
   const [adminForm, setAdminForm] = useState({
     name: admin?.name || "", username: admin?.username || "", email: admin?.email || "", password: "",
   });
+  const [featuresForm, setFeaturesForm] = useState({ ...DEFAULT_FEATURES, ...(tenant.features || {}) });
   const [error, setError] = useState("");
 
   async function saveCompany() {
@@ -264,6 +276,21 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
       reload();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to update admin login");
+    }
+  }
+
+  function toggleFeature(key) {
+    setFeaturesForm(f => ({ ...f, [key]: !f[key] }));
+  }
+
+  async function saveFeatures() {
+    setError("");
+    try {
+      await api.put(`/superadmin/tenants/${tenant.id}`, { features: featuresForm }, authHeaders);
+      setEditingFeatures(false);
+      reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to update features");
     }
   }
 
@@ -342,8 +369,53 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
           )}
         </div>
 
+        {/* Features card */}
+        <div className={cardClass}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-semibold">Features</h3>
+            {!editingFeatures && (
+              <button onClick={() => setEditingFeatures(true)} className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">Edit</button>
+            )}
+          </div>
+
+          {editingFeatures ? (
+            <>
+              <div className="space-y-2 mb-3">
+                {FEATURE_FIELDS.map(f => (
+                  <label key={f.key} className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={featuresForm[f.key] === true}
+                      onChange={() => toggleFeature(f.key)}
+                      className="mt-0.5 rounded border-slate-500"
+                    />
+                    <span>
+                      <span className="block font-medium text-slate-200">{f.label}</span>
+                      <span className="block text-xs text-slate-500">{f.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={saveFeatures} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Save</button>
+                <button onClick={() => setEditingFeatures(false)} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Cancel</button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {FEATURE_FIELDS.map(f => (
+                <span key={f.key} className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                  (tenant.features?.[f.key] ?? true) ? "bg-green-900 text-green-300" : "bg-slate-700 text-slate-400"
+                }`}>
+                  {f.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
         <p className="text-xs text-slate-500">
-          Staff (controller) and client logins for this company are managed by their own admin,
+          Staff and client logins for this company are managed by their own admin,
           from inside the regular FleetPro web app — not from here.
         </p>
       </div>

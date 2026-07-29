@@ -16,9 +16,10 @@ import DropoffPoints from "./pages/DropoffPoints";
 import Settings from "./pages/Settings";
 
 import Clients from "./pages/Clients";
-import Controllers from "./pages/Controllers";
+import Staff from "./pages/Staff";
 
 import { playAvailableSound } from "./utils/soundPrefs";
+import { canSeeStaffItem } from "./utils/staffAccess";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
@@ -70,7 +71,7 @@ function useAvailableVehicleCount(enabled, tenantId, role, clientId) {
 
     // A vehicle can now be restricted to specific clients — this is the only
     // way to know for sure whether a given position is meant for *this*
-    // viewer. Admin/controller always see everything.
+    // viewer. Admin/staff always see everything.
     const isVisibleToMe = (pos) => {
       if (role !== "client") return true;
       return pos.available === true && (
@@ -96,7 +97,7 @@ function useAvailableVehicleCount(enabled, tenantId, role, clientId) {
           try {
             const msg = JSON.parse(e.data);
             // Broadcasts aren't tenant-scoped server-side — filter here so a
-            // controller/client token only reacts to its own tenant's vehicles.
+            // staff/client token only reacts to its own tenant's vehicles.
             // (30s poll self-corrects if this ever misses something.)
             if (tenantId && msg.data?.tenantId && msg.data.tenantId !== tenantId) return;
             if (msg.type === "vehicle_available" && msg.data?.id) {
@@ -152,7 +153,7 @@ function useAvailableVehicleCount(enabled, tenantId, role, clientId) {
   return count;
 }
 
-// Count of driver documents expiring within 30 days — controller/admin only
+// Count of driver documents expiring within 30 days — staff/admin only
 // (not client-visible). A document's expiry doesn't change in real time the
 // way vehicle availability does, so a periodic poll is enough — no SSE.
 function useExpiringDocsCount(enabled) {
@@ -218,6 +219,18 @@ function getAuthPayload() {
   }
 }
 
+function NoAccessMessage({ label }) {
+  return (
+    <div className="h-full flex items-center justify-center text-slate-400">
+      <div className="text-center">
+        <div className="text-4xl mb-3">🔒</div>
+        <p className="font-medium">You don't have access to {label}</p>
+        <p className="text-sm mt-1">Ask your admin to enable it if you think this is a mistake.</p>
+      </div>
+    </div>
+  );
+}
+
 function LoggedOutRoutes() {
   const navigate = useNavigate();
   return (
@@ -240,16 +253,21 @@ function LoggedOutRoutes() {
 
 export default function App() {
   const payload = getAuthPayload();
+  // Fail-open on a missing/undefined key, same convention as staff/client
+  // permission checks. Admin bypasses tenant feature flags entirely — matches
+  // the backend's requireFeature, which does the same (see tenantFeatures.js).
+  const canUseFeature = (key) => payload?.role === "admin" || payload?.tenantFeatures?.[key] !== false;
   // Called unconditionally (Rules of Hooks) — internally no-ops when logged
   // out or on the super admin panel, which has no Sidebar to show a badge on.
   const availableCount = useAvailableVehicleCount(
-    !!payload && payload.role !== "superadmin", payload?.tenantId, payload?.role, payload?.clientId
+    !!payload && payload.role !== "superadmin" && canUseFeature("availableToLoad"),
+    payload?.tenantId, payload?.role, payload?.clientId
   );
   const expiringDocsCount = useExpiringDocsCount(
-    !!payload && (payload.role === "admin" || payload.role === "controller")
+    !!payload && (payload.role === "admin" || payload.role === "staff") && canUseFeature("complianceDocuments")
   );
   const expiringVehicleDocsCount = useExpiringVehicleDocsCount(
-    !!payload && (payload.role === "admin" || payload.role === "controller")
+    !!payload && (payload.role === "admin" || payload.role === "staff") && canUseFeature("complianceDocuments")
   );
 
   if (!payload) {
@@ -275,27 +293,51 @@ export default function App() {
   }
 
   const isAdmin        = role === "admin";
-  const isController   = role === "controller";
-  const hasFullAccess  = isAdmin || isController;
-  const displayName    = payload.controllerName || payload.clientName || payload.username || "Admin";
+  const isStaff        = role === "staff";
+  const hasFullAccess  = isAdmin || isStaff;
+  const displayName    = payload.staffName || payload.clientName || payload.username || "Admin";
+
+  // Map/Tasks/Settings stay always-mounted (see canSeeMap etc. below) rather
+  // than being conditionally mounted like the 6 management routes — the
+  // catch-all route already falls through to MapView for any unmatched
+  // path, so an unmounted "/" would be silently defeated by it anyway.
+  // Self-gating the *element* instead closes that gap for "/" and keeps
+  // "/tasks"/"/settings" consistent with it.
+  const canSeeMap = isAdmin
+    || (isStaff && canSeeStaffItem(role, payload.permissions, "map"))
+    || (role === "client" && payload.permissions?.canViewMap !== false);
+  const canSeeTasksPage = isAdmin
+    || (isStaff && canSeeStaffItem(role, payload.permissions, "tasks"))
+    || (role === "client" && payload.permissions?.canViewTasks !== false);
+  const canSeeSettingsPage = isAdmin
+    || (isStaff && canSeeStaffItem(role, payload.permissions, "settings"))
+    || role === "client";
+
+  const mapElement = canSeeMap
+    ? <MapView role={role} clientId={payload.clientId} permissions={payload.permissions} canUseFeature={canUseFeature} />
+    : <NoAccessMessage label="the map" />;
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} />
+      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} canUseFeature={canUseFeature} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
-          <Route path="/"               element={<MapView role={role} clientId={payload.clientId} />} />
-          <Route path="/tasks"          element={<Tasks role={role} clientId={payload.clientId} permission={payload.permission || "view"} userName={displayName} />} />
-          {hasFullAccess && <Route path="/drivers"        element={<Drivers />} />}
-          {hasFullAccess && <Route path="/vehicles"       element={<Vehicles />} />}
-          {hasFullAccess && <Route path="/loading-points" element={<LoadingPoints />} />}
-          {hasFullAccess && <Route path="/dropoff-points" element={<DropoffPoints />} />}
-          {hasFullAccess && <Route path="/clients"        element={<Clients />} />}
-          {hasFullAccess && <Route path="/controllers"    element={<Controllers />} />}
-          {/* Settings is now open to every role — it self-filters its sections
+          <Route path="/"      element={mapElement} />
+          <Route path="/tasks" element={
+            canSeeTasksPage
+              ? <Tasks role={role} clientId={payload.clientId} permissions={payload.permissions} userName={displayName} canUseFeature={canUseFeature} />
+              : <NoAccessMessage label="tasks" />
+          } />
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "drivers")        && <Route path="/drivers"        element={<Drivers />} />}
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "vehicles")       && <Route path="/vehicles"       element={<Vehicles />} />}
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "loadingPoints")  && <Route path="/loading-points" element={<LoadingPoints />} />}
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "dropoffPoints")  && <Route path="/dropoff-points" element={<DropoffPoints />} />}
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && <Route path="/clients" element={<Clients />} />}
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "staff")          && <Route path="/staff"          element={<Staff />} />}
+          {/* Settings is open to every role — it self-filters its sections
               (client permissions, password change) based on role internally. */}
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<MapView role={role} clientId={payload.clientId} />} />
+          <Route path="/settings" element={canSeeSettingsPage ? <Settings /> : <NoAccessMessage label="settings" />} />
+          <Route path="*" element={mapElement} />
         </Routes>
       </div>
     </div>
