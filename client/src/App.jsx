@@ -1,6 +1,6 @@
 // src/App.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, Link } from "react-router-dom";
 
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
@@ -221,11 +221,41 @@ function getAuthPayload() {
 
 function NoAccessMessage({ label }) {
   return (
-    <div className="h-full flex items-center justify-center text-slate-400">
-      <div className="text-center">
-        <div className="text-4xl mb-3">🔒</div>
-        <p className="font-medium">You don't have access to {label}</p>
-        <p className="text-sm mt-1">Ask your admin to enable it if you think this is a mistake.</p>
+    <div className="h-full flex items-center justify-center text-slate-500">
+      <div className="text-center max-w-sm px-6">
+        <div className="text-4xl mb-3">🧭</div>
+        <p className="font-medium text-slate-700">This page isn't part of your access yet</p>
+        <p className="text-sm mt-1">Your admin can turn on {label} for you from the Staff page if you need it.</p>
+      </div>
+    </div>
+  );
+}
+
+// Shown at "/" (and as the catch-all fallback) instead of a flat "no access"
+// message when a staff/client account can't see the map — this is the very
+// first thing a restricted account sees on login, so it's framed as a
+// welcome and a launchpad to what they *can* reach, not a dead end.
+function HomeWelcome({ displayName, tenantDisplayName, quickLinks }) {
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  return (
+    <div className="h-full flex items-center justify-center text-slate-600 p-6">
+      <div className="text-center max-w-md">
+        <div className="text-5xl mb-4">👋</div>
+        <h1 className="text-2xl font-bold text-slate-800 mb-1">{greeting}, {displayName}!</h1>
+        <p className="text-slate-500 mb-6">
+          Welcome to FleetPro{tenantDisplayName ? ` — ${tenantDisplayName}` : ""}. Everything set up for you is in the sidebar.
+        </p>
+        {quickLinks.length > 0 && (
+          <div className="flex flex-wrap gap-2 justify-center">
+            {quickLinks.map(l => (
+              <Link key={l.to} to={l.to}
+                className="flex items-center gap-2 bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 rounded-lg px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors">
+                <span>{l.icon}</span> {l.label}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -313,9 +343,23 @@ export default function App() {
     || (isStaff && canSeeStaffItem(role, payload.permissions, "settings"))
     || role === "client";
 
+  // Same visibility rules as the routes/sidebar below, mirrored here just to
+  // pick which quick links to offer on the welcome screen — not a new
+  // source of truth. Settings is deliberately left out: this row is about
+  // work destinations, not account admin.
+  const quickLinks = [
+    canSeeTasksPage && { to: "/tasks", icon: "📋", label: "Tasks" },
+    hasFullAccess && canSeeStaffItem(role, payload.permissions, "drivers")       && { to: "/drivers", icon: "🧑‍✈️", label: "Drivers" },
+    hasFullAccess && canSeeStaffItem(role, payload.permissions, "vehicles")      && { to: "/vehicles", icon: "🚚", label: "Vehicles" },
+    hasFullAccess && canSeeStaffItem(role, payload.permissions, "loadingPoints") && { to: "/loading-points", icon: "📦", label: "Loading Points" },
+    hasFullAccess && canSeeStaffItem(role, payload.permissions, "dropoffPoints") && { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points" },
+    hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && { to: "/clients", icon: "🏢", label: "Clients" },
+    hasFullAccess && canSeeStaffItem(role, payload.permissions, "staff")         && { to: "/staff", icon: "👔", label: "Staff" },
+  ].filter(Boolean);
+
   const mapElement = canSeeMap
     ? <MapView role={role} clientId={payload.clientId} permissions={payload.permissions} canUseFeature={canUseFeature} />
-    : <NoAccessMessage label="the map" />;
+    : <HomeWelcome displayName={displayName} tenantDisplayName={payload.tenantDisplayName} quickLinks={quickLinks} />;
 
   return (
     <div className="flex h-screen overflow-hidden">

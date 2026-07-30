@@ -13,6 +13,15 @@ function authFetch(url, opts = {}) {
   return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
 }
 
+function getMyPayload() {
+  try {
+    const token = getToken();
+    if (!token) return null;
+    return JSON.parse(atob(token.split(".")[1]));
+  } catch { return null; }
+}
+
+// Page-visibility toggles — shown as the main checkbox grid.
 const PERMISSION_FIELDS = [
   { key: "map",            label: "Map" },
   { key: "tasks",          label: "Tasks" },
@@ -24,7 +33,17 @@ const PERMISSION_FIELDS = [
   { key: "staff",          label: "Staff" },
   { key: "settings",       label: "Settings" },
 ];
-const DEFAULT_PERMISSIONS = Object.fromEntries(PERMISSION_FIELDS.map(f => [f.key, true]));
+// Write-action sub-permissions — only meaningful (and only shown) once their
+// parent page is enabled. Backend-enforced (see taskController.js and
+// staffRoutes.js), unlike the page-visibility toggles above.
+const SUB_PERMISSION_FIELDS = [
+  { key: "createTasks", label: "Can Create Tasks", parentKey: "tasks",
+    hint: "Uncheck for view-only — they can search tasks and view PODs, but can't add, edit, or delete" },
+  { key: "manageStaff", label: "Can Manage Staff", parentKey: "staff",
+    hint: "Uncheck for view-only — they can see the staff list but can't add, edit, or delete anyone (and can never edit their own account, either way)" },
+];
+const ALL_PERMISSION_FIELDS = [...PERMISSION_FIELDS, ...SUB_PERMISSION_FIELDS];
+const DEFAULT_PERMISSIONS = Object.fromEntries(ALL_PERMISSION_FIELDS.map(f => [f.key, true]));
 
 const EMPTY_FORM = { name: "", username: "", password: "", permissions: DEFAULT_PERMISSIONS };
 
@@ -33,8 +52,8 @@ function AccessBadge({ row }) {
     return <span className="bg-indigo-100 text-indigo-700 text-xs font-semibold px-2 py-0.5 rounded-full">Admin</span>;
   }
   const perms = row.permissions || {};
-  const total = PERMISSION_FIELDS.length;
-  const onCount = PERMISSION_FIELDS.filter(f => perms[f.key] === true).length;
+  const total = ALL_PERMISSION_FIELDS.length;
+  const onCount = ALL_PERMISSION_FIELDS.filter(f => perms[f.key] === true).length;
   if (onCount === total) {
     return <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-0.5 rounded-full">Full Access</span>;
   }
@@ -42,6 +61,11 @@ function AccessBadge({ row }) {
 }
 
 export default function Staff() {
+  const myPayload = getMyPayload();
+  const myStaffId = myPayload?.staffId || null;
+  // Fail-open, admin always bypasses — matches the backend's own check.
+  const canManageStaff = myPayload?.role !== "staff" || myPayload?.permissions?.manageStaff !== false;
+
   const [staffList,   setStaffList]   = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [showForm,    setShowForm]    = useState(false);
@@ -135,10 +159,12 @@ export default function Staff() {
           <h2 className="text-2xl font-bold text-slate-800">👔 Staff</h2>
           <p className="text-sm text-slate-500 mt-1">Manage staff logins and what each person can see</p>
         </div>
-        <button onClick={openCreate}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">
-          + Add Staff
-        </button>
+        {canManageStaff && (
+          <button onClick={openCreate}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+            + Add Staff
+          </button>
+        )}
       </div>
 
       {success && (
@@ -178,15 +204,23 @@ export default function Staff() {
                     {new Date(s.createdAt).toLocaleDateString("en-ZA")}
                   </td>
                   <td className="px-4 py-3 flex gap-2 justify-end">
-                    <button onClick={() => openEdit(s)}
-                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-medium">
-                      ✏ Edit
-                    </button>
-                    {s.role !== "admin" && (
-                      <button onClick={() => handleDelete(s)}
-                        className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-xs font-medium">
-                        🗑 Delete
-                      </button>
+                    {myPayload?.role === "staff" && s.id === myStaffId ? (
+                      <span className="text-xs text-slate-400 italic px-2 py-1">This is you</span>
+                    ) : (
+                      <>
+                        {canManageStaff && (
+                          <button onClick={() => openEdit(s)}
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-medium">
+                            ✏ Edit
+                          </button>
+                        )}
+                        {canManageStaff && s.role !== "admin" && (
+                          <button onClick={() => handleDelete(s)}
+                            className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-xs font-medium">
+                            🗑 Delete
+                          </button>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>
@@ -204,7 +238,8 @@ export default function Staff() {
           <li>Passwords are not case-sensitive</li>
           <li>Each staff member's sidebar only shows what you've enabled for them below</li>
           <li>Tasks show who created and last edited them for accountability</li>
-          <li>A staff member needs the "Staff" permission enabled to manage other staff</li>
+          <li>"Can Create Tasks" and "Can Manage Staff" are view-only when unchecked — search/view stays available either way</li>
+          <li>No staff member — however much access they have — can edit or delete their own account</li>
           <li>Your tenant's Admin (shown above with the "Admin" badge) always has full access to everything</li>
         </ul>
       </div>
@@ -271,6 +306,25 @@ export default function Staff() {
                       </label>
                     ))}
                   </div>
+
+                  {SUB_PERMISSION_FIELDS.some(f => form.permissions[f.parentKey] === true) && (
+                    <div className="mt-3 space-y-2">
+                      {SUB_PERMISSION_FIELDS.filter(f => form.permissions[f.parentKey] === true).map(f => (
+                        <label key={f.key} className="flex items-start gap-2 text-sm text-slate-700 bg-indigo-50 rounded-lg px-3 py-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={form.permissions[f.key] === true}
+                            onChange={() => togglePermission(f.key)}
+                            className="rounded border-slate-300 mt-0.5"
+                          />
+                          <span>
+                            <span className="block font-medium">{f.label}</span>
+                            <span className="block text-[11px] text-slate-500">{f.hint}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

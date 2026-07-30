@@ -656,8 +656,19 @@ function LocationInput({ value, onChange, savedPoints, placeholder, id }) {
 export default function Tasks({ role = "admin", clientId = null, permissions = null, userName = "", canUseFeature = () => true }) {
   const isAdmin      = role === "admin";
   const isStaff = role === "staff";
+  // Role-only, unchanged meaning — used for data-scope decisions (which
+  // clients' tasks to load) and Route History visibility, both independent
+  // of whether a staff member is restricted from create/edit/delete below.
   const hasFullAccess = isAdmin || isStaff;
-  const canEdit  = hasFullAccess || permissions?.canCreateTasks === true;
+  // Create/edit/delete/status-change actions. Staff fail-open on a missing
+  // createTasks claim (an old token predating this permission still gets
+  // today's unconditional access, same convention as every other staff
+  // permission) — only an explicit false (a fresh, restricted login)
+  // narrows it. Clients never reach this tier; see canEdit below.
+  const canManage = isAdmin || (isStaff && permissions?.createTasks !== false);
+  // Client-only in effect — permissions.canCreateTasks doesn't exist on a
+  // staff-shaped permissions object, so this is always false for staff.
+  const canEdit = permissions?.canCreateTasks === true;
   const [tasks,         setTasks]         = useState([]);
   const [drivers,       setDrivers]       = useState([]);
   const [vehicles,      setVehicles]      = useState([]);
@@ -1053,7 +1064,7 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
             className="bg-[#1e293b] border border-slate-600 text-white text-sm px-3 py-1.5 rounded w-64 focus:outline-none focus:border-blue-500"
           />
           <TaskCalendar selectedDate={selectedDate} onSelect={handleDateSelect} tasksByDate={tasksByDate} />
-          {(hasFullAccess || canEdit) && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
+          {(canManage || canEdit) && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Task</button>}
         </div>
       </div>
 
@@ -1177,14 +1188,19 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                         </div>
                       )}
                       <div className="flex flex-wrap gap-0.5 mt-1 pt-1 border-t border-slate-700/60">
-                        {hasFullAccess ? (
+                        {/* View POD / View Route are independent of the create/edit/delete
+                            tier below — a restricted staff member (createTasks:false) still
+                            gets these, matching "search tasks and view PODs/info" even though
+                            they can't create, edit, or delete. Route History stays staff/admin
+                            only (hasFullAccess), same as before this permission existed. */}
+                        {task.status === "completed" && (
                           <>
-                            {task.status === "completed" && (
-                              <>
-                                {canUseFeature("podPhotos") && <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>}
-                                {canUseFeature("routeHistory") && <button onClick={() => setRouteTask(task)} className="px-1 py-0 bg-blue-900 hover:bg-blue-800 rounded text-[9px] font-medium">🗺 View Route</button>}
-                              </>
-                            )}
+                            {canUseFeature("podPhotos") && <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>}
+                            {hasFullAccess && canUseFeature("routeHistory") && <button onClick={() => setRouteTask(task)} className="px-1 py-0 bg-blue-900 hover:bg-blue-800 rounded text-[9px] font-medium">🗺 View Route</button>}
+                          </>
+                        )}
+                        {canManage ? (
+                          <>
                             <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
                             <button onClick={() => handleDelete(task.id)} className="px-1 py-0 bg-red-900 hover:bg-red-700 rounded text-[9px]">🗑 Del</button>
                             {task.status === "todo" && (
@@ -1199,19 +1215,11 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                           </>
                         ) : canEdit ? (
                           <>
-                            {task.status === "completed" && canUseFeature("podPhotos") && (
-                              <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
-                            )}
                             <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
                             <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
                           </>
                         ) : (
-                          <>
-                            {task.status === "completed" && canUseFeature("podPhotos") && (
-                              <button onClick={() => setPodTask(task)} className="px-1 py-0 bg-green-800 hover:bg-green-700 rounded text-[9px] font-medium">👁 View POD</button>
-                            )}
-                            <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
-                          </>
+                          <button onClick={() => setViewTask(task)} className="px-1 py-0 bg-blue-800 hover:bg-blue-700 rounded text-[9px] font-medium">👁 View</button>
                         )}
                       </div>
                     </div>
