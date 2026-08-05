@@ -506,6 +506,8 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
   const [uploadingTypeId, setUploadingTypeId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState("");
+  const [dealerStocked, setDealerStocked] = useState(!!asset.dealerStocked);
+  const [togglingDealerStocked, setTogglingDealerStocked] = useState(false);
 
   const loadAll = () => {
     if (!canUseFeature("complianceDocuments")) { setLoading(false); return; }
@@ -525,6 +527,31 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
   };
 
   useEffect(() => { loadAll(); }, [asset.id]);
+
+  const handleToggleDealerStocked = async (checked) => {
+    setTogglingDealerStocked(true);
+    setModalError("");
+    const previous = dealerStocked;
+    setDealerStocked(checked); // optimistic — this modal doesn't re-read the asset prop after save
+    try {
+      const res = await authFetch(`${apiBase}/${asset.id}/dealer-stocked`, {
+        method: "PATCH",
+        body: JSON.stringify({ dealerStocked: checked }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDealerStocked(previous);
+        setModalError(data.error || "Failed to update dealer stocked status");
+        return;
+      }
+      onChange?.();
+    } catch {
+      setDealerStocked(previous);
+      setModalError("Could not update dealer stocked status. Please try again.");
+    } finally {
+      setTogglingDealerStocked(false);
+    }
+  };
 
   const docForType = (typeId) => docs.find(d => d.documentTypeId === typeId);
   const isExpiringSoon = (dateStr) => {
@@ -654,6 +681,22 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
               <div className="text-xs text-slate-400 mb-1">🚚 Make / Model / Year</div>
               <div className="text-white text-sm font-medium">{[asset.make, asset.model, asset.year].filter(Boolean).join(" · ") || "—"}</div>
             </div>
+          </div>
+
+          <div className="bg-slate-800 rounded-lg p-3">
+            <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded"
+                checked={dealerStocked}
+                disabled={togglingDealerStocked}
+                onChange={(e) => handleToggleDealerStocked(e.target.checked)}
+              />
+              🏪 Dealer Stocked
+              <span className="text-xs text-slate-400">
+                {dealerStocked ? "— not yet in service, no documents needed yet" : "— taken off the road to sell? tick to mark as dealer stocked"}
+              </span>
+            </label>
           </div>
 
           {!canUseFeature("complianceDocuments") ? (

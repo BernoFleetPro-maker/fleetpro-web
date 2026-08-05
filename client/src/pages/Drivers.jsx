@@ -25,6 +25,32 @@ function canUseFeature(key) {
   } catch { return true; }
 }
 
+function DocumentChips({ documents }) {
+  if (!documents || documents.length === 0) return null;
+  const now = Date.now();
+  const in30Days = now + 30 * 24 * 60 * 60 * 1000;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {documents.map((d, i) => {
+        const exp = d.expiryDate ? new Date(d.expiryDate) : null;
+        const isExpired = exp && exp.getTime() < now;
+        const isExpiringSoon = exp && !isExpired && exp.getTime() <= in30Days;
+        const colorClass = isExpired
+          ? "bg-red-100 text-red-700 border-red-200"
+          : isExpiringSoon
+          ? "bg-amber-100 text-amber-700 border-amber-200"
+          : "bg-slate-100 text-slate-600 border-slate-200";
+        const dateLabel = exp ? exp.toLocaleDateString("en-ZA") : "no expiry date";
+        return (
+          <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${colorClass}`}>
+            {d.typeName}: {dateLabel}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Drivers() {
   const [drivers, setDrivers] = useState([]);
   const [form, setForm] = useState({ name: "", phone: "" });
@@ -259,6 +285,7 @@ export default function Drivers() {
                 </span>
               )}
               <span className="text-gray-500 text-sm ml-2">— {d.phone}</span>
+              {canUseFeature("complianceDocuments") && <DocumentChips documents={d.documents} />}
             </div>
             <div className="flex gap-2 items-center flex-wrap justify-end">
               <button
