@@ -26,7 +26,37 @@ function canUseFeature(key) {
   } catch { return true; }
 }
 
-const EMPTY_FORM = { registration: "", description: "", make: "", model: "", year: "" };
+// Inline "at a glance" document summary for a list row — red/amber/neutral
+// exactly matches the color logic already used inside the Info modal's own
+// document list, just condensed into small chips so the expiry dates are
+// visible without opening Info at all.
+function DocumentChips({ documents }) {
+  if (!documents || documents.length === 0) return null;
+  const now = Date.now();
+  const in30Days = now + 30 * 24 * 60 * 60 * 1000;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {documents.map((d, i) => {
+        const exp = d.expiryDate ? new Date(d.expiryDate) : null;
+        const isExpired = exp && exp.getTime() < now;
+        const isExpiringSoon = exp && !isExpired && exp.getTime() <= in30Days;
+        const colorClass = isExpired
+          ? "bg-red-100 text-red-700 border-red-200"
+          : isExpiringSoon
+          ? "bg-amber-100 text-amber-700 border-amber-200"
+          : "bg-slate-100 text-slate-600 border-slate-200";
+        const dateLabel = exp ? exp.toLocaleDateString("en-ZA") : "no expiry date";
+        return (
+          <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${colorClass}`}>
+            {d.typeName}: {dateLabel}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+const EMPTY_FORM = { registration: "", description: "", make: "", model: "", year: "", dealerStocked: false };
 
 export default function Vehicles() {
   const [vehicles, setVehicles] = useState([]);
@@ -37,6 +67,8 @@ export default function Vehicles() {
   const [showBin, setShowBin]   = useState(false);
   const [binCount, setBinCount] = useState(0);
   const [infoAsset, setInfoAsset] = useState(null); // { kind: "vehicle"|"trailer", asset }
+  const [showDealerDropdown, setShowDealerDropdown] = useState(false);
+  const [highlightedId, setHighlightedId] = useState(null); // briefly "frames" a row after jumping to it
 
   const [vehicleForm, setVehicleForm]   = useState(EMPTY_FORM);
   const [editingVehicle, setEditingVehicle] = useState(null);
@@ -110,6 +142,7 @@ export default function Vehicles() {
           make:  vehicleForm.make.trim(),
           model: vehicleForm.model.trim(),
           year:  vehicleForm.year.trim(),
+          dealerStocked: vehicleForm.dealerStocked,
         }),
       });
       const data = await res.json();
@@ -136,7 +169,7 @@ export default function Vehicles() {
   };
 
   const startEditVehicle = (v) => {
-    setVehicleForm({ registration: v.registration, description: v.description || "", make: v.make || "", model: v.model || "", year: v.year || "" });
+    setVehicleForm({ registration: v.registration, description: v.description || "", make: v.make || "", model: v.model || "", year: v.year || "", dealerStocked: !!v.dealerStocked });
     setEditingVehicle(v.id);
     setVehicleFormError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -162,6 +195,7 @@ export default function Vehicles() {
           make:  trailerForm.make.trim(),
           model: trailerForm.model.trim(),
           year:  trailerForm.year.trim(),
+          dealerStocked: trailerForm.dealerStocked,
         }),
       });
       const data = await res.json();
@@ -188,7 +222,7 @@ export default function Vehicles() {
   };
 
   const startEditTrailer = (t) => {
-    setTrailerForm({ registration: t.registration, description: t.description || "", make: t.make || "", model: t.model || "", year: t.year || "" });
+    setTrailerForm({ registration: t.registration, description: t.description || "", make: t.make || "", model: t.model || "", year: t.year || "", dealerStocked: !!t.dealerStocked });
     setEditingTrailer(t.id);
     setTrailerFormError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -203,6 +237,22 @@ export default function Vehicles() {
   const filteredVehicles = vehicles.filter(matchesSearch);
   const filteredTrailers = trailers.filter(matchesSearch);
 
+  const dealerStockedVehicles = vehicles.filter(v => v.dealerStocked);
+  const dealerStockedTrailers = trailers.filter(t => t.dealerStocked);
+  const dealerStockedCount = dealerStockedVehicles.length + dealerStockedTrailers.length;
+
+  // Closes the dropdown, scrolls the picked row into view, and briefly
+  // frames it with a highlight ring so it's easy to spot in a long list.
+  const jumpToAsset = (id) => {
+    setShowDealerDropdown(false);
+    setSearch(""); // a search filter could otherwise hide the row we're jumping to
+    setHighlightedId(id);
+    setTimeout(() => {
+      document.getElementById(`asset-row-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    setTimeout(() => setHighlightedId(null), 2500);
+  };
+
   return (
     <div className="p-6 max-w-4xl">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -216,6 +266,53 @@ export default function Vehicles() {
             <span className="text-lg font-bold text-amber-600">{trailers.length}</span>
             <div className="text-xs text-amber-600 leading-tight"><div className="font-semibold">Trailers</div></div>
           </div>
+          {dealerStockedCount > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowDealerDropdown(v => !v)}
+                className="flex items-center gap-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg px-3 py-1.5"
+                title="View dealer stocked vehicles & trailers"
+              >
+                <span className="text-lg font-bold text-purple-600">{dealerStockedCount}</span>
+                <div className="text-xs text-purple-600 leading-tight"><div className="font-semibold">🏪 Dealer Stocked</div></div>
+              </button>
+              {showDealerDropdown && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowDealerDropdown(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto">
+                    {dealerStockedVehicles.length > 0 && (
+                      <div className="px-3 pt-2 pb-1">
+                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-1">Vehicles</div>
+                        {dealerStockedVehicles.map(v => (
+                          <button
+                            key={v.id}
+                            onClick={() => jumpToAsset(v.id)}
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-purple-50 text-sm text-gray-700 flex items-center gap-2"
+                          >
+                            🚚 {v.registration}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {dealerStockedTrailers.length > 0 && (
+                      <div className="px-3 pt-1 pb-2">
+                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-1">Trailers</div>
+                        {dealerStockedTrailers.map(t => (
+                          <button
+                            key={t.id}
+                            onClick={() => jumpToAsset(t.id)}
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-purple-50 text-sm text-gray-700 flex items-center gap-2"
+                          >
+                            🚛 {t.registration}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <button
             onClick={() => setShowBin(true)}
             className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-sm font-medium"
@@ -262,6 +359,10 @@ export default function Vehicles() {
               <input type="text" placeholder="Model" className="border p-2 rounded text-sm" value={vehicleForm.model} onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })} />
               <input type="text" placeholder="Year" className="border p-2 rounded text-sm" value={vehicleForm.year} onChange={(e) => setVehicleForm({ ...vehicleForm, year: e.target.value })} />
             </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input type="checkbox" className="rounded" checked={vehicleForm.dealerStocked} onChange={(e) => setVehicleForm({ ...vehicleForm, dealerStocked: e.target.checked })} />
+              🏪 Dealer Stocked <span className="text-xs text-gray-400">(not yet in service — no documents needed yet)</span>
+            </label>
             <div className="flex gap-2 pt-1">
               <button type="submit" disabled={savingVehicle} className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-5 py-2 rounded text-sm font-medium">
                 {savingVehicle ? "Saving..." : editingVehicle ? "Update Vehicle" : "Add Vehicle"}
@@ -285,6 +386,10 @@ export default function Vehicles() {
               <input type="text" placeholder="Model" className="border p-2 rounded text-sm" value={trailerForm.model} onChange={(e) => setTrailerForm({ ...trailerForm, model: e.target.value })} />
               <input type="text" placeholder="Year" className="border p-2 rounded text-sm" value={trailerForm.year} onChange={(e) => setTrailerForm({ ...trailerForm, year: e.target.value })} />
             </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input type="checkbox" className="rounded" checked={trailerForm.dealerStocked} onChange={(e) => setTrailerForm({ ...trailerForm, dealerStocked: e.target.checked })} />
+              🏪 Dealer Stocked <span className="text-xs text-gray-400">(not yet in service — no documents needed yet)</span>
+            </label>
             <div className="flex gap-2 pt-1">
               <button type="submit" disabled={savingTrailer} className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white px-5 py-2 rounded text-sm font-medium">
                 {savingTrailer ? "Saving..." : editingTrailer ? "Update Trailer" : "Add Trailer"}
@@ -305,7 +410,7 @@ export default function Vehicles() {
           {vehicles.length > 0 && filteredVehicles.length === 0 && <p className="text-gray-400 text-sm mb-4">No vehicles match "{search}".</p>}
           <ul className="space-y-2 mb-6">
             {filteredVehicles.map((v) => (
-              <li key={v.id} className="flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm">
+              <li key={v.id} id={`asset-row-${v.id}`} className={`flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm transition-shadow ${highlightedId === v.id ? "ring-2 ring-purple-500 border-purple-400" : ""}`}>
                 <div>
                   <span className="font-bold text-gray-800 font-mono">{v.registration}</span>
                   {canUseFeature("complianceDocuments") && v.expiringDocsCount > 0 && (
@@ -314,8 +419,14 @@ export default function Vehicles() {
                       {v.expiringDocsCount}
                     </span>
                   )}
+                  {v.dealerStocked && (
+                    <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle">
+                      🏪 Dealer Stocked
+                    </span>
+                  )}
                   {v.description && <span className="text-gray-500 text-sm ml-2">— {v.description}</span>}
                   {(v.make || v.model || v.year) && <div className="text-gray-400 text-xs mt-0.5">{[v.make, v.model, v.year].filter(Boolean).join(" · ")}</div>}
+                  {canUseFeature("complianceDocuments") && <DocumentChips documents={v.documents} />}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
                   <button onClick={() => handleViewOnMap(v)} className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded text-xs font-medium" title="View this vehicle on the map">🗺 Map</button>
@@ -333,7 +444,7 @@ export default function Vehicles() {
           {trailers.length > 0 && filteredTrailers.length === 0 && <p className="text-gray-400 text-sm">No trailers match "{search}".</p>}
           <ul className="space-y-2">
             {filteredTrailers.map((t) => (
-              <li key={t.id} className="flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm">
+              <li key={t.id} id={`asset-row-${t.id}`} className={`flex justify-between items-center bg-white border rounded-lg px-4 py-3 shadow-sm transition-shadow ${highlightedId === t.id ? "ring-2 ring-purple-500 border-purple-400" : ""}`}>
                 <div>
                   <span className="font-bold text-gray-800 font-mono">{t.registration}</span>
                   {canUseFeature("complianceDocuments") && t.expiringDocsCount > 0 && (
@@ -342,8 +453,14 @@ export default function Vehicles() {
                       {t.expiringDocsCount}
                     </span>
                   )}
+                  {t.dealerStocked && (
+                    <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle">
+                      🏪 Dealer Stocked
+                    </span>
+                  )}
                   {t.description && <span className="text-gray-500 text-sm ml-2">— {t.description}</span>}
                   {(t.make || t.model || t.year) && <div className="text-gray-400 text-xs mt-0.5">{[t.make, t.model, t.year].filter(Boolean).join(" · ")}</div>}
+                  {canUseFeature("complianceDocuments") && <DocumentChips documents={t.documents} />}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
                   <button onClick={() => setInfoAsset({ kind: "trailer", asset: t })} className="flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-xs font-medium" title="View info & compliance documents">ℹ️ Info</button>
