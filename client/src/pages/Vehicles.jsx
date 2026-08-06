@@ -30,16 +30,18 @@ function canUseFeature(key) {
 // exactly matches the color logic already used inside the Info modal's own
 // document list, just condensed into small chips so the expiry dates are
 // visible without opening Info at all.
-function DocumentChips({ documents }) {
+function DocumentChips({ documents, onSelect }) {
   if (!documents || documents.length === 0) return null;
   const now = Date.now();
   const in30Days = now + 30 * 24 * 60 * 60 * 1000;
+  const clickable = "cursor-pointer hover:brightness-95";
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {documents.map((d, i) => {
         if (!d.uploaded) {
           return (
-            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-dashed bg-blue-50 text-blue-500 border-blue-200">
+            <span key={i} onClick={() => onSelect?.(d.typeId)} title="Click to upload"
+              className={`text-[10px] px-1.5 py-0.5 rounded border border-dashed bg-blue-50 text-blue-500 border-blue-200 ${clickable}`}>
               {d.typeName}: still to upload
             </span>
           );
@@ -54,7 +56,8 @@ function DocumentChips({ documents }) {
           : "bg-slate-100 text-slate-600 border-slate-200";
         const dateLabel = exp ? exp.toLocaleDateString("en-ZA") : "no expiry date";
         return (
-          <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${colorClass}`}>
+          <span key={i} onClick={() => onSelect?.(d.typeId)} title="Click to view or replace"
+            className={`text-[10px] px-1.5 py-0.5 rounded border ${colorClass} ${clickable}`}>
             {d.typeName}: {dateLabel}
           </span>
         );
@@ -433,7 +436,9 @@ export default function Vehicles() {
                   )}
                   {v.description && <span className="text-gray-500 text-sm ml-2">— {v.description}</span>}
                   {(v.make || v.model || v.year) && <div className="text-gray-400 text-xs mt-0.5">{[v.make, v.model, v.year].filter(Boolean).join(" · ")}</div>}
-                  {canUseFeature("complianceDocuments") && <DocumentChips documents={v.documents} />}
+                  {canUseFeature("complianceDocuments") && (
+                    <DocumentChips documents={v.documents} onSelect={(typeId) => setInfoAsset({ kind: "vehicle", asset: v, focusTypeId: typeId })} />
+                  )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
                   <button onClick={() => handleViewOnMap(v)} className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded text-xs font-medium" title="View this vehicle on the map">🗺 Map</button>
@@ -467,7 +472,9 @@ export default function Vehicles() {
                   )}
                   {t.description && <span className="text-gray-500 text-sm ml-2">— {t.description}</span>}
                   {(t.make || t.model || t.year) && <div className="text-gray-400 text-xs mt-0.5">{[t.make, t.model, t.year].filter(Boolean).join(" · ")}</div>}
-                  {canUseFeature("complianceDocuments") && <DocumentChips documents={t.documents} />}
+                  {canUseFeature("complianceDocuments") && (
+                    <DocumentChips documents={t.documents} onSelect={(typeId) => setInfoAsset({ kind: "trailer", asset: t, focusTypeId: typeId })} />
+                  )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
                   <button onClick={() => setInfoAsset({ kind: "trailer", asset: t })} className="flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-xs font-medium" title="View info & compliance documents">ℹ️ Info</button>
@@ -484,6 +491,7 @@ export default function Vehicles() {
         <AssetInfoModal
           assetKind={infoAsset.kind}
           asset={infoAsset.asset}
+          initialUploadTypeId={infoAsset.focusTypeId}
           onClose={() => setInfoAsset(null)}
           onChange={() => { fetchVehicles(); fetchTrailers(); }}
         />
@@ -501,7 +509,7 @@ export default function Vehicles() {
 
 // ─── Asset Info modal — details + compliance documents, shared by vehicles
 // and trailers. Same lazy-load-on-open, fetch-on-view pattern as Drivers. ───
-function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
+function AssetInfoModal({ assetKind, asset, onClose, onChange, initialUploadTypeId }) {
   const apiBase = assetKind === "vehicle" ? VEHICLE_API : TRAILER_API;
   const label = assetKind === "vehicle" ? "Vehicle" : "Trailer";
 
@@ -510,7 +518,9 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
   const [loading, setLoading] = useState(true);
   const [addingType, setAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
-  const [uploadingTypeId, setUploadingTypeId] = useState(null);
+  // Seeded from initialUploadTypeId so a chip clicked on the list page lands
+  // straight on that document's upload row already open, not just the modal.
+  const [uploadingTypeId, setUploadingTypeId] = useState(initialUploadTypeId || null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState("");
   const [dealerStocked, setDealerStocked] = useState(!!asset.dealerStocked);
@@ -534,6 +544,11 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
   };
 
   useEffect(() => { loadAll(); }, [asset.id]);
+
+  useEffect(() => {
+    if (!initialUploadTypeId || loading) return;
+    document.getElementById(`doctype-row-${initialUploadTypeId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [loading, initialUploadTypeId]);
 
   const handleToggleDealerStocked = async (checked) => {
     setTogglingDealerStocked(true);
@@ -721,7 +736,7 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
                   const doc = docForType(type.id);
                   const expiring = doc && isExpiringSoon(doc.expiryDate);
                   return (
-                    <div key={type.id} className="bg-slate-800 rounded-lg p-3">
+                    <div key={type.id} id={`doctype-row-${type.id}`} className="bg-slate-800 rounded-lg p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-white text-sm font-medium flex items-center gap-2">

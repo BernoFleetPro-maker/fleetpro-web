@@ -25,16 +25,18 @@ function canUseFeature(key) {
   } catch { return true; }
 }
 
-function DocumentChips({ documents }) {
+function DocumentChips({ documents, onSelect }) {
   if (!documents || documents.length === 0) return null;
   const now = Date.now();
   const in30Days = now + 30 * 24 * 60 * 60 * 1000;
+  const clickable = "cursor-pointer hover:brightness-95";
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {documents.map((d, i) => {
         if (!d.uploaded) {
           return (
-            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-dashed bg-blue-50 text-blue-500 border-blue-200">
+            <span key={i} onClick={() => onSelect?.(d.typeId)} title="Click to upload"
+              className={`text-[10px] px-1.5 py-0.5 rounded border border-dashed bg-blue-50 text-blue-500 border-blue-200 ${clickable}`}>
               {d.typeName}: still to upload
             </span>
           );
@@ -49,7 +51,8 @@ function DocumentChips({ documents }) {
           : "bg-slate-100 text-slate-600 border-slate-200";
         const dateLabel = exp ? exp.toLocaleDateString("en-ZA") : "no expiry date";
         return (
-          <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${colorClass}`}>
+          <span key={i} onClick={() => onSelect?.(d.typeId)} title="Click to view or replace"
+            className={`text-[10px] px-1.5 py-0.5 rounded border ${colorClass} ${clickable}`}>
             {d.typeName}: {dateLabel}
           </span>
         );
@@ -69,6 +72,7 @@ export default function Drivers() {
   const [toast, setToast] = useState("");
   const [activeTasks, setActiveTasks] = useState([]); // inprogress tasks for map nav
   const [infoDriver, setInfoDriver] = useState(null); // driver whose Info modal is open
+  const [focusTypeId, setFocusTypeId] = useState(null); // document type to land the Info modal's upload row on, if opened via a chip
   const [search, setSearch] = useState("");
   const [showBin, setShowBin] = useState(false);
   const [binCount, setBinCount] = useState(0);
@@ -292,7 +296,9 @@ export default function Drivers() {
                 </span>
               )}
               <span className="text-gray-500 text-sm ml-2">— {d.phone}</span>
-              {canUseFeature("complianceDocuments") && <DocumentChips documents={d.documents} />}
+              {canUseFeature("complianceDocuments") && (
+                <DocumentChips documents={d.documents} onSelect={(typeId) => { setInfoDriver(d); setFocusTypeId(typeId); }} />
+              )}
             </div>
             <div className="flex gap-2 items-center flex-wrap justify-end">
               <button
@@ -317,7 +323,12 @@ export default function Drivers() {
       </ul>
 
       {infoDriver && (
-        <DriverInfoModal driver={infoDriver} onClose={() => setInfoDriver(null)} onChange={fetchDrivers} />
+        <DriverInfoModal
+          driver={infoDriver}
+          initialUploadTypeId={focusTypeId}
+          onClose={() => { setInfoDriver(null); setFocusTypeId(null); }}
+          onChange={fetchDrivers}
+        />
       )}
 
       {showBin && (
@@ -447,13 +458,15 @@ function BinModal({ onClose, onChange }) {
 // this modal opens (not on the main Drivers list), and a document's actual
 // file is only fetched when "View" is clicked — keeps the list page fast as
 // documents accumulate.
-function DriverInfoModal({ driver, onClose, onChange }) {
+function DriverInfoModal({ driver, onClose, onChange, initialUploadTypeId }) {
   const [types, setTypes] = useState([]);
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addingType, setAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
-  const [uploadingTypeId, setUploadingTypeId] = useState(null);
+  // Seeded from initialUploadTypeId so a chip clicked on the list page lands
+  // straight on that document's upload row already open, not just the modal.
+  const [uploadingTypeId, setUploadingTypeId] = useState(initialUploadTypeId || null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState("");
 
@@ -475,6 +488,11 @@ function DriverInfoModal({ driver, onClose, onChange }) {
   };
 
   useEffect(() => { loadAll(); }, [driver.id]);
+
+  useEffect(() => {
+    if (!initialUploadTypeId || loading) return;
+    document.getElementById(`doctype-row-${initialUploadTypeId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [loading, initialUploadTypeId]);
 
   const docForType = (typeId) => docs.find(d => d.documentTypeId === typeId);
 
@@ -628,7 +646,7 @@ function DriverInfoModal({ driver, onClose, onChange }) {
                   const doc = docForType(type.id);
                   const expiring = doc && isExpiringSoon(doc.expiryDate);
                   return (
-                    <div key={type.id} className="bg-slate-800 rounded-lg p-3">
+                    <div key={type.id} id={`doctype-row-${type.id}`} className="bg-slate-800 rounded-lg p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-white text-sm font-medium flex items-center gap-2">
