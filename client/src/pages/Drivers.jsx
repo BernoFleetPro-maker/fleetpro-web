@@ -592,7 +592,7 @@ function DriverInfoModal({ driver, onClose, onChange, initialUploadTypeId }) {
   const handleDeleteType = async (typeId) => {
     if (!window.confirm("Remove this document type? Any uploaded documents under it must be removed first.")) return;
     try {
-      const res = await authFetch(`${ROOT_API}/document-types/${typeId}`, { method: "DELETE" });
+      const res = await authFetch(`${ROOT_API}/document-types/${typeId}?entityId=${driver.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) { setModalError(data.error || "Failed to delete document type"); return; }
       loadAll();
