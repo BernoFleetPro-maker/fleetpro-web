@@ -40,7 +40,7 @@ function DocumentChips({ documents, onSelect }) {
       {documents.map((d, i) => {
         if (!d.uploaded) {
           return (
-            <span key={i} onClick={() => onSelect?.(d.typeId)} title="Click to upload"
+            <span key={i} onClick={() => onSelect?.(d)} title="Click to upload"
               className={`text-[10px] px-1.5 py-0.5 rounded border border-dashed bg-blue-50 text-blue-500 border-blue-200 ${clickable}`}>
               {d.typeName}: still to upload
             </span>
@@ -56,7 +56,7 @@ function DocumentChips({ documents, onSelect }) {
           : "bg-slate-100 text-slate-600 border-slate-200";
         const dateLabel = exp ? exp.toLocaleDateString("en-ZA") : "no expiry date";
         return (
-          <span key={i} onClick={() => onSelect?.(d.typeId)} title="Click to view or replace"
+          <span key={i} onClick={() => onSelect?.(d)} title="Click to view, replace, or delete"
             className={`text-[10px] px-1.5 py-0.5 rounded border ${colorClass} ${clickable}`}>
             {d.typeName}: {dateLabel}
           </span>
@@ -77,6 +77,7 @@ export default function Vehicles() {
   const [showBin, setShowBin]   = useState(false);
   const [binCount, setBinCount] = useState(0);
   const [infoAsset, setInfoAsset] = useState(null); // { kind: "vehicle"|"trailer", asset }
+  const [quickDoc, setQuickDoc] = useState(null); // { apiBase, entityId, entityLabel, doc } — the small popup opened by clicking a document chip
   const [showDealerDropdown, setShowDealerDropdown] = useState(false);
   const [highlightedId, setHighlightedId] = useState(null); // briefly "frames" a row after jumping to it
 
@@ -437,7 +438,7 @@ export default function Vehicles() {
                   {v.description && <span className="text-gray-500 text-sm ml-2">— {v.description}</span>}
                   {(v.make || v.model || v.year) && <div className="text-gray-400 text-xs mt-0.5">{[v.make, v.model, v.year].filter(Boolean).join(" · ")}</div>}
                   {canUseFeature("complianceDocuments") && (
-                    <DocumentChips documents={v.documents} onSelect={(typeId) => setInfoAsset({ kind: "vehicle", asset: v, focusTypeId: typeId })} />
+                    <DocumentChips documents={v.documents} onSelect={(doc) => setQuickDoc({ apiBase: VEHICLE_API, entityId: v.id, entityLabel: `Vehicle — ${v.registration}`, doc })} />
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -473,7 +474,7 @@ export default function Vehicles() {
                   {t.description && <span className="text-gray-500 text-sm ml-2">— {t.description}</span>}
                   {(t.make || t.model || t.year) && <div className="text-gray-400 text-xs mt-0.5">{[t.make, t.model, t.year].filter(Boolean).join(" · ")}</div>}
                   {canUseFeature("complianceDocuments") && (
-                    <DocumentChips documents={t.documents} onSelect={(typeId) => setInfoAsset({ kind: "trailer", asset: t, focusTypeId: typeId })} />
+                    <DocumentChips documents={t.documents} onSelect={(doc) => setQuickDoc({ apiBase: TRAILER_API, entityId: t.id, entityLabel: `Trailer — ${t.registration}`, doc })} />
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -491,8 +492,18 @@ export default function Vehicles() {
         <AssetInfoModal
           assetKind={infoAsset.kind}
           asset={infoAsset.asset}
-          initialUploadTypeId={infoAsset.focusTypeId}
           onClose={() => setInfoAsset(null)}
+          onChange={() => { fetchVehicles(); fetchTrailers(); }}
+        />
+      )}
+
+      {quickDoc && (
+        <DocumentQuickModal
+          apiBase={quickDoc.apiBase}
+          entityId={quickDoc.entityId}
+          entityLabel={quickDoc.entityLabel}
+          doc={quickDoc.doc}
+          onClose={() => setQuickDoc(null)}
           onChange={() => { fetchVehicles(); fetchTrailers(); }}
         />
       )}
@@ -509,7 +520,7 @@ export default function Vehicles() {
 
 // ─── Asset Info modal — details + compliance documents, shared by vehicles
 // and trailers. Same lazy-load-on-open, fetch-on-view pattern as Drivers. ───
-function AssetInfoModal({ assetKind, asset, onClose, onChange, initialUploadTypeId }) {
+function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
   const apiBase = assetKind === "vehicle" ? VEHICLE_API : TRAILER_API;
   const label = assetKind === "vehicle" ? "Vehicle" : "Trailer";
 
@@ -518,9 +529,7 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange, initialUploadType
   const [loading, setLoading] = useState(true);
   const [addingType, setAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
-  // Seeded from initialUploadTypeId so a chip clicked on the list page lands
-  // straight on that document's upload row already open, not just the modal.
-  const [uploadingTypeId, setUploadingTypeId] = useState(initialUploadTypeId || null);
+  const [uploadingTypeId, setUploadingTypeId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState("");
   const [dealerStocked, setDealerStocked] = useState(!!asset.dealerStocked);
@@ -544,11 +553,6 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange, initialUploadType
   };
 
   useEffect(() => { loadAll(); }, [asset.id]);
-
-  useEffect(() => {
-    if (!initialUploadTypeId || loading) return;
-    document.getElementById(`doctype-row-${initialUploadTypeId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [loading, initialUploadTypeId]);
 
   const handleToggleDealerStocked = async (checked) => {
     setTogglingDealerStocked(true);
@@ -736,7 +740,7 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange, initialUploadType
                   const doc = docForType(type.id);
                   const expiring = doc && isExpiringSoon(doc.expiryDate);
                   return (
-                    <div key={type.id} id={`doctype-row-${type.id}`} className="bg-slate-800 rounded-lg p-3">
+                    <div key={type.id} className="bg-slate-800 rounded-lg p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-white text-sm font-medium flex items-center gap-2">
@@ -831,6 +835,143 @@ function DocumentUploadRow({ defaultExpiry, hasExistingDoc, busy, onSubmit, onSa
       </button>
       <button onClick={onCancel} className="text-xs text-slate-400 hover:text-white px-2">Cancel</button>
       {hasExistingDoc && !file && <span className="text-[11px] text-slate-500 basis-full">Tip: change just the date above to update it without re-uploading.</span>}
+    </div>
+  );
+}
+
+// ─── Document quick-action popup — opened by clicking a chip on the list.
+// Deliberately small and single-purpose: shows just the one document that
+// was clicked, defaulting to View/Replace/Delete so the user picks what
+// they want instead of always landing in the upload form. Upload/Replace
+// only opens DocumentUploadRow once explicitly chosen. ───────────────────────
+function DocumentQuickModal({ apiBase, entityId, entityLabel, doc, onClose, onChange }) {
+  const [current, setCurrent] = useState(doc); // { typeId, typeName, documentId, expiryDate, uploaded }
+  const [mode, setMode] = useState("actions"); // "actions" | "upload"
+  const [busy, setBusy] = useState(false);
+  const [modalError, setModalError] = useState("");
+
+  const isExpiringSoon = (dateStr) => {
+    if (!dateStr) return false;
+    return new Date(dateStr) <= new Date(Date.now() + 30 * 86400000);
+  };
+  const expired = current.uploaded && current.expiryDate && new Date(current.expiryDate) < new Date();
+  const expiring = current.uploaded && !expired && isExpiringSoon(current.expiryDate);
+
+  const handleView = async () => {
+    try {
+      const res = await authFetch(`${apiBase}/${entityId}/documents/${current.documentId}`);
+      const data = await res.json();
+      if (data.fileUrl) window.open(data.fileUrl, "_blank", "noopener,noreferrer");
+      else setModalError("Could not open document.");
+    } catch {
+      setModalError("Could not open document.");
+    }
+  };
+
+  const handleUpload = async (file, expiryDate) => {
+    setBusy(true);
+    setModalError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("documentTypeId", current.typeId);
+      if (expiryDate) fd.append("expiryDate", expiryDate);
+      const res = await fetch(`${apiBase}/${entityId}/documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to upload document"); return; }
+      setCurrent({ ...current, documentId: data.id, expiryDate: data.expiryDate, uploaded: true });
+      setMode("actions");
+      onChange?.();
+    } catch {
+      setModalError("Could not upload document. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveDateOnly = async (expiryDate) => {
+    setBusy(true);
+    setModalError("");
+    try {
+      const res = await authFetch(`${apiBase}/${entityId}/documents/${current.documentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ expiryDate: expiryDate || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to update expiry date"); return; }
+      setCurrent({ ...current, expiryDate: expiryDate || null });
+      setMode("actions");
+      onChange?.();
+    } catch {
+      setModalError("Could not update expiry date. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm("Delete this document? You'll need to upload it again later if it's still needed.")) return;
+    setBusy(true);
+    setModalError("");
+    try {
+      const res = await authFetch(`${apiBase}/${entityId}/documents/${current.documentId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to delete document"); return; }
+      setCurrent({ ...current, documentId: null, expiryDate: null, uploaded: false });
+      onChange?.();
+    } catch {
+      setModalError("Could not delete document. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="bg-[#1e293b] rounded-xl w-full max-w-sm border border-slate-600" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <div>
+            <h3 className="text-white font-bold">{current.typeName}</h3>
+            <span className="text-xs text-slate-400">{entityLabel}</span>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
+        </div>
+        <div className="p-4">
+          {modalError && <div className="bg-red-950 border border-red-800 text-red-300 text-sm px-3 py-2 rounded mb-3">{modalError}</div>}
+          <div className={`text-sm mb-3 ${expired || expiring ? "text-red-400 font-semibold" : "text-slate-300"}`}>
+            {current.uploaded
+              ? `Expires: ${current.expiryDate ? new Date(current.expiryDate).toLocaleDateString("en-ZA") : "No expiry date"}${expired ? " — expired" : expiring ? " ⚠️ Expiring soon" : ""}`
+              : "Not uploaded yet"}
+          </div>
+
+          {mode === "actions" ? (
+            <div className="flex gap-2">
+              {current.uploaded && (
+                <button onClick={handleView} className="flex-1 text-sm bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded">View</button>
+              )}
+              <button onClick={() => setMode("upload")} className="flex-1 text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded">
+                {current.uploaded ? "Replace" : "Upload"}
+              </button>
+              {current.uploaded && (
+                <button onClick={handleDelete} disabled={busy} className="flex-1 text-sm bg-red-950 hover:bg-red-900 disabled:opacity-50 text-red-300 px-3 py-2 rounded">Delete</button>
+              )}
+            </div>
+          ) : (
+            <DocumentUploadRow
+              defaultExpiry={current.expiryDate}
+              hasExistingDoc={current.uploaded}
+              busy={busy}
+              onCancel={() => setMode("actions")}
+              onSubmit={handleUpload}
+              onSaveDateOnly={handleSaveDateOnly}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
