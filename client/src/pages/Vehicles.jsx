@@ -37,6 +37,13 @@ function DocumentChips({ documents }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {documents.map((d, i) => {
+        if (!d.uploaded) {
+          return (
+            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-dashed bg-blue-50 text-blue-500 border-blue-200">
+              {d.typeName}: still to upload
+            </span>
+          );
+        }
         const exp = d.expiryDate ? new Date(d.expiryDate) : null;
         const isExpired = exp && exp.getTime() < now;
         const isExpiringSoon = exp && !isExpired && exp.getTime() <= in30Days;
@@ -514,7 +521,7 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
     setLoading(true);
     setModalError("");
     Promise.all([
-      authFetch(`${ROOT_API}/document-types?appliesTo=${assetKind}`).then(r => r.json()),
+      authFetch(`${ROOT_API}/document-types?appliesTo=${assetKind}&entityId=${asset.id}`).then(r => r.json()),
       authFetch(`${apiBase}/${asset.id}/documents`).then(r => r.json()),
     ])
       .then(([typesData, docsData]) => {
@@ -632,7 +639,7 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
     try {
       const res = await authFetch(`${ROOT_API}/document-types`, {
         method: "POST",
-        body: JSON.stringify({ name: newTypeName.trim(), appliesTo: assetKind }),
+        body: JSON.stringify({ name: newTypeName.trim(), appliesTo: assetKind, entityId: asset.id }),
       });
       const data = await res.json();
       if (!res.ok) { setModalError(data.error || "Failed to add document type"); return; }
@@ -757,12 +764,15 @@ function AssetInfoModal({ assetKind, asset, onClose, onChange }) {
             )}
 
             {addingType ? (
-              <div className="mt-3 flex items-center gap-2">
-                <input autoFocus value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} placeholder="e.g. Cross-border Permit"
-                  className="flex-1 bg-slate-900 border border-slate-600 text-white text-sm px-3 py-1.5 rounded focus:outline-none focus:border-blue-500"
-                  onKeyDown={(e) => e.key === "Enter" && handleAddType()} />
-                <button onClick={handleAddType} disabled={busy || !newTypeName.trim()} className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded font-medium">Add</button>
-                <button onClick={() => { setAddingType(false); setNewTypeName(""); }} className="text-xs text-slate-400 hover:text-white px-2">Cancel</button>
+              <div className="mt-3">
+                <div className="flex items-center gap-2">
+                  <input autoFocus value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} placeholder="e.g. Cross-border Permit"
+                    className="flex-1 bg-slate-900 border border-slate-600 text-white text-sm px-3 py-1.5 rounded focus:outline-none focus:border-blue-500"
+                    onKeyDown={(e) => e.key === "Enter" && handleAddType()} />
+                  <button onClick={handleAddType} disabled={busy || !newTypeName.trim()} className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded font-medium">Add</button>
+                  <button onClick={() => { setAddingType(false); setNewTypeName(""); }} className="text-xs text-slate-400 hover:text-white px-2">Cancel</button>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">Only applies to {asset.registration} — other {label.toLowerCase()}s won't see it.</div>
               </div>
             ) : (
               <button onClick={() => setAddingType(true)} className="mt-3 text-sm text-blue-400 hover:text-blue-300 font-medium">+ Add document type</button>
