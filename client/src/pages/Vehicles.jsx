@@ -26,18 +26,19 @@ function canUseFeature(key) {
   } catch { return true; }
 }
 
+const missingDocsCount = (documents) => (documents || []).filter(d => !d.uploaded).length;
+
 // Inline "at a glance" document summary for a list row — red/amber/neutral
 // exactly matches the color logic already used inside the Info modal's own
 // document list, just condensed into small chips so the expiry dates are
 // visible without opening Info at all.
-function DocumentChips({ documents, onSelect }) {
-  if (!documents || documents.length === 0) return null;
+function DocumentChips({ documents, onSelect, onAddNew }) {
   const now = Date.now();
   const in30Days = now + 30 * 24 * 60 * 60 * 1000;
   const clickable = "cursor-pointer hover:brightness-95";
   return (
-    <div className="flex flex-wrap gap-1 mt-1">
-      {documents.map((d, i) => {
+    <div className="flex flex-wrap items-center gap-1 mt-1">
+      {(documents || []).map((d, i) => {
         if (!d.uploaded) {
           return (
             <span key={i} onClick={() => onSelect?.(d)} title="Click to upload"
@@ -62,6 +63,10 @@ function DocumentChips({ documents, onSelect }) {
           </span>
         );
       })}
+      <button type="button" onClick={onAddNew} title="Add a new document"
+        className="w-4 h-4 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-[11px] font-bold leading-none border border-slate-300">
+        +
+      </button>
     </div>
   );
 }
@@ -183,7 +188,7 @@ export default function Vehicles() {
     setVehicleForm({ registration: v.registration, description: v.description || "", make: v.make || "", model: v.model || "", year: v.year || "", dealerStocked: !!v.dealerStocked });
     setEditingVehicle(v.id);
     setVehicleFormError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.getElementById("vehicle-form-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const cancelEditVehicle = () => { setVehicleForm(EMPTY_FORM); setEditingVehicle(null); setVehicleFormError(""); };
 
@@ -236,7 +241,7 @@ export default function Vehicles() {
     setTrailerForm({ registration: t.registration, description: t.description || "", make: t.make || "", model: t.model || "", year: t.year || "", dealerStocked: !!t.dealerStocked });
     setEditingTrailer(t.id);
     setTrailerFormError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.getElementById("trailer-form-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const cancelEditTrailer = () => { setTrailerForm(EMPTY_FORM); setEditingTrailer(null); setTrailerFormError(""); };
 
@@ -356,7 +361,7 @@ export default function Vehicles() {
 
       {/* ── Add forms ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="bg-white border rounded-lg p-5 shadow-sm">
+        <div id="vehicle-form-card" className={`bg-white border rounded-lg p-5 shadow-sm transition-shadow ${editingVehicle ? "ring-2 ring-blue-500 border-blue-400" : ""}`}>
           <h3 className="font-semibold text-gray-700 mb-1">{editingVehicle ? "Edit Vehicle" : "Add Vehicle"}</h3>
           <p className="text-xs text-gray-400 mb-3">Only the registration number is required.</p>
           {vehicleFormError && <div className="bg-red-50 border border-red-300 text-red-600 text-sm px-3 py-2 rounded mb-3">{vehicleFormError}</div>}
@@ -383,7 +388,7 @@ export default function Vehicles() {
           </form>
         </div>
 
-        <div className="bg-white border rounded-lg p-5 shadow-sm">
+        <div id="trailer-form-card" className={`bg-white border rounded-lg p-5 shadow-sm transition-shadow ${editingTrailer ? "ring-2 ring-amber-500 border-amber-400" : ""}`}>
           <h3 className="font-semibold text-gray-700 mb-1">{editingTrailer ? "Edit Trailer" : "Add Trailer"}</h3>
           <p className="text-xs text-gray-400 mb-3">Only the registration number is required.</p>
           {trailerFormError && <div className="bg-red-50 border border-red-300 text-red-600 text-sm px-3 py-2 rounded mb-3">{trailerFormError}</div>}
@@ -430,6 +435,12 @@ export default function Vehicles() {
                       {v.expiringDocsCount}
                     </span>
                   )}
+                  {canUseFeature("complianceDocuments") && missingDocsCount(v.documents) > 0 && (
+                    <span className="ml-2 bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle"
+                      title={`${missingDocsCount(v.documents)} document(s) still need to be uploaded`}>
+                      {missingDocsCount(v.documents)}
+                    </span>
+                  )}
                   {v.dealerStocked && (
                     <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle">
                       🏪 Dealer Stocked
@@ -438,7 +449,9 @@ export default function Vehicles() {
                   {v.description && <span className="text-gray-500 text-sm ml-2">— {v.description}</span>}
                   {(v.make || v.model || v.year) && <div className="text-gray-400 text-xs mt-0.5">{[v.make, v.model, v.year].filter(Boolean).join(" · ")}</div>}
                   {canUseFeature("complianceDocuments") && (
-                    <DocumentChips documents={v.documents} onSelect={(doc) => setQuickDoc({ apiBase: VEHICLE_API, entityId: v.id, entityLabel: `Vehicle — ${v.registration}`, doc })} />
+                    <DocumentChips documents={v.documents}
+                      onSelect={(doc) => setQuickDoc({ apiBase: VEHICLE_API, entityId: v.id, entityLabel: `Vehicle — ${v.registration}`, appliesTo: "vehicle", doc })}
+                      onAddNew={() => setQuickDoc({ apiBase: VEHICLE_API, entityId: v.id, entityLabel: `Vehicle — ${v.registration}`, appliesTo: "vehicle", doc: null })} />
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -466,6 +479,12 @@ export default function Vehicles() {
                       {t.expiringDocsCount}
                     </span>
                   )}
+                  {canUseFeature("complianceDocuments") && missingDocsCount(t.documents) > 0 && (
+                    <span className="ml-2 bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle"
+                      title={`${missingDocsCount(t.documents)} document(s) still need to be uploaded`}>
+                      {missingDocsCount(t.documents)}
+                    </span>
+                  )}
                   {t.dealerStocked && (
                     <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle">
                       🏪 Dealer Stocked
@@ -474,7 +493,9 @@ export default function Vehicles() {
                   {t.description && <span className="text-gray-500 text-sm ml-2">— {t.description}</span>}
                   {(t.make || t.model || t.year) && <div className="text-gray-400 text-xs mt-0.5">{[t.make, t.model, t.year].filter(Boolean).join(" · ")}</div>}
                   {canUseFeature("complianceDocuments") && (
-                    <DocumentChips documents={t.documents} onSelect={(doc) => setQuickDoc({ apiBase: TRAILER_API, entityId: t.id, entityLabel: `Trailer — ${t.registration}`, doc })} />
+                    <DocumentChips documents={t.documents}
+                      onSelect={(doc) => setQuickDoc({ apiBase: TRAILER_API, entityId: t.id, entityLabel: `Trailer — ${t.registration}`, appliesTo: "trailer", doc })}
+                      onAddNew={() => setQuickDoc({ apiBase: TRAILER_API, entityId: t.id, entityLabel: `Trailer — ${t.registration}`, appliesTo: "trailer", doc: null })} />
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -502,6 +523,7 @@ export default function Vehicles() {
           apiBase={quickDoc.apiBase}
           entityId={quickDoc.entityId}
           entityLabel={quickDoc.entityLabel}
+          appliesTo={quickDoc.appliesTo}
           doc={quickDoc.doc}
           onClose={() => setQuickDoc(null)}
           onChange={() => { fetchVehicles(); fetchTrailers(); }}
@@ -844,9 +866,10 @@ function DocumentUploadRow({ defaultExpiry, hasExistingDoc, busy, onSubmit, onSa
 // was clicked, defaulting to View/Replace/Delete so the user picks what
 // they want instead of always landing in the upload form. Upload/Replace
 // only opens DocumentUploadRow once explicitly chosen. ───────────────────────
-function DocumentQuickModal({ apiBase, entityId, entityLabel, doc, onClose, onChange }) {
-  const [current, setCurrent] = useState(doc); // { typeId, typeName, documentId, expiryDate, uploaded }
-  const [mode, setMode] = useState("actions"); // "actions" | "upload"
+function DocumentQuickModal({ apiBase, entityId, entityLabel, appliesTo, doc, onClose, onChange }) {
+  const [current, setCurrent] = useState(doc); // { typeId, typeName, documentId, expiryDate, uploaded } — null while adding a brand-new type
+  const [mode, setMode] = useState(doc ? "actions" : "name"); // "name" | "actions" | "upload"
+  const [newTypeName, setNewTypeName] = useState("");
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState("");
 
@@ -854,8 +877,29 @@ function DocumentQuickModal({ apiBase, entityId, entityLabel, doc, onClose, onCh
     if (!dateStr) return false;
     return new Date(dateStr) <= new Date(Date.now() + 30 * 86400000);
   };
-  const expired = current.uploaded && current.expiryDate && new Date(current.expiryDate) < new Date();
-  const expiring = current.uploaded && !expired && isExpiringSoon(current.expiryDate);
+  const expired = current?.uploaded && current.expiryDate && new Date(current.expiryDate) < new Date();
+  const expiring = current?.uploaded && !expired && isExpiringSoon(current.expiryDate);
+
+  const handleCreateType = async () => {
+    if (!newTypeName.trim()) return;
+    setBusy(true);
+    setModalError("");
+    try {
+      const res = await authFetch(`${ROOT_API}/document-types`, {
+        method: "POST",
+        body: JSON.stringify({ name: newTypeName.trim(), appliesTo, entityId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to add document type"); return; }
+      setCurrent({ typeId: data.id, typeName: data.name, documentId: null, expiryDate: null, uploaded: false });
+      setMode("upload"); // the whole point of adding a type here is to then upload something under it
+      onChange?.();
+    } catch {
+      setModalError("Could not add document type. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleView = async () => {
     try {
@@ -935,40 +979,58 @@ function DocumentQuickModal({ apiBase, entityId, entityLabel, doc, onClose, onCh
       <div className="bg-[#1e293b] rounded-xl w-full max-w-sm border border-slate-600" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-slate-700">
           <div>
-            <h3 className="text-white font-bold">{current.typeName}</h3>
+            <h3 className="text-white font-bold">{current ? current.typeName : "Add Document"}</h3>
             <span className="text-xs text-slate-400">{entityLabel}</span>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
         </div>
         <div className="p-4">
           {modalError && <div className="bg-red-950 border border-red-800 text-red-300 text-sm px-3 py-2 rounded mb-3">{modalError}</div>}
-          <div className={`text-sm mb-3 ${expired || expiring ? "text-red-400 font-semibold" : "text-slate-300"}`}>
-            {current.uploaded
-              ? `Expires: ${current.expiryDate ? new Date(current.expiryDate).toLocaleDateString("en-ZA") : "No expiry date"}${expired ? " — expired" : expiring ? " ⚠️ Expiring soon" : ""}`
-              : "Not uploaded yet"}
-          </div>
 
-          {mode === "actions" ? (
-            <div className="flex gap-2">
-              {current.uploaded && (
-                <button onClick={handleView} className="flex-1 text-sm bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded">View</button>
-              )}
-              <button onClick={() => setMode("upload")} className="flex-1 text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded">
-                {current.uploaded ? "Replace" : "Upload"}
-              </button>
-              {current.uploaded && (
-                <button onClick={handleDelete} disabled={busy} className="flex-1 text-sm bg-red-950 hover:bg-red-900 disabled:opacity-50 text-red-300 px-3 py-2 rounded">Delete</button>
-              )}
+          {mode === "name" ? (
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Document name</label>
+              <div className="flex items-center gap-2">
+                <input autoFocus value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} placeholder="e.g. Cross-border Permit"
+                  className="flex-1 bg-slate-900 border border-slate-600 text-white text-sm px-3 py-1.5 rounded focus:outline-none focus:border-blue-500"
+                  onKeyDown={(e) => e.key === "Enter" && handleCreateType()} />
+                <button onClick={handleCreateType} disabled={busy || !newTypeName.trim()} className="text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded font-medium">
+                  {busy ? "Adding…" : "Add"}
+                </button>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">Only applies to {entityLabel} — others won't see it.</div>
             </div>
           ) : (
-            <DocumentUploadRow
-              defaultExpiry={current.expiryDate}
-              hasExistingDoc={current.uploaded}
-              busy={busy}
-              onCancel={() => setMode("actions")}
-              onSubmit={handleUpload}
-              onSaveDateOnly={handleSaveDateOnly}
-            />
+            <>
+              <div className={`text-sm mb-3 ${expired || expiring ? "text-red-400 font-semibold" : "text-slate-300"}`}>
+                {current.uploaded
+                  ? `Expires: ${current.expiryDate ? new Date(current.expiryDate).toLocaleDateString("en-ZA") : "No expiry date"}${expired ? " — expired" : expiring ? " ⚠️ Expiring soon" : ""}`
+                  : "Not uploaded yet"}
+              </div>
+
+              {mode === "actions" ? (
+                <div className="flex gap-2">
+                  {current.uploaded && (
+                    <button onClick={handleView} className="flex-1 text-sm bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded">View</button>
+                  )}
+                  <button onClick={() => setMode("upload")} className="flex-1 text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded">
+                    {current.uploaded ? "Replace" : "Upload"}
+                  </button>
+                  {current.uploaded && (
+                    <button onClick={handleDelete} disabled={busy} className="flex-1 text-sm bg-red-950 hover:bg-red-900 disabled:opacity-50 text-red-300 px-3 py-2 rounded">Delete</button>
+                  )}
+                </div>
+              ) : (
+                <DocumentUploadRow
+                  defaultExpiry={current.expiryDate}
+                  hasExistingDoc={current.uploaded}
+                  busy={busy}
+                  onCancel={() => setMode("actions")}
+                  onSubmit={handleUpload}
+                  onSaveDateOnly={handleSaveDateOnly}
+                />
+              )}
+            </>
           )}
         </div>
       </div>

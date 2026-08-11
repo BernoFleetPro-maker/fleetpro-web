@@ -25,14 +25,15 @@ function canUseFeature(key) {
   } catch { return true; }
 }
 
-function DocumentChips({ documents, onSelect }) {
-  if (!documents || documents.length === 0) return null;
+const missingDocsCount = (documents) => (documents || []).filter(d => !d.uploaded).length;
+
+function DocumentChips({ documents, onSelect, onAddNew }) {
   const now = Date.now();
   const in30Days = now + 30 * 24 * 60 * 60 * 1000;
   const clickable = "cursor-pointer hover:brightness-95";
   return (
-    <div className="flex flex-wrap gap-1 mt-1">
-      {documents.map((d, i) => {
+    <div className="flex flex-wrap items-center gap-1 mt-1">
+      {(documents || []).map((d, i) => {
         if (!d.uploaded) {
           return (
             <span key={i} onClick={() => onSelect?.(d)} title="Click to upload"
@@ -57,6 +58,10 @@ function DocumentChips({ documents, onSelect }) {
           </span>
         );
       })}
+      <button type="button" onClick={onAddNew} title="Add a new document"
+        className="w-4 h-4 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-[11px] font-bold leading-none border border-slate-300">
+        +
+      </button>
     </div>
   );
 }
@@ -184,6 +189,7 @@ export default function Drivers() {
   const startEdit = (d) => {
     setForm({ name: d.name, phone: d.phone });
     setEditing(d.id);
+    document.getElementById("driver-form-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const cancelEdit = () => {
@@ -217,7 +223,7 @@ export default function Drivers() {
       </div>
 
       {/* Add / Edit Form */}
-      <div className="bg-white border rounded-lg p-4 mb-6 shadow-sm">
+      <div id="driver-form-card" className={`bg-white border rounded-lg p-4 mb-6 shadow-sm transition-shadow ${editing ? "ring-2 ring-blue-500 border-blue-400" : ""}`}>
         <h3 className="font-semibold text-gray-700 mb-3">{editing ? "Edit Driver" : "Add Driver"}</h3>
         <p className="text-xs text-gray-400 mb-3">
           The driver's phone number is used as their login password on the app.
@@ -295,9 +301,19 @@ export default function Drivers() {
                   {d.expiringDocsCount}
                 </span>
               )}
+              {canUseFeature("complianceDocuments") && missingDocsCount(d.documents) > 0 && (
+                <span
+                  className="ml-2 bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle"
+                  title={`${missingDocsCount(d.documents)} document(s) still need to be uploaded`}
+                >
+                  {missingDocsCount(d.documents)}
+                </span>
+              )}
               <span className="text-gray-500 text-sm ml-2">— {d.phone}</span>
               {canUseFeature("complianceDocuments") && (
-                <DocumentChips documents={d.documents} onSelect={(doc) => setQuickDoc({ entityId: d.id, entityLabel: d.name, doc })} />
+                <DocumentChips documents={d.documents}
+                  onSelect={(doc) => setQuickDoc({ entityId: d.id, entityLabel: d.name, doc })}
+                  onAddNew={() => setQuickDoc({ entityId: d.id, entityLabel: d.name, doc: null })} />
               )}
             </div>
             <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -818,8 +834,9 @@ function DocumentUploadRow({ defaultExpiry, hasExistingDoc, busy, onSubmit, onSa
 // they want instead of always landing in the upload form. Upload/Replace
 // only opens DocumentUploadRow once explicitly chosen. ───────────────────────
 function DocumentQuickModal({ entityId, entityLabel, doc, onClose, onChange }) {
-  const [current, setCurrent] = useState(doc); // { typeId, typeName, documentId, expiryDate, uploaded }
-  const [mode, setMode] = useState("actions"); // "actions" | "upload"
+  const [current, setCurrent] = useState(doc); // { typeId, typeName, documentId, expiryDate, uploaded } — null while adding a brand-new type
+  const [mode, setMode] = useState(doc ? "actions" : "name"); // "name" | "actions" | "upload"
+  const [newTypeName, setNewTypeName] = useState("");
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState("");
 
@@ -827,8 +844,29 @@ function DocumentQuickModal({ entityId, entityLabel, doc, onClose, onChange }) {
     if (!dateStr) return false;
     return new Date(dateStr) <= new Date(Date.now() + 30 * 86400000);
   };
-  const expired = current.uploaded && current.expiryDate && new Date(current.expiryDate) < new Date();
-  const expiring = current.uploaded && !expired && isExpiringSoon(current.expiryDate);
+  const expired = current?.uploaded && current.expiryDate && new Date(current.expiryDate) < new Date();
+  const expiring = current?.uploaded && !expired && isExpiringSoon(current.expiryDate);
+
+  const handleCreateType = async () => {
+    if (!newTypeName.trim()) return;
+    setBusy(true);
+    setModalError("");
+    try {
+      const res = await authFetch(`${ROOT_API}/document-types`, {
+        method: "POST",
+        body: JSON.stringify({ name: newTypeName.trim(), appliesTo: "driver", entityId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setModalError(data.error || "Failed to add document type"); return; }
+      setCurrent({ typeId: data.id, typeName: data.name, documentId: null, expiryDate: null, uploaded: false });
+      setMode("upload"); // the whole point of adding a type here is to then upload something under it
+      onChange?.();
+    } catch {
+      setModalError("Could not add document type. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleView = async () => {
     try {
@@ -908,40 +946,58 @@ function DocumentQuickModal({ entityId, entityLabel, doc, onClose, onChange }) {
       <div className="bg-[#1e293b] rounded-xl w-full max-w-sm border border-slate-600" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-slate-700">
           <div>
-            <h3 className="text-white font-bold">{current.typeName}</h3>
+            <h3 className="text-white font-bold">{current ? current.typeName : "Add Document"}</h3>
             <span className="text-xs text-slate-400">{entityLabel}</span>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
         </div>
         <div className="p-4">
           {modalError && <div className="bg-red-950 border border-red-800 text-red-300 text-sm px-3 py-2 rounded mb-3">{modalError}</div>}
-          <div className={`text-sm mb-3 ${expired || expiring ? "text-red-400 font-semibold" : "text-slate-300"}`}>
-            {current.uploaded
-              ? `Expires: ${current.expiryDate ? new Date(current.expiryDate).toLocaleDateString("en-ZA") : "No expiry date"}${expired ? " — expired" : expiring ? " ⚠️ Expiring soon" : ""}`
-              : "Not uploaded yet"}
-          </div>
 
-          {mode === "actions" ? (
-            <div className="flex gap-2">
-              {current.uploaded && (
-                <button onClick={handleView} className="flex-1 text-sm bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded">View</button>
-              )}
-              <button onClick={() => setMode("upload")} className="flex-1 text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded">
-                {current.uploaded ? "Replace" : "Upload"}
-              </button>
-              {current.uploaded && (
-                <button onClick={handleDelete} disabled={busy} className="flex-1 text-sm bg-red-950 hover:bg-red-900 disabled:opacity-50 text-red-300 px-3 py-2 rounded">Delete</button>
-              )}
+          {mode === "name" ? (
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Document name</label>
+              <div className="flex items-center gap-2">
+                <input autoFocus value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} placeholder="e.g. Induction Certificate"
+                  className="flex-1 bg-slate-900 border border-slate-600 text-white text-sm px-3 py-1.5 rounded focus:outline-none focus:border-blue-500"
+                  onKeyDown={(e) => e.key === "Enter" && handleCreateType()} />
+                <button onClick={handleCreateType} disabled={busy || !newTypeName.trim()} className="text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded font-medium">
+                  {busy ? "Adding…" : "Add"}
+                </button>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">Only applies to {entityLabel} — other drivers won't see it.</div>
             </div>
           ) : (
-            <DocumentUploadRow
-              defaultExpiry={current.expiryDate}
-              hasExistingDoc={current.uploaded}
-              busy={busy}
-              onCancel={() => setMode("actions")}
-              onSubmit={handleUpload}
-              onSaveDateOnly={handleSaveDateOnly}
-            />
+            <>
+              <div className={`text-sm mb-3 ${expired || expiring ? "text-red-400 font-semibold" : "text-slate-300"}`}>
+                {current.uploaded
+                  ? `Expires: ${current.expiryDate ? new Date(current.expiryDate).toLocaleDateString("en-ZA") : "No expiry date"}${expired ? " — expired" : expiring ? " ⚠️ Expiring soon" : ""}`
+                  : "Not uploaded yet"}
+              </div>
+
+              {mode === "actions" ? (
+                <div className="flex gap-2">
+                  {current.uploaded && (
+                    <button onClick={handleView} className="flex-1 text-sm bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded">View</button>
+                  )}
+                  <button onClick={() => setMode("upload")} className="flex-1 text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded">
+                    {current.uploaded ? "Replace" : "Upload"}
+                  </button>
+                  {current.uploaded && (
+                    <button onClick={handleDelete} disabled={busy} className="flex-1 text-sm bg-red-950 hover:bg-red-900 disabled:opacity-50 text-red-300 px-3 py-2 rounded">Delete</button>
+                  )}
+                </div>
+              ) : (
+                <DocumentUploadRow
+                  defaultExpiry={current.expiryDate}
+                  hasExistingDoc={current.uploaded}
+                  busy={busy}
+                  onCancel={() => setMode("actions")}
+                  onSubmit={handleUpload}
+                  onSaveDateOnly={handleSaveDateOnly}
+                />
+              )}
+            </>
           )}
         </div>
       </div>
