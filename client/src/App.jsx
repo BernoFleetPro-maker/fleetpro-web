@@ -376,7 +376,7 @@ export default function App() {
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "vehicles")       && <Route path="/vehicles"       element={<Vehicles />} />}
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "loadingPoints")  && <Route path="/loading-points" element={<LoadingPoints />} />}
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "dropoffPoints")  && <Route path="/dropoff-points" element={<DropoffPoints />} />}
-          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && <Route path="/clients" element={<Clients />} />}
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && <Route path="/clients" element={<Clients canUseFeature={canUseFeature} />} />}
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "staff")          && <Route path="/staff"          element={<Staff />} />}
           {/* Settings is open to every role — it self-filters its sections
               (client permissions, password change) based on role internally. */}
