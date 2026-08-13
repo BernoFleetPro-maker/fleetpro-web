@@ -13,21 +13,33 @@ function authFetch(url, opts = {}) {
   return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
 }
 
-// ── Dwell-time color flagging — same thresholds as the Site Time Report table,
-// no factual "correct" number since normal dwell varies a lot by site type.
-const DWELL_AMBER_MIN = 60;
-const DWELL_RED_MIN = 120;
+// ── Dwell-time color flagging — same thresholds as the Site Time Report table
+// (set by the user 2026-08-13): green up to 1h30, orange up to 2h30, red beyond.
+const DWELL_GREEN_MAX_MIN = 90;
+const DWELL_ORANGE_MAX_MIN = 150;
 function dwellClass(mins) {
   if (mins == null) return "text-slate-400";
-  if (mins >= DWELL_RED_MIN) return "text-red-400 font-bold";
-  if (mins >= DWELL_AMBER_MIN) return "text-amber-400 font-semibold";
-  return "text-white";
+  if (mins > DWELL_ORANGE_MAX_MIN) return "text-red-400 font-bold";
+  if (mins > DWELL_GREEN_MAX_MIN) return "text-orange-400 font-semibold";
+  return "text-green-400 font-semibold";
 }
 function fmtMinutes(mins) {
   if (mins == null) return "—";
   if (mins < 60) return `${mins} min`;
   const h = Math.floor(mins / 60), m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
+}
+// Load score = tiered against raw load dwell. Drop score = tiered against
+// lateness vs. the task's scheduled dropoff time. Computed server-side —
+// see taskController.js's tieredScore/scheduledDropoffAt.
+function fmtScore(score) {
+  return score == null ? "—" : `${score}%`;
+}
+function scoreClass(score) {
+  if (score == null) return "text-slate-400";
+  if (score >= 75) return "text-green-400 font-semibold";
+  if (score >= 50) return "text-orange-400 font-semibold";
+  return "text-red-400 font-bold";
 }
 
 function bearingDeg(lat1, lng1, lat2, lng2) {
@@ -220,6 +232,8 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
     const win = window.open("", "_blank");
     if (!win) { alert("Please allow popups for this site to download the PDF."); return; }
 
+    const dwellFlagClass = (mins) => mins == null ? "" : mins > DWELL_ORANGE_MAX_MIN ? "dwell-red" : mins > DWELL_GREEN_MAX_MIN ? "dwell-orange" : "dwell-green";
+    const scoreFlagClass = (score) => score == null ? "" : score >= 75 ? "dwell-green" : score >= 50 ? "dwell-orange" : "dwell-red";
     const stopsRows = (route.stops || []).map((s, i) => `
       <tr><td>${i + 1}</td><td>${fmt(s.startTime)}</td><td>${fmt(s.endTime)}</td><td>${s.durationMin} min</td></tr>
     `).join("");
@@ -236,8 +250,9 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
           .card { border:1px solid #ddd; border-radius:6px; padding:10px; }
           .card .label { font-size:11px; color:#666; }
           .card .value { font-size:14px; font-weight:600; }
-          .card .value.flag { color:#b45309; }
-          .card .value.flag-red { color:#b91c1c; }
+          .card .value.dwell-green { color:#15803d; }
+          .card .value.dwell-orange { color:#c2410c; }
+          .card .value.dwell-red { color:#b91c1c; }
           img { width:60%; display:block; margin:0 auto 20px; border-radius:8px; border:1px solid #ddd; }
           table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
           th, td { border:1px solid #ddd; padding:6px 8px; text-align:left; }
@@ -252,11 +267,13 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
           <div class="card"><div class="label">Travel to Loading</div><div class="value">${fmtMinutes(route.travelToLoadMinutes)}</div></div>
           <div class="card"><div class="label">Arrived at Loading</div><div class="value">${fmt(route.arrivedLoadAt)}</div></div>
           <div class="card"><div class="label">Departed Loading</div><div class="value">${fmt(route.departedLoadAt)}</div></div>
-          <div class="card"><div class="label">Time at Loading Site</div><div class="value ${route.loadDwellMinutes >= 120 ? "flag-red" : route.loadDwellMinutes >= 60 ? "flag" : ""}">${fmtMinutes(route.loadDwellMinutes)}</div></div>
+          <div class="card"><div class="label">Time at Loading Site</div><div class="value ${dwellFlagClass(route.loadDwellMinutes)}">${fmtMinutes(route.loadDwellMinutes)}</div></div>
+          <div class="card"><div class="label">Load Score</div><div class="value ${scoreFlagClass(route.loadScore)}">${fmtScore(route.loadScore)}</div></div>
           <div class="card"><div class="label">Transit to Dropoff</div><div class="value">${fmtMinutes(route.transitMinutes)}</div></div>
           <div class="card"><div class="label">Arrived at Dropoff</div><div class="value">${fmt(route.arrivedDropAt)}</div></div>
           <div class="card"><div class="label">Departed Dropoff</div><div class="value">${fmt(route.departedDropAt)}</div></div>
-          <div class="card"><div class="label">Time at Dropoff Site</div><div class="value ${route.dropDwellMinutes >= 120 ? "flag-red" : route.dropDwellMinutes >= 60 ? "flag" : ""}">${fmtMinutes(route.dropDwellMinutes)}</div></div>
+          <div class="card"><div class="label">Time at Dropoff Site</div><div class="value ${dwellFlagClass(route.dropDwellMinutes)}">${fmtMinutes(route.dropDwellMinutes)}</div></div>
+          <div class="card"><div class="label">Drop Score</div><div class="value ${scoreFlagClass(route.dropScore)}">${fmtScore(route.dropScore)}</div></div>
           <div class="card"><div class="label">Completed At</div><div class="value">${fmt(route.completedAt)}</div></div>
           <div class="card"><div class="label">Distance to Loading</div><div class="value">${route.distanceToLoadKm ?? 0} km</div></div>
           <div class="card"><div class="label">Distance to Dropoff</div><div class="value">${route.distanceToDropKm ?? 0} km</div></div>
@@ -331,6 +348,10 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
               <div className={`text-sm font-medium ${loading ? "text-white" : dwellClass(route?.loadDwellMinutes)}`}>{loading ? "—" : fmtMinutes(route?.loadDwellMinutes)}</div>
             </div>
             <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">📊 Load Score</div>
+              <div className={`text-sm font-medium ${loading ? "text-white" : scoreClass(route?.loadScore)}`}>{loading ? "—" : fmtScore(route?.loadScore)}</div>
+            </div>
+            <div className="bg-slate-800 rounded-lg p-3">
               <div className="text-xs text-slate-400 mb-1">🛣 Transit to Dropoff</div>
               <div className="text-white text-sm font-medium">{loading ? "—" : fmtMinutes(route?.transitMinutes)}</div>
             </div>
@@ -345,6 +366,10 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
             <div className="bg-slate-800 rounded-lg p-3">
               <div className="text-xs text-slate-400 mb-1">⏱ Time at Dropoff Site</div>
               <div className={`text-sm font-medium ${loading ? "text-white" : dwellClass(route?.dropDwellMinutes)}`}>{loading ? "—" : fmtMinutes(route?.dropDwellMinutes)}</div>
+            </div>
+            <div className="bg-slate-800 rounded-lg p-3">
+              <div className="text-xs text-slate-400 mb-1">📊 Drop Score</div>
+              <div className={`text-sm font-medium ${loading ? "text-white" : scoreClass(route?.dropScore)}`}>{loading ? "—" : fmtScore(route?.dropScore)}</div>
             </div>
             <div className="bg-slate-800 rounded-lg p-3">
               <div className="text-xs text-slate-400 mb-1">✅ Completed At</div>

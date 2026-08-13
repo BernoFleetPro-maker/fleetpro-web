@@ -25,11 +25,12 @@ const DEFAULT_CLIENT_PERMISSIONS = { canViewMap: true, canViewTasks: true, canCr
 const EMPTY_FORM = { name: "", username: "", password: "", permissions: DEFAULT_CLIENT_PERMISSIONS };
 
 // ── Site Time Report helpers ─────────────────────────────────────────────────
-// No factual basis for a "correct" dwell threshold — a bulk site and a small
-// parcel drop have very different normal dwell times. These are a sensible
-// starting default, easy to tune once real data is visible.
-const DWELL_AMBER_MIN = 60;
-const DWELL_RED_MIN = 120;
+// Thresholds set by the user directly (2026-08-13): green up to 1h30, orange
+// up to 2h30, red beyond that. Anything under 10min is folded into green too
+// (a real dwell is very unlikely to be that short, and there's no separate
+// treatment specified for it).
+const DWELL_GREEN_MAX_MIN = 90;
+const DWELL_ORANGE_MAX_MIN = 150;
 
 function fmtDT(d) {
   return d ? new Date(d).toLocaleString("en-ZA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -42,9 +43,23 @@ function fmtMinutes(mins) {
 }
 function dwellClass(mins) {
   if (mins == null) return "text-slate-400";
-  if (mins >= DWELL_RED_MIN) return "text-red-600 font-bold";
-  if (mins >= DWELL_AMBER_MIN) return "text-amber-600 font-semibold";
-  return "text-slate-700";
+  if (mins > DWELL_ORANGE_MAX_MIN) return "text-red-600 font-bold";
+  if (mins > DWELL_GREEN_MAX_MIN) return "text-orange-600 font-semibold";
+  return "text-green-600 font-semibold";
+}
+// Load score = tiered against raw load dwell time. Drop score = tiered
+// against lateness vs. the task's scheduled dropoff time (Task.date +
+// Task.pickupTime — the only scheduled time this app captures per task).
+// Both land on the same 100/75/50/25/0 scale, so the same color/format
+// helpers work for either.
+function fmtScore(score) {
+  return score == null ? "—" : `${score}%`;
+}
+function scoreClass(score) {
+  if (score == null) return "text-slate-400";
+  if (score >= 75) return "text-green-600 font-semibold";
+  if (score >= 50) return "text-orange-600 font-semibold";
+  return "text-red-600 font-bold";
 }
 function isoDate(offsetDays = 0) {
   const d = new Date();
@@ -88,18 +103,19 @@ function SiteTimeReportTab({ clients }) {
     const win = window.open("", "_blank");
     if (!win) { alert("Please allow popups for this site to download the PDF."); return; }
 
-    const flagClass = (mins) => mins >= DWELL_RED_MIN ? "flag-red" : mins >= DWELL_AMBER_MIN ? "flag" : "";
+    const dwellFlagClass = (mins) => mins == null ? "" : mins > DWELL_ORANGE_MAX_MIN ? "dwell-red" : mins > DWELL_GREEN_MAX_MIN ? "dwell-orange" : "dwell-green";
+    const scoreFlagClass = (score) => score == null ? "" : score >= 75 ? "dwell-green" : score >= 50 ? "dwell-orange" : "dwell-red";
     const rows = data.tasks.map(t => `
       <tr>
-        <td>${(t.title || "—").toString().replace(/</g, "")}${t.orderNumber ? ` <span class="muted">#${t.orderNumber}</span>` : ""}${!t.hasCompleteTracking ? ` <span class="flag">⚠</span>` : ""}</td>
+        <td>${(t.title || "—").toString().replace(/</g, "")}${t.orderNumber ? ` <span class="muted">#${t.orderNumber}</span>` : ""}${!t.hasCompleteTracking ? ` <span class="warn">⚠</span>` : ""}</td>
         <td>${t.driverName || "—"}</td>
         <td>${t.vehicleRegistration || "—"}</td>
         <td>${fmtDT(t.arrivedLoadAt)}</td>
         <td>${fmtDT(t.departedLoadAt)}</td>
-        <td class="${flagClass(t.loadDwellMinutes)}">${fmtMinutes(t.loadDwellMinutes)}</td>
+        <td class="${dwellFlagClass(t.loadDwellMinutes)}">${fmtMinutes(t.loadDwellMinutes)}</td>
         <td>${fmtDT(t.arrivedDropAt)}</td>
         <td>${fmtDT(t.departedDropAt)}</td>
-        <td class="${flagClass(t.dropDwellMinutes)}">${fmtMinutes(t.dropDwellMinutes)}</td>
+        <td class="${dwellFlagClass(t.dropDwellMinutes)}">${fmtMinutes(t.dropDwellMinutes)}</td>
         <td>${fmtDT(t.completedAt)}</td>
       </tr>
     `).join("");
@@ -112,7 +128,7 @@ function SiteTimeReportTab({ clients }) {
           body { font-family: Arial, sans-serif; padding: 24px; color:#111; }
           h1 { font-size: 20px; margin: 0 0 4px; }
           .sub { color:#555; font-size:12px; margin-bottom:20px; }
-          .grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; margin-bottom:20px; }
+          .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:20px; }
           .card { border:1px solid #ddd; border-radius:6px; padding:10px; }
           .card .label { font-size:11px; color:#666; }
           .card .value { font-size:14px; font-weight:600; }
@@ -120,8 +136,10 @@ function SiteTimeReportTab({ clients }) {
           th, td { border:1px solid #ddd; padding:5px 7px; text-align:left; white-space:nowrap; }
           th { background:#f3f4f6; }
           .muted { color:#888; font-size:10px; }
-          .flag { color:#b45309; font-weight:700; }
-          .flag-red { color:#b91c1c; font-weight:700; }
+          .warn { color:#b45309; font-weight:700; }
+          .dwell-green { color:#16a34a; font-weight:700; }
+          .dwell-orange { color:#c2410c; font-weight:700; }
+          .dwell-red { color:#b91c1c; font-weight:700; }
           @media print { table { font-size:10px; } }
         </style>
       </head>
@@ -130,8 +148,10 @@ function SiteTimeReportTab({ clients }) {
         <div class="sub">${from} to ${to} · ${data.summary.taskCount} completed task${data.summary.taskCount !== 1 ? "s" : ""}</div>
         <div class="grid">
           <div class="card"><div class="label">Completed Tasks</div><div class="value">${data.summary.taskCount}</div></div>
-          <div class="card"><div class="label">Avg Load Dwell</div><div class="value ${flagClass(data.summary.loadDwell.avg)}">${fmtMinutes(data.summary.loadDwell.avg)}</div></div>
-          <div class="card"><div class="label">Avg Drop Dwell</div><div class="value ${flagClass(data.summary.dropDwell.avg)}">${fmtMinutes(data.summary.dropDwell.avg)}</div></div>
+          <div class="card"><div class="label">Avg Load Dwell</div><div class="value ${dwellFlagClass(data.summary.loadDwell.avg)}">${fmtMinutes(data.summary.loadDwell.avg)}</div></div>
+          <div class="card"><div class="label">Load Score</div><div class="value ${scoreFlagClass(data.summary.loadScore)}">${fmtScore(data.summary.loadScore)}</div></div>
+          <div class="card"><div class="label">Avg Drop Dwell</div><div class="value ${dwellFlagClass(data.summary.dropDwell.avg)}">${fmtMinutes(data.summary.dropDwell.avg)}</div></div>
+          <div class="card"><div class="label">Drop Score</div><div class="value ${scoreFlagClass(data.summary.dropScore)}">${fmtScore(data.summary.dropScore)}</div></div>
           <div class="card"><div class="label">Avg Transit</div><div class="value">${fmtMinutes(data.summary.transit.avg)}</div></div>
           <div class="card"><div class="label">Incomplete Tracking</div><div class="value">${data.summary.incompleteTrackingCount}</div></div>
         </div>
@@ -199,7 +219,7 @@ function SiteTimeReportTab({ clients }) {
           </div>
 
           {/* Summary stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Completed Tasks</div>
               <div className="text-xl font-bold text-slate-800">{data.summary.taskCount}</div>
@@ -209,8 +229,16 @@ function SiteTimeReportTab({ clients }) {
               <div className={`text-xl font-bold ${dwellClass(data.summary.loadDwell.avg)}`}>{fmtMinutes(data.summary.loadDwell.avg)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
+              <div className="text-xs text-slate-500">Load Score</div>
+              <div className={`text-xl font-bold ${scoreClass(data.summary.loadScore)}`}>{fmtScore(data.summary.loadScore)}</div>
+            </div>
+            <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Avg Drop Dwell</div>
               <div className={`text-xl font-bold ${dwellClass(data.summary.dropDwell.avg)}`}>{fmtMinutes(data.summary.dropDwell.avg)}</div>
+            </div>
+            <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
+              <div className="text-xs text-slate-500">Drop Score</div>
+              <div className={`text-xl font-bold ${scoreClass(data.summary.dropScore)}`}>{fmtScore(data.summary.dropScore)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Avg Transit</div>
@@ -394,7 +422,7 @@ export default function Clients({ canUseFeature = () => true }) {
   };
 
   return (
-    <div className={`p-6 mx-auto ${tab === "report" ? "max-w-6xl" : "max-w-3xl"}`}>
+    <div className={`p-6 ${tab === "report" ? "w-full" : "max-w-3xl mx-auto"}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
