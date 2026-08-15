@@ -67,6 +67,7 @@ const FEATURE_FIELDS = [
   { key: "complianceDocuments", label: "Compliance Documents",  hint: "Driver/vehicle/trailer document tracking" },
   { key: "availableToLoad",     label: "Available to Load",     hint: "Vehicle availability toggle and client visibility" },
   { key: "siteTimeReports",     label: "Site Time Reports",     hint: "Loading/dropoff dwell-time reports under Clients" },
+  { key: "whatsappBot",         label: "WhatsApp Bot",          hint: "Client update bot in WhatsApp groups + tracking links" },
 ];
 const DEFAULT_FEATURES = Object.fromEntries(FEATURE_FIELDS.map(f => [f.key, true]));
 

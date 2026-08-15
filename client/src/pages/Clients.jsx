@@ -347,6 +347,7 @@ export default function Clients({ canUseFeature = () => true }) {
   const [error,     setError]     = useState("");
   const [success,   setSuccess]   = useState("");
   const [tab,       setTab]       = useState("clients"); // "clients" | "report"
+  const [whatsappGroups, setWhatsappGroups] = useState([]);
 
   const load = async () => {
     try {
@@ -356,7 +357,27 @@ export default function Clients({ canUseFeature = () => true }) {
     } catch { setClients([]); } finally { setLoading(false); }
   };
 
+  const loadWhatsappGroups = async () => {
+    try {
+      const res = await authFetch(`${API}/whatsapp/groups`);
+      const data = await res.json();
+      setWhatsappGroups(Array.isArray(data) ? data : []);
+    } catch { setWhatsappGroups([]); }
+  };
+
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (canUseFeature("whatsappBot")) loadWhatsappGroups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const assignGroup = async (groupId, clientId) => {
+    try {
+      const res = await authFetch(`${API}/whatsapp/groups/${groupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: clientId || null }),
+      });
+      if (res.ok) loadWhatsappGroups();
+    } catch {}
+  };
 
   const openCreate = () => {
     setForm({ ...EMPTY_FORM, permissions: { ...DEFAULT_CLIENT_PERMISSIONS } });
@@ -436,6 +457,29 @@ export default function Clients({ canUseFeature = () => true }) {
           </button>
         )}
       </div>
+
+      {tab === "clients" && canUseFeature("whatsappBot") && whatsappGroups.some(g => !g.clientId) && (
+        <div className="mb-6 bg-amber-50 border border-amber-300 rounded-lg p-4">
+          <div className="text-sm font-semibold text-amber-800 mb-2">
+            📱 Unassigned WhatsApp group{whatsappGroups.filter(g => !g.clientId).length === 1 ? "" : "s"} — assign to a client so the bot can respond
+          </div>
+          <div className="space-y-2">
+            {whatsappGroups.filter(g => !g.clientId).map(g => (
+              <div key={g.id} className="flex items-center justify-between gap-3 bg-white rounded-lg px-3 py-2 text-sm">
+                <span className="font-medium text-slate-700 truncate">{g.groupName || g.groupJid}</span>
+                <select
+                  className="border border-slate-300 rounded-lg px-2 py-1 text-xs min-w-[160px]"
+                  value=""
+                  onChange={e => e.target.value && assignGroup(g.id, e.target.value)}
+                >
+                  <option value="">Assign to client…</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {canUseFeature("siteTimeReports") && (
         <div className="flex gap-1 mb-6 border-b border-slate-200">
@@ -587,6 +631,38 @@ export default function Clients({ canUseFeature = () => true }) {
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2">Always limited to this client's own data, regardless of these toggles.</p>
               </div>
+
+              {editingId && canUseFeature("whatsappBot") && (
+                <div>
+                  <label className="text-xs text-slate-500 font-semibold block mb-2">WhatsApp Group(s)</label>
+                  <div className="space-y-2">
+                    {whatsappGroups.filter(g => g.clientId === editingId).map(g => (
+                      <div key={g.id} className="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2 text-sm">
+                        <span className="text-slate-700 truncate">{g.groupName || g.groupJid}</span>
+                        <button type="button" onClick={() => assignGroup(g.id, null)}
+                          className="text-xs text-red-600 hover:text-red-700 font-medium shrink-0">
+                          Unassign
+                        </button>
+                      </div>
+                    ))}
+                    {whatsappGroups.filter(g => !g.clientId).length > 0 && (
+                      <select
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                        value=""
+                        onChange={e => e.target.value && assignGroup(e.target.value, editingId)}
+                      >
+                        <option value="">+ Assign an unmapped group…</option>
+                        {whatsappGroups.filter(g => !g.clientId).map(g => (
+                          <option key={g.id} value={g.id}>{g.groupName || g.groupJid}</option>
+                        ))}
+                      </select>
+                    )}
+                    {whatsappGroups.filter(g => g.clientId === editingId).length === 0 && whatsappGroups.filter(g => !g.clientId).length === 0 && (
+                      <p className="text-xs text-slate-400">No WhatsApp groups yet — they appear here once the bot receives a message from one.</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <button type="submit" disabled={saving}

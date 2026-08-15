@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { isAvailableSoundEnabled, setAvailableSoundEnabled } from "../utils/soundPrefs";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
@@ -9,6 +9,18 @@ function getAuthPayload() {
     if (!token) return null;
     return JSON.parse(atob(token.split(".")[1]));
   } catch { return null; }
+}
+
+// This page's one pre-existing fetch call (change-password) doesn't send an
+// Authorization header — it identifies the caller via username+password in
+// the body instead, its own auth model. The WhatsApp settings below need a
+// real Bearer token like every other authenticated page in this app.
+function authHeaders(extra = {}) {
+  const token = localStorage.getItem("fleetpro_token") || "";
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, ...extra };
+}
+function authFetch(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
 }
 
 const ROLE_INFO = [
@@ -34,7 +46,132 @@ const ROLE_INFO = [
   },
 ];
 
-export default function Settings() {
+const CONNECTION_LABELS = {
+  open: { text: "✅ Connected", color: "text-green-700" },
+  connecting: { text: "⏳ Connecting…", color: "text-amber-700" },
+  disconnected: { text: "🔴 Disconnected", color: "text-red-700" },
+};
+
+// Admin-only, matching the backend's own gate on /status and /qr (stricter
+// than the usual staff-or-admin pattern — whoever can scan the QR can pair
+// their own WhatsApp session in place of the bot's). The keyword/template
+// editor lives in this same box for simplicity rather than splitting it out
+// under a looser staff-or-admin gate.
+function WhatsappBotSettings() {
+  const [status,  setStatus]  = useState(null);
+  const [qrUrl,   setQrUrl]   = useState(null);
+  const [keywordsInput, setKeywordsInput] = useState("");
+  const [templateInput, setTemplateInput] = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+
+  const loadStatus = async () => {
+    try {
+      const res = await authFetch(`${API}/whatsapp/status`);
+      if (res.ok) setStatus(await res.json());
+    } catch {}
+  };
+
+  const loadConfig = async () => {
+    try {
+      const res = await authFetch(`${API}/whatsapp/config`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setKeywordsInput((data.triggerKeywords || []).join(", "));
+      setTemplateInput(data.replyTemplate || "");
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadStatus();
+    loadConfig();
+    const poll = setInterval(loadStatus, 8000);
+    return () => clearInterval(poll);
+  }, []);
+
+  // Fetch (and periodically refresh) the QR image only while one's actually
+  // pending — Baileys rotates it if it isn't scanned, so a stale image left
+  // on screen would eventually stop working silently.
+  useEffect(() => {
+    if (!status?.hasPendingQr) { setQrUrl(null); return; }
+    let cancelled = false;
+    let objectUrl = null;
+
+    const fetchQr = async () => {
+      try {
+        const res = await authFetch(`${API}/whatsapp/qr`);
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = URL.createObjectURL(blob);
+        setQrUrl(objectUrl);
+      } catch {}
+    };
+
+    fetchQr();
+    const poll = setInterval(fetchQr, 15000);
+    return () => { cancelled = true; clearInterval(poll); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [status?.hasPendingQr]);
+
+  const saveConfig = async () => {
+    setSaving(true);
+    setSaveMsg("");
+    try {
+      const triggerKeywords = keywordsInput.split(",").map(k => k.trim()).filter(Boolean);
+      const res = await authFetch(`${API}/whatsapp/config`, {
+        method: "PATCH",
+        body: JSON.stringify({ triggerKeywords, replyTemplate: templateInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSaveMsg(data.error || "Failed to save."); return; }
+      setKeywordsInput((data.triggerKeywords || []).join(", "));
+      setTemplateInput(data.replyTemplate || "");
+      setSaveMsg("✅ Saved");
+      setTimeout(() => setSaveMsg(""), 3000);
+    } catch { setSaveMsg("Server error. Please try again."); }
+    finally { setSaving(false); }
+  };
+
+  const conn = CONNECTION_LABELS[status?.status] || CONNECTION_LABELS.disconnected;
+
+  return (
+    <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+      <h3 className="font-semibold text-green-800 mb-2">📱 WhatsApp Bot</h3>
+      <p className={`text-sm font-semibold ${conn.color}`}>{conn.text}</p>
+
+      {status?.hasPendingQr && (
+        <div className="mt-3 bg-white border border-green-200 rounded-lg p-4 text-center">
+          <p className="text-xs text-slate-500 mb-2">Scan with the WhatsApp account you want the bot to use:</p>
+          {qrUrl ? <img src={qrUrl} alt="WhatsApp QR code" className="mx-auto" width={220} height={220} /> : <p className="text-xs text-slate-400">Loading QR…</p>}
+        </div>
+      )}
+
+      <div className="mt-4 pt-4 border-t border-green-200">
+        <label className="text-xs text-green-800 font-semibold block mb-1">Trigger words (comma-separated)</label>
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-green-500"
+          value={keywordsInput} onChange={e => setKeywordsInput(e.target.value)}
+          placeholder="update, status, eta, track, tracking" />
+
+        <label className="text-xs text-green-800 font-semibold block mb-1">Reply message (leave blank for the default)</label>
+        <textarea className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-green-500"
+          rows={4} value={templateInput} onChange={e => setTemplateInput(e.target.value)}
+          placeholder="Hi {clientName}! Here's a summary of your current loads:&#10;&#10;{taskList}&#10;&#10;📍 View live: {trackingLink}" />
+        <p className="text-[10px] text-slate-400 mt-1">Placeholders: {"{clientName}"}, {"{taskList}"}, {"{trackingLink}"}</p>
+
+        <div className="flex items-center gap-3 mt-3">
+          <button onClick={saveConfig} disabled={saving}
+            className="bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {saveMsg && <span className="text-xs text-slate-600">{saveMsg}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Settings({ canUseFeature = () => true }) {
   // Change password state
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNew,     setPwNew]     = useState("");
@@ -195,6 +332,13 @@ export default function Settings() {
         </ul>
         <p className="text-xs text-amber-600 mt-2">To change, update these in Railway project settings and redeploy.</p>
       </div>
+      )}
+
+      {/* WhatsApp bot — admin only, matches the backend's own gate on status/qr */}
+      {role === "admin" && canUseFeature("whatsappBot") && (
+        <div className="mt-6">
+          <WhatsappBotSettings />
+        </div>
       )}
     </div>
   );

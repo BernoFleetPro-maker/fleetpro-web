@@ -17,6 +17,7 @@ import Settings from "./pages/Settings";
 
 import Clients from "./pages/Clients";
 import Staff from "./pages/Staff";
+import TrackingPage from "./pages/TrackingPage";
 
 import { playAvailableSound } from "./utils/soundPrefs";
 import { canSeeStaffItem } from "./utils/staffAccess";
@@ -204,6 +205,36 @@ function useExpiringVehicleDocsCount(enabled) {
   return count;
 }
 
+// Same polling shape as the two hooks above, but there's no dedicated
+// count endpoint for this one — GET /api/whatsapp/groups already returns
+// the full list (staff/admin use it directly on the Clients page too), so
+// counting unmapped rows client-side avoids a second near-duplicate route
+// for what's a small, infrequently-changing list.
+function useUnmappedWhatsappGroupsCount(enabled) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) { setCount(0); return; }
+    let cancelled = false;
+
+    const refresh = async () => {
+      try {
+        const res = await authFetch(`${API}/whatsapp/groups`);
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data)) {
+          setCount(data.filter(g => !g.clientId).length);
+        }
+      } catch {}
+    };
+
+    refresh();
+    const poll = setInterval(refresh, 60000);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [enabled]);
+
+  return count;
+}
+
 function getAuthPayload() {
   const token = localStorage.getItem("fleetpro_token");
   if (!token) return null;
@@ -282,6 +313,17 @@ function LoggedOutRoutes() {
 }
 
 export default function App() {
+  // Public WhatsApp-bot tracking link — bypasses the entire authenticated/
+  // logged-out route tree entirely. Checked before any hook in this
+  // component runs: an early return before every hook call is safe under
+  // the Rules of Hooks, but conditionally skipping just the hooks below
+  // would not be. Mirrors the role === "superadmin" early-return just below,
+  // which does the same thing for its own separate tree.
+  const trackMatch = window.location.pathname.match(/^\/track\/([^/]+)$/);
+  if (trackMatch) {
+    return <TrackingPage token={trackMatch[1]} />;
+  }
+
   const payload = getAuthPayload();
   // Fail-open on a missing/undefined key, same convention as staff/client
   // permission checks. Admin bypasses tenant feature flags entirely — matches
@@ -298,6 +340,9 @@ export default function App() {
   );
   const expiringVehicleDocsCount = useExpiringVehicleDocsCount(
     !!payload && (payload.role === "admin" || payload.role === "staff") && canUseFeature("complianceDocuments")
+  );
+  const unmappedWhatsappGroupsCount = useUnmappedWhatsappGroupsCount(
+    !!payload && (payload.role === "admin" || payload.role === "staff") && canUseFeature("whatsappBot")
   );
 
   if (!payload) {
@@ -363,7 +408,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} canUseFeature={canUseFeature} />
+      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} unmappedWhatsappGroupsCount={unmappedWhatsappGroupsCount} canUseFeature={canUseFeature} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"      element={mapElement} />
@@ -380,7 +425,7 @@ export default function App() {
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "staff")          && <Route path="/staff"          element={<Staff />} />}
           {/* Settings is open to every role — it self-filters its sections
               (client permissions, password change) based on role internally. */}
-          <Route path="/settings" element={canSeeSettingsPage ? <Settings /> : <NoAccessMessage label="settings" />} />
+          <Route path="/settings" element={canSeeSettingsPage ? <Settings canUseFeature={canUseFeature} /> : <NoAccessMessage label="settings" />} />
           <Route path="*" element={mapElement} />
         </Routes>
       </div>
