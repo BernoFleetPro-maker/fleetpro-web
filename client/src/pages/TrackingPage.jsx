@@ -197,14 +197,15 @@ export default function TrackingPage({ token }) {
         // flex block even though the button itself is only 48px wide and
         // right-aligned, leaving the rest of that row permanently blank
         // above our content. Repositioning it as an absolute corner overlay
-        // removes it from flow entirely, so content starts ~48px higher —
-        // confirmed against real popups (short and long content both) that
-        // the button's actual visible icon is much smaller than its 48x48
-        // hit target, so the overlay never visually collides with text.
+        // removes it from flow entirely, so content starts ~48px higher.
+        // The 48x48 hit target is also shrunk to 24x24 — full-size it reads
+        // as oversized/off against this small a popup — confirmed against
+        // real popups (short and long content both) that the smaller
+        // button still centers its icon cleanly and stays clickable.
         if (!document.getElementById("tracking-iw-style")) {
           const style = document.createElement("style");
           style.id = "tracking-iw-style";
-          style.textContent = ".gm-style-iw-d{overflow-x:hidden!important;overflow-y:auto!important}.gm-style-iw-chr{position:absolute!important;top:0!important;right:0!important;height:auto!important}";
+          style.textContent = ".gm-style-iw-d{overflow-x:hidden!important;overflow-y:auto!important}.gm-style-iw-chr{position:absolute!important;top:0!important;right:0!important;height:auto!important;width:24px!important}.gm-style-iw-chr .gm-ui-hover-effect{width:24px!important;height:24px!important}.gm-style-iw-chr .gm-ui-hover-effect>span{width:14px!important;height:14px!important;margin:5px!important}";
           document.head.appendChild(style);
         }
       }
