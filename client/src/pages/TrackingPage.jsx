@@ -4,6 +4,8 @@ const API = "https://fleetpro-backend-production.up.railway.app/api";
 const POLL_MS = 20000; // live position refresh — roughly matches the admin map's own cadence
 
 const STATUS_LABELS = { unassigned: "Unassigned", todo: "To Do", inprogress: "In Progress", completed: "Completed" };
+const PHASE_COLORS = { to_load: "#1e88e5", at_load: "#1e88e5", to_drop: "#43a047", at_drop: "#43a047" };
+const PHASE_LABELS = { to_load: "🚛 En route to loading", at_load: "🏭 At loading station", to_drop: "🚛 En route to dropoff", at_drop: "✅ Arrived at client" };
 
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function formatShortDate(dateStr) {
@@ -12,17 +14,91 @@ function formatShortDate(dateStr) {
   return `${d} ${MONTH_ABBR[m - 1]}`;
 }
 
+// Same Excel-serial-or-ISO handling as MapView.jsx's own formatDate, since
+// this is the exact same tracking-provider `dt` value passed straight
+// through the backend.
+function formatUpdatedAt(dtValue) {
+  if (!dtValue) return "Unknown";
+  const num = Number(dtValue);
+  let date;
+  try {
+    if (!Number.isFinite(num)) date = new Date(dtValue);
+    else if (num > 30000) date = new Date((num - 25569) * 86400 * 1000);
+    else date = new Date();
+    date = new Date(date.getTime() - 2 * 60 * 60 * 1000);
+    return date.toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  } catch { return "Invalid date"; }
+}
+
+function formatDueDate(date, time) {
+  if (!date) return null;
+  try {
+    const d = new Date(date + "T00:00:00");
+    const dayStr = d.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    return time ? `${dayStr} @ ${time}` : dayStr;
+  } catch { return date; }
+}
+
+function arrivalClock(mins) {
+  const a = new Date(Date.now() + (mins || 0) * 60000);
+  return a.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Africa/Johannesburg" });
+}
+
 function escapeHtml(s) {
   return (s ?? "—").toString().replace(/</g, "&lt;");
 }
 
+// Directional arrow rotated to heading when moving, a stationary red dot
+// when nearly stopped — identical thresholds/colors to MapView.jsx's
+// getSymbolIcon, so a vehicle looks the same here as it does on the admin map.
+function vehicleIcon(g, position) {
+  const speed = Number(position?.speed || 0);
+  if (speed < 5) {
+    return { path: g.maps.SymbolPath.CIRCLE, scale: 6, fillColor: "#ff3b30", fillOpacity: 1, strokeColor: "#000", strokeWeight: 1 };
+  }
+  return {
+    path: g.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 6, rotation: Number(position?.heading || 0),
+    fillColor: speed > 40 ? "#007bff" : "#FFA500", fillOpacity: 1, strokeColor: "#000", strokeWeight: 1,
+  };
+}
+
+// Read-only subset of MapView.jsx's admin info window — same vehicle
+// telemetry and active-task detail, deliberately without the buttons that
+// mutate data (manual phase override, save point, availability toggle) or
+// deep-link into the authenticated app, since this page has no login and no
+// session to act as. `t` is always looked up fresh at click time (see
+// tasksByIdRef below), never a value closed over when the marker was made,
+// so the popup can't go stale as new polls come in.
 function infoWindowHtml(t) {
-  return `
-    <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.4;max-width:220px;">
-      <div style="font-weight:700;margin-bottom:3px;">${escapeHtml(t.orderNumber ? "#" + t.orderNumber : "Load")}</div>
-      <div>${escapeHtml(t.loadLocation)} → ${escapeHtml(t.dropoffLocation)}</div>
-      <div>${escapeHtml(t.phaseDest ? (t.arrived ? "Arrived · " + t.phaseDest : "En route · " + t.phaseDest) : (STATUS_LABELS[t.status] || t.status))}</div>
-    </div>`;
+  if (!t) return `<div style="font-family:Arial,sans-serif;font-size:12px;padding:4px;">Loading…</div>`;
+  const p = t.position;
+  const phaseColor = t.phase ? (PHASE_COLORS[t.phase] || "#555") : "#555";
+  const phaseLabel = t.phase ? (PHASE_LABELS[t.phase] || "") : "";
+  const dueDate = formatDueDate(t.date, t.pickupTime);
+
+  return `<div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.35;width:100%;max-width:240px;box-sizing:border-box;overflow:hidden;word-break:break-word;">
+    <div style="font-weight:700;color:#111;font-size:13px;margin-bottom:2px;">${escapeHtml(t.vehicleReg || "Vehicle")}</div>
+    ${p ? `
+    <div style="color:#555;font-size:10px;"><strong>Updated:</strong> ${formatUpdatedAt(p.dt)}</div>
+    <div style="color:#555;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Location:</strong> ${escapeHtml(p.address || `${p.lat}, ${p.lon}`)}</div>
+    <div style="color:#555;font-size:10px;"><strong>Speed:</strong> ${p.speed || 0} km/h</div>` : ""}
+    <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+    <div style="font-weight:700;color:#1e88e5;font-size:10px;margin-bottom:3px;">📦 ${escapeHtml(t.orderNumber ? "#" + t.orderNumber : "Load")}</div>
+    <div style="font-size:10px;"><strong>Driver:</strong> ${escapeHtml(t.driverName)}</div>
+    <div style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Load:</strong> ${escapeHtml(t.loadLocation)}</div>
+    <div style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Dropoff:</strong> ${escapeHtml(t.dropoffLocation)}</div>
+    ${dueDate ? `<div style="font-size:10px;margin-top:2px;"><strong>Due:</strong> <span style="color:#f59e0b;font-weight:600;">${dueDate}</span></div>` : ""}
+    ${phaseLabel ? `<hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
+    <div style="background:${phaseColor};color:#fff;border-radius:5px;padding:3px 6px;font-size:10px;font-weight:600;margin-bottom:4px;text-align:center;">${phaseLabel}</div>` : ""}
+    ${t.eta ? `
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:3px;">
+      <div style="text-align:center;"><div style="font-size:9px;color:#888;">ETA</div><div style="font-size:12px;font-weight:700;color:#333;">⏱ ${escapeHtml(t.eta)}</div></div>
+      ${t.etaDistance ? `<div style="text-align:center;"><div style="font-size:9px;color:#888;">Distance</div><div style="font-size:12px;font-weight:700;color:#333;">📍 ${escapeHtml(t.etaDistance)}</div></div>` : ""}
+    </div>
+    ${t.etaMins != null ? `<div style="text-align:center;margin-top:3px;">
+      <span style="font-size:10px;font-weight:700;color:#1e88e5;background:#e3f2fd;padding:2px 8px;border-radius:10px;">🕐 Arrival ≈ ${arrivalClock(t.etaMins)}</span>
+    </div>` : ""}` : ""}
+  </div>`;
 }
 
 // Public page — no login, reached only via a link the WhatsApp bot sends.
@@ -34,11 +110,13 @@ export default function TrackingPage({ token }) {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
 
-  const mapDivRef    = useRef(null);
-  const mapObjRef     = useRef(null);
-  const markersRef    = useRef(new Map());  // taskId -> google.maps.Marker
-  const infoWindowRef = useRef(null);
-  const boundsFitRef   = useRef(false); // only auto-fit the viewport once, so manual pan/zoom (incl. click-to-focus) isn't fought every poll
+  const mapDivRef     = useRef(null);
+  const mapObjRef      = useRef(null);
+  const markersRef     = useRef(new Map());  // taskId -> google.maps.Marker
+  const infoWindowRef  = useRef(null);
+  const boundsFitRef    = useRef(false); // only auto-fit the viewport once, so manual pan/zoom (incl. click-to-focus) isn't fought every poll
+  const tasksByIdRef   = useRef(new Map()); // always-current task data, so a click reads fresh info even if the marker itself is several polls old
+  const openTaskIdRef  = useRef(null); // which task's info window is currently open, if any — self-tracked rather than read back from the Maps API
 
   const load = useCallback(() => {
     fetch(`${API}/track/${token}`)
@@ -57,15 +135,29 @@ export default function TrackingPage({ token }) {
     return () => clearInterval(timer);
   }, [load]);
 
+  useEffect(() => {
+    const map = new Map();
+    (data?.tasks || []).forEach((t) => map.set(t.id, t));
+    tasksByIdRef.current = map;
+  }, [data]);
+
+  const openInfoFor = useCallback((taskId, marker) => {
+    const map = mapObjRef.current;
+    const latest = tasksByIdRef.current.get(taskId);
+    if (!map || !marker || !latest) return;
+    infoWindowRef.current.setContent(infoWindowHtml(latest));
+    infoWindowRef.current.open(map, marker);
+    openTaskIdRef.current = taskId;
+  }, []);
+
   const focusTask = useCallback((t) => {
     const map = mapObjRef.current;
     const marker = markersRef.current.get(t.id);
     if (!map || !marker) return;
     map.panTo(marker.getPosition());
     map.setZoom(15);
-    infoWindowRef.current.setContent(infoWindowHtml(t));
-    infoWindowRef.current.open(map, marker);
-  }, []);
+    openInfoFor(t.id, marker);
+  }, [openInfoFor]);
 
   // Creates the map once, then on every subsequent poll only moves/adds/
   // removes markers in place — never re-fits or re-centers after the first
@@ -81,7 +173,8 @@ export default function TrackingPage({ token }) {
 
       if (!mapObjRef.current) {
         mapObjRef.current = new g.maps.Map(mapDivRef.current, { zoom: 10, streetViewControl: false, mapTypeControl: false });
-        infoWindowRef.current = new g.maps.InfoWindow();
+        infoWindowRef.current = new g.maps.InfoWindow({ maxWidth: 260 });
+        infoWindowRef.current.addListener("closeclick", () => { openTaskIdRef.current = null; });
       }
       const map = mapObjRef.current;
 
@@ -91,26 +184,30 @@ export default function TrackingPage({ token }) {
         seenIds.add(t.id);
         const pos = { lat: t.position.lat, lng: t.position.lon };
         bounds.extend(pos);
+        const icon = vehicleIcon(g, t.position);
 
         let marker = markersRef.current.get(t.id);
         if (!marker) {
-          marker = new g.maps.Marker({
-            position: pos, map, title: t.orderNumber || t.title || "Load",
-            icon: { path: g.maps.SymbolPath.CIRCLE, scale: 9, fillColor: "#2E6CB8", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
-          });
-          marker.addListener("click", () => {
-            infoWindowRef.current.setContent(infoWindowHtml(t));
-            infoWindowRef.current.open(map, marker);
-          });
+          marker = new g.maps.Marker({ position: pos, map, title: t.vehicleReg || t.orderNumber || "Load", icon });
+          marker.addListener("click", () => openInfoFor(t.id, marker));
           markersRef.current.set(t.id, marker);
         } else {
           marker.setPosition(pos);
+          marker.setIcon(icon);
         }
       });
 
       // Drop markers for tasks that no longer have (or no longer exist with) a position
       for (const [id, marker] of markersRef.current) {
         if (!seenIds.has(id)) { marker.setMap(null); markersRef.current.delete(id); }
+      }
+
+      // If an info window is currently open for one of these markers, refresh
+      // its content too — otherwise it'd sit there showing an increasingly
+      // stale ETA/speed until the visitor closes and reopens it.
+      const openId = openTaskIdRef.current;
+      if (openId && markersRef.current.has(openId)) {
+        openInfoFor(openId, markersRef.current.get(openId));
       }
 
       if (!boundsFitRef.current) {
@@ -120,7 +217,7 @@ export default function TrackingPage({ token }) {
     }
     draw();
     return () => { if (pollTimer) clearTimeout(pollTimer); };
-  }, [data]);
+  }, [data, openInfoFor]);
 
   function renderTaskCard(t) {
     const isInProgress = t.status === "inprogress";
