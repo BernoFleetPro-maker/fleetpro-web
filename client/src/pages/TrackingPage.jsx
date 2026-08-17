@@ -192,10 +192,19 @@ export default function TrackingPage({ token }) {
         // budget once the phantom horizontal reservation is removed.
         // overflow-y stays `auto` (not `hidden`) as a genuine fallback for
         // any future content that truly does exceed Maps' budget.
+        //
+        // .gm-style-iw-chr is Google's close-button row: a full-width 48px
+        // flex block even though the button itself is only 48px wide and
+        // right-aligned, leaving the rest of that row permanently blank
+        // above our content. Repositioning it as an absolute corner overlay
+        // removes it from flow entirely, so content starts ~48px higher —
+        // confirmed against real popups (short and long content both) that
+        // the button's actual visible icon is much smaller than its 48x48
+        // hit target, so the overlay never visually collides with text.
         if (!document.getElementById("tracking-iw-style")) {
           const style = document.createElement("style");
           style.id = "tracking-iw-style";
-          style.textContent = ".gm-style-iw-d{overflow-x:hidden!important;overflow-y:auto!important}";
+          style.textContent = ".gm-style-iw-d{overflow-x:hidden!important;overflow-y:auto!important}.gm-style-iw-chr{position:absolute!important;top:0!important;right:0!important;height:auto!important}";
           document.head.appendChild(style);
         }
       }
