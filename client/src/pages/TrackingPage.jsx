@@ -150,6 +150,21 @@ export default function TrackingPage({ token }) {
     openInfoFor(t.id, marker);
   }, [openInfoFor]);
 
+  // Re-fits the viewport to every current marker — the only way back to the
+  // overview once a click-to-focus (or Google's own drag/zoom) has moved away
+  // from it, since polling deliberately never auto-re-fits (see the draw
+  // effect below) so it doesn't fight a visitor's own pan/zoom every 20s.
+  const showAllVehicles = useCallback(() => {
+    const g = window.google;
+    const map = mapObjRef.current;
+    if (!g?.maps || !map || markersRef.current.size === 0) return;
+    const bounds = new g.maps.LatLngBounds();
+    markersRef.current.forEach((marker) => bounds.extend(marker.getPosition()));
+    map.fitBounds(bounds);
+    infoWindowRef.current?.close();
+    openTaskIdRef.current = null;
+  }, []);
+
   // Creates the map once, then on every subsequent poll only moves/adds/
   // removes markers in place — never re-fits or re-centers after the first
   // draw, so a manual pan/zoom (or a click-to-focus) isn't undone every 20s.
@@ -220,44 +235,48 @@ export default function TrackingPage({ token }) {
 
     return (
       <div key={t.id} onClick={() => t.position && focusTask(t)}
-        style={{ background: "#1e293b", borderRadius: 8, padding: 14, cursor: t.position ? "pointer" : "default" }}>
-        <div style={{ fontWeight: 700, fontSize: 14 }}>
+        style={{ background: "#1e293b", borderRadius: 6, padding: 9, cursor: t.position ? "pointer" : "default" }}>
+        <div style={{ fontWeight: 700, fontSize: 12 }}>
           {t.title || "Load"}{t.orderNumber && <span style={{ color: "#64748b", fontWeight: 400 }}> #{t.orderNumber}</span>}
         </div>
-        <div style={{ fontSize: 13, color: "#cbd5e1", marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: "#cbd5e1", marginTop: 2 }}>
           {t.loadLocation || "—"} → {t.dropoffLocation || "—"}
         </div>
         {(t.driverName || t.vehicleReg) && (
-          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
             {t.driverName && <span>👤 {t.driverName}</span>}
             {t.driverName && t.vehicleReg && "  "}
             {t.vehicleReg && <span>🚚 {t.vehicleReg}</span>}
           </div>
         )}
         {(t.date || t.pickupTime) && (
-          <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+          <div style={{ fontSize: 9, color: "#64748b", marginTop: 1 }}>
             {t.date}{t.pickupTime ? ` drop @${t.pickupTime}` : ""}
           </div>
         )}
         {badge ? (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: badge.bg, color: badge.fg }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 4, padding: "1px 5px", borderRadius: 4, fontSize: 9, fontWeight: 600, background: badge.bg, color: badge.fg }}>
             <span>{badge.icon}</span>
             <span>{badge.text}</span>
             {t.phaseDest && <><span style={{ opacity: 0.6 }}>·</span><span>{t.phaseDest}</span></>}
           </div>
         ) : (
-          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>{STATUS_LABELS[t.status] || t.status}</div>
+          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{STATUS_LABELS[t.status] || t.status}</div>
         )}
       </div>
     );
   }
 
-  const todayTasks    = data?.tasks?.filter((t) => t.dateGroup === "today") || [];
-  const tomorrowTasks = data?.tasks?.filter((t) => t.dateGroup === "tomorrow") || [];
+  const todayTasks       = data?.tasks?.filter((t) => t.dateGroup === "today") || [];
+  const tomorrowTasks    = data?.tasks?.filter((t) => t.dateGroup === "tomorrow") || [];
+  const withPositionCount = data?.tasks?.filter((t) => t.position).length || 0;
 
+  // The page itself never scrolls (height:100dvh + overflow:hidden) — the
+  // map and header stay put, only the task list underneath gets its own
+  // scroll region, so the map is always visible while browsing a long list.
   return (
-    <div style={{ minHeight: "100vh", background: "#0f1724", color: "#fff", fontFamily: "Arial, sans-serif" }}>
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px" }}>
+    <div style={{ height: "100dvh", background: "#0f1724", color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ maxWidth: 720, width: "100%", margin: "0 auto", padding: "16px 16px 0", boxSizing: "border-box", flexShrink: 0 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 4px" }}>📍 FleetPro Tracking</h1>
 
         {loading && <p style={{ color: "#94a3b8" }}>Loading…</p>}
@@ -270,40 +289,49 @@ export default function TrackingPage({ token }) {
 
         {!loading && data && (
           <>
-            <p style={{ color: "#94a3b8", marginTop: 0, marginBottom: 20 }}>{data.clientName}</p>
+            <p style={{ color: "#94a3b8", margin: "0 0 12px" }}>{data.clientName}</p>
 
-            {data.tasks.length === 0 ? (
+            {data.tasks.length === 0 && (
               <div style={{ background: "#1e293b", borderRadius: 8, padding: 24, textAlign: "center", color: "#64748b" }}>
                 No active loads right now.
               </div>
-            ) : (
-              <>
-                {data.tasks.some((t) => t.position) && (
-                  <div ref={mapDivRef} style={{ width: "100%", height: 320, borderRadius: 8, overflow: "hidden", marginBottom: 20, background: "#1e293b" }} />
-                )}
+            )}
 
-                {todayTasks.length > 0 && (
-                  <>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", margin: "0 0 8px" }}>📅 Today ({formatShortDate(data.today)})</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: tomorrowTasks.length ? 20 : 0 }}>
-                      {todayTasks.map(renderTaskCard)}
-                    </div>
-                  </>
+            {withPositionCount > 0 && (
+              <div style={{ position: "relative", marginBottom: 12 }}>
+                <div ref={mapDivRef} style={{ width: "100%", height: 280, borderRadius: 8, overflow: "hidden", background: "#1e293b" }} />
+                {withPositionCount > 1 && (
+                  <button onClick={showAllVehicles} style={{ position: "absolute", top: 8, left: 8, background: "#fff", border: "none", borderRadius: 4, padding: "4px 9px", fontSize: 11, fontWeight: 600, color: "#333", cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}>
+                    Show All
+                  </button>
                 )}
-
-                {tomorrowTasks.length > 0 && (
-                  <>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", margin: "0 0 8px" }}>📅 Tomorrow ({formatShortDate(data.tomorrow)})</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {tomorrowTasks.map(renderTaskCard)}
-                    </div>
-                  </>
-                )}
-              </>
+              </div>
             )}
           </>
         )}
       </div>
+
+      {!loading && data && data.tasks.length > 0 && (
+        <div style={{ flex: 1, overflowY: "auto", maxWidth: 720, width: "100%", margin: "0 auto", padding: "0 16px 16px", boxSizing: "border-box" }}>
+          {todayTasks.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 Today ({formatShortDate(data.today)})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: tomorrowTasks.length ? 14 : 0 }}>
+                {todayTasks.map(renderTaskCard)}
+              </div>
+            </>
+          )}
+
+          {tomorrowTasks.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 Tomorrow ({formatShortDate(data.tomorrow)})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {tomorrowTasks.map(renderTaskCard)}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
