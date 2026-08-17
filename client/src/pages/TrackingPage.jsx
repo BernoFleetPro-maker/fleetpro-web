@@ -14,28 +14,24 @@ function formatShortDate(dateStr) {
   return `${d} ${MONTH_ABBR[m - 1]}`;
 }
 
-// Same Excel-serial-or-ISO handling as MapView.jsx's own formatDate, since
-// this is the exact same tracking-provider `dt` value passed straight
-// through the backend.
-function formatUpdatedAt(dtValue) {
-  if (!dtValue) return "Unknown";
+// Excel-serial tracking-provider `dt` value → just "HH:MM" — the popup only
+// has room for a compact freshness indicator, not a full timestamp (see
+// infoWindowHtml).
+function formatShortTime(dtValue) {
   const num = Number(dtValue);
-  let date;
+  if (!Number.isFinite(num) || num <= 30000) return "";
   try {
-    if (!Number.isFinite(num)) date = new Date(dtValue);
-    else if (num > 30000) date = new Date((num - 25569) * 86400 * 1000);
-    else date = new Date();
-    date = new Date(date.getTime() - 2 * 60 * 60 * 1000);
-    return date.toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-  } catch { return "Invalid date"; }
+    const date = new Date((num - 25569) * 86400 * 1000 - 2 * 60 * 60 * 1000);
+    return date.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Africa/Johannesburg" });
+  } catch { return ""; }
 }
 
-function formatDueDate(date, time) {
+function formatDueDateShort(date, time) {
   if (!date) return null;
   try {
     const d = new Date(date + "T00:00:00");
-    const dayStr = d.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
-    return time ? `${dayStr} @ ${time}` : dayStr;
+    const dayStr = d.toLocaleDateString("en-ZA", { day: "numeric", month: "short" });
+    return time ? `${dayStr} ${time}` : dayStr;
   } catch { return date; }
 }
 
@@ -80,23 +76,19 @@ function infoWindowHtml(t) {
   const p = t.position;
   const phaseColor = t.phase ? (PHASE_COLORS[t.phase] || "#555") : "#555";
   const phaseLabel = t.phase ? (PHASE_LABELS[t.phase] || "") : "";
-  const dueDate = formatDueDate(t.date, t.pickupTime);
+  const dueDate = formatDueDateShort(t.date, t.pickupTime);
   const etaParts = [];
-  if (t.eta) etaParts.push(`⏱ ${escapeHtml(t.eta)}`);
-  if (t.etaDistance) etaParts.push(`📍 ${escapeHtml(t.etaDistance)}`);
-  if (t.etaMins != null) etaParts.push(`🕐 ≈${arrivalClock(t.etaMins)}`);
+  if (t.eta) etaParts.push(`⏱${escapeHtml(t.eta)}`);
+  if (t.etaDistance) etaParts.push(`📍${escapeHtml(t.etaDistance)}`);
+  if (t.etaMins != null) etaParts.push(`🕐≈${arrivalClock(t.etaMins)}`);
 
-  return `<div style="font-family:Arial,sans-serif;font-size:10px;line-height:1.3;width:100%;max-width:225px;box-sizing:border-box;overflow:hidden;word-break:break-word;">
-    <div style="font-weight:700;color:#111;font-size:12px;">${escapeHtml(t.vehicleReg || "Vehicle")}</div>
-    ${p ? `
-    <div style="color:#666;">${formatUpdatedAt(p.dt)} · ${p.speed || 0} km/h</div>
-    <div style="color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📍 ${escapeHtml(p.address || `${p.lat}, ${p.lon}`)}</div>` : ""}
-    <hr style="margin:3px 0;border:none;border-top:1px solid #e0e0e0;"/>
-    <div style="font-weight:700;color:#1e88e5;">📦 ${escapeHtml(t.orderNumber ? "#" + t.orderNumber : "Load")} <span style="color:#666;font-weight:400;">· 👤 ${escapeHtml(t.driverName)}</span></div>
-    <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.loadLocation)} → ${escapeHtml(t.dropoffLocation)}</div>
-    ${dueDate ? `<div>Due: <span style="color:#f59e0b;font-weight:600;">${dueDate}</span></div>` : ""}
-    ${phaseLabel ? `<div style="background:${phaseColor};color:#fff;border-radius:4px;padding:2px 5px;font-weight:600;margin-top:2px;text-align:center;">${phaseLabel}</div>` : ""}
-    ${etaParts.length ? `<div style="text-align:center;margin-top:2px;color:#333;font-weight:600;">${etaParts.join(" · ")}</div>` : ""}
+  return `<div style="font-family:Arial,sans-serif;font-size:10px;line-height:1.2;width:100%;max-width:210px;box-sizing:border-box;overflow:hidden;word-break:break-word;">
+    <div style="font-weight:700;color:#111;font-size:12px;">${escapeHtml(t.vehicleReg || "Vehicle")}<span style="color:#888;font-weight:400;font-size:9px;">${p ? ` · ${p.speed || 0}km/h · ${formatShortTime(p.dt)}` : ""}</span></div>
+    ${p?.address ? `<div style="color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📍${escapeHtml(p.address)}</div>` : ""}
+    <div style="font-weight:700;color:#1e88e5;margin-top:2px;">📦${escapeHtml(t.orderNumber ? "#" + t.orderNumber : "Load")} <span style="color:#666;font-weight:400;">👤${escapeHtml(t.driverName)}</span></div>
+    <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.loadLocation)}→${escapeHtml(t.dropoffLocation)}</div>
+    ${phaseLabel ? `<div style="background:${phaseColor};color:#fff;border-radius:4px;padding:1px 4px;font-weight:600;margin-top:2px;text-align:center;">${phaseLabel}${dueDate ? ` · ${dueDate}` : ""}</div>` : dueDate ? `<div>Due <span style="color:#f59e0b;font-weight:600;">${dueDate}</span></div>` : ""}
+    ${etaParts.length ? `<div style="text-align:center;margin-top:1px;color:#333;font-weight:600;">${etaParts.join(" ")}</div>` : ""}
   </div>`;
 }
 
