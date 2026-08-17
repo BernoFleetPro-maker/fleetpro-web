@@ -69,35 +69,34 @@ function vehicleIcon(g, position) {
 // session to act as. `t` is always looked up fresh at click time (see
 // tasksByIdRef below), never a value closed over when the marker was made,
 // so the popup can't go stale as new polls come in.
+// Compact on purpose — Google's InfoWindow silently adds its own internal
+// scrollbar once content exceeds the space it's willing to give a popup,
+// and there's no API to raise that limit. The only lever is keeping content
+// short: smaller type, tighter spacing, related facts merged onto one line
+// (still every field MapView shows, just laid out denser) rather than
+// dropping any of it.
 function infoWindowHtml(t) {
-  if (!t) return `<div style="font-family:Arial,sans-serif;font-size:12px;padding:4px;">Loading…</div>`;
+  if (!t) return `<div style="font-family:Arial,sans-serif;font-size:11px;padding:2px;">Loading…</div>`;
   const p = t.position;
   const phaseColor = t.phase ? (PHASE_COLORS[t.phase] || "#555") : "#555";
   const phaseLabel = t.phase ? (PHASE_LABELS[t.phase] || "") : "";
   const dueDate = formatDueDate(t.date, t.pickupTime);
+  const etaParts = [];
+  if (t.eta) etaParts.push(`⏱ ${escapeHtml(t.eta)}`);
+  if (t.etaDistance) etaParts.push(`📍 ${escapeHtml(t.etaDistance)}`);
+  if (t.etaMins != null) etaParts.push(`🕐 ≈${arrivalClock(t.etaMins)}`);
 
-  return `<div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.35;width:100%;max-width:240px;box-sizing:border-box;overflow:hidden;word-break:break-word;">
-    <div style="font-weight:700;color:#111;font-size:13px;margin-bottom:2px;">${escapeHtml(t.vehicleReg || "Vehicle")}</div>
+  return `<div style="font-family:Arial,sans-serif;font-size:10px;line-height:1.3;width:100%;max-width:225px;box-sizing:border-box;overflow:hidden;word-break:break-word;">
+    <div style="font-weight:700;color:#111;font-size:12px;">${escapeHtml(t.vehicleReg || "Vehicle")}</div>
     ${p ? `
-    <div style="color:#555;font-size:10px;"><strong>Updated:</strong> ${formatUpdatedAt(p.dt)}</div>
-    <div style="color:#555;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Location:</strong> ${escapeHtml(p.address || `${p.lat}, ${p.lon}`)}</div>
-    <div style="color:#555;font-size:10px;"><strong>Speed:</strong> ${p.speed || 0} km/h</div>` : ""}
-    <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
-    <div style="font-weight:700;color:#1e88e5;font-size:10px;margin-bottom:3px;">📦 ${escapeHtml(t.orderNumber ? "#" + t.orderNumber : "Load")}</div>
-    <div style="font-size:10px;"><strong>Driver:</strong> ${escapeHtml(t.driverName)}</div>
-    <div style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Load:</strong> ${escapeHtml(t.loadLocation)}</div>
-    <div style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>Dropoff:</strong> ${escapeHtml(t.dropoffLocation)}</div>
-    ${dueDate ? `<div style="font-size:10px;margin-top:2px;"><strong>Due:</strong> <span style="color:#f59e0b;font-weight:600;">${dueDate}</span></div>` : ""}
-    ${phaseLabel ? `<hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
-    <div style="background:${phaseColor};color:#fff;border-radius:5px;padding:3px 6px;font-size:10px;font-weight:600;margin-bottom:4px;text-align:center;">${phaseLabel}</div>` : ""}
-    ${t.eta ? `
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:3px;">
-      <div style="text-align:center;"><div style="font-size:9px;color:#888;">ETA</div><div style="font-size:12px;font-weight:700;color:#333;">⏱ ${escapeHtml(t.eta)}</div></div>
-      ${t.etaDistance ? `<div style="text-align:center;"><div style="font-size:9px;color:#888;">Distance</div><div style="font-size:12px;font-weight:700;color:#333;">📍 ${escapeHtml(t.etaDistance)}</div></div>` : ""}
-    </div>
-    ${t.etaMins != null ? `<div style="text-align:center;margin-top:3px;">
-      <span style="font-size:10px;font-weight:700;color:#1e88e5;background:#e3f2fd;padding:2px 8px;border-radius:10px;">🕐 Arrival ≈ ${arrivalClock(t.etaMins)}</span>
-    </div>` : ""}` : ""}
+    <div style="color:#666;">${formatUpdatedAt(p.dt)} · ${p.speed || 0} km/h</div>
+    <div style="color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📍 ${escapeHtml(p.address || `${p.lat}, ${p.lon}`)}</div>` : ""}
+    <hr style="margin:3px 0;border:none;border-top:1px solid #e0e0e0;"/>
+    <div style="font-weight:700;color:#1e88e5;">📦 ${escapeHtml(t.orderNumber ? "#" + t.orderNumber : "Load")} <span style="color:#666;font-weight:400;">· 👤 ${escapeHtml(t.driverName)}</span></div>
+    <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.loadLocation)} → ${escapeHtml(t.dropoffLocation)}</div>
+    ${dueDate ? `<div>Due: <span style="color:#f59e0b;font-weight:600;">${dueDate}</span></div>` : ""}
+    ${phaseLabel ? `<div style="background:${phaseColor};color:#fff;border-radius:4px;padding:2px 5px;font-weight:600;margin-top:2px;text-align:center;">${phaseLabel}</div>` : ""}
+    ${etaParts.length ? `<div style="text-align:center;margin-top:2px;color:#333;font-weight:600;">${etaParts.join(" · ")}</div>` : ""}
   </div>`;
 }
 
