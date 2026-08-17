@@ -156,8 +156,8 @@ function WhatsappBotSettings() {
         <label className="text-xs text-green-800 font-semibold block mb-1">Reply message (leave blank for the default)</label>
         <textarea className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-green-500"
           rows={4} value={templateInput} onChange={e => setTemplateInput(e.target.value)}
-          placeholder="Hi {clientName}! Here's a summary of your current loads:&#10;&#10;{taskList}&#10;&#10;📍 View live: {trackingLink}" />
-        <p className="text-[10px] text-slate-400 mt-1">Placeholders: {"{clientName}"}, {"{taskList}"}, {"{trackingLink}"}</p>
+          placeholder="Hi {senderName}&#10;{taskList}&#10;&#10;📍 View live: {trackingLink}" />
+        <p className="text-[10px] text-slate-400 mt-1">Placeholders: {"{senderName}"}, {"{clientName}"}, {"{taskList}"}, {"{trackingLink}"}</p>
 
         <div className="flex items-center gap-3 mt-3">
           <button onClick={saveConfig} disabled={saving}
