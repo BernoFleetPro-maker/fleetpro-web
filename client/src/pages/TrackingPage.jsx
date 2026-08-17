@@ -181,6 +181,23 @@ export default function TrackingPage({ token }) {
         mapObjRef.current = new g.maps.Map(mapDivRef.current, { zoom: 10, streetViewControl: false, mapTypeControl: false });
         infoWindowRef.current = new g.maps.InfoWindow({ maxWidth: 260 });
         infoWindowRef.current.addListener("closeclick", () => { openTaskIdRef.current = null; });
+
+        // Google's own InfoWindow content wrapper (.gm-style-iw-d) forces
+        // `overflow: scroll` on BOTH axes, which reserves horizontal
+        // scrollbar-gutter space even though our content never overflows
+        // sideways (it's all wrapped/ellipsized to fit). That reserved strip
+        // alone was enough to push otherwise-fitting content into a needless
+        // vertical scrollbar — confirmed against a real popup, content used
+        // ~81px against Maps' own ~108-126px height budget, well within
+        // budget once the phantom horizontal reservation is removed.
+        // overflow-y stays `auto` (not `hidden`) as a genuine fallback for
+        // any future content that truly does exceed Maps' budget.
+        if (!document.getElementById("tracking-iw-style")) {
+          const style = document.createElement("style");
+          style.id = "tracking-iw-style";
+          style.textContent = ".gm-style-iw-d{overflow-x:hidden!important;overflow-y:auto!important}";
+          document.head.appendChild(style);
+        }
       }
       const map = mapObjRef.current;
 
