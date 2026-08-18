@@ -47,11 +47,12 @@ function dwellClass(mins) {
   if (mins > DWELL_GREEN_MAX_MIN) return "text-orange-600 font-semibold";
   return "text-green-600 font-semibold";
 }
-// Load score = tiered against raw load dwell time. Drop score = tiered
-// against lateness vs. the task's scheduled dropoff time (Task.date +
-// Task.pickupTime — the only scheduled time this app captures per task).
-// Both land on the same 100/75/50/25/0 scale, so the same color/format
-// helpers work for either.
+// Load score and Drop Dwell score are both tiered against raw dwell time —
+// how long the vehicle sat at that site, no scheduled time to compare
+// against. On-Time score is tiered against lateness vs. the task's
+// scheduled dropoff time (Task.date + Task.pickupTime — the only scheduled
+// time this app captures per task). All three land on the same 100/75/50/
+// 25/0 scale, so the same color/format helpers work for all of them.
 function fmtScore(score) {
   return score == null ? "—" : `${score}%`;
 }
@@ -59,6 +60,22 @@ function scoreClass(score) {
   if (score == null) return "text-slate-400";
   if (score >= 75) return "text-green-600 font-semibold";
   if (score >= 50) return "text-orange-600 font-semibold";
+  return "text-red-600 font-bold";
+}
+// Raw minutes-late/early — the concrete number a client actually cares
+// about ("47 min late" means something; "50%" on its own doesn't). Colored
+// via the same tiers as onTimeScore so a red number and a red score always
+// agree with each other.
+function fmtTiming(mins) {
+  if (mins == null) return "—";
+  if (mins <= 0) return `${Math.abs(mins)} min early`;
+  return `${mins} min late`;
+}
+function timingClass(mins) {
+  if (mins == null) return "text-slate-400";
+  if (mins <= 0) return "text-green-600 font-semibold";
+  if (mins <= 30) return "text-green-600 font-semibold";
+  if (mins <= 60) return "text-orange-600 font-semibold";
   return "text-red-600 font-bold";
 }
 function isoDate(offsetDays = 0) {
@@ -72,7 +89,10 @@ function firstOfMonthISO() {
 }
 
 function SiteTimeReportTab({ clients }) {
+  const [mode,      setMode]      = useState("client"); // "client" | "dropoffPoint"
   const [clientId,  setClientId]  = useState("");
+  const [pointId,   setPointId]   = useState("");
+  const [dropoffPoints, setDropoffPoints] = useState([]);
   const [from,      setFrom]      = useState(firstOfMonthISO());
   const [to,        setTo]        = useState(isoDate());
   const [data,      setData]      = useState(null);
@@ -80,15 +100,24 @@ function SiteTimeReportTab({ clients }) {
   const [error,     setError]     = useState("");
   const [routeTask, setRouteTask] = useState(null); // task row currently drilled into, or null
 
+  useEffect(() => {
+    authFetch(`${API}/points`)
+      .then(res => res.json())
+      .then(pts => setDropoffPoints((Array.isArray(pts) ? pts : []).filter(p => p.type === "dropoff")))
+      .catch(() => setDropoffPoints([]));
+  }, []);
+
   const generate = async () => {
     setError("");
-    if (!clientId)   { setError("Select a client."); return; }
+    if (mode === "client" && !clientId) { setError("Select a client."); return; }
+    if (mode === "dropoffPoint" && !pointId) { setError("Select a dropoff point."); return; }
     if (!from || !to) { setError("Select a date range."); return; }
     if (from > to)    { setError("'Date from' must be before 'Date to'."); return; }
     setLoading(true);
     setData(null);
     try {
-      const res  = await authFetch(`${API}/tasks/site-time-report?clientId=${encodeURIComponent(clientId)}&from=${from}&to=${to}`);
+      const scopeParam = mode === "client" ? `clientId=${encodeURIComponent(clientId)}` : `dropoffPointId=${encodeURIComponent(pointId)}`;
+      const res  = await authFetch(`${API}/tasks/site-time-report?${scopeParam}&from=${from}&to=${to}`);
       const json = await res.json();
       if (!res.ok) { setError(json.error || "Failed to generate report."); return; }
       setData(json);
@@ -96,7 +125,9 @@ function SiteTimeReportTab({ clients }) {
     finally { setLoading(false); }
   };
 
-  const clientName = clients.find(c => c.id === clientId)?.name || "";
+  const scopeName = mode === "client"
+    ? (clients.find(c => c.id === clientId)?.name || "")
+    : (data?.scope?.title || dropoffPoints.find(p => p.id === pointId)?.title || "");
 
   function handleDownloadReportPdf() {
     if (!data) return;
@@ -105,9 +136,11 @@ function SiteTimeReportTab({ clients }) {
 
     const dwellFlagClass = (mins) => mins == null ? "" : mins > DWELL_ORANGE_MAX_MIN ? "dwell-red" : mins > DWELL_GREEN_MAX_MIN ? "dwell-orange" : "dwell-green";
     const scoreFlagClass = (score) => score == null ? "" : score >= 75 ? "dwell-green" : score >= 50 ? "dwell-orange" : "dwell-red";
+    const timingFlagClass = (mins) => mins == null ? "" : mins <= 30 ? "dwell-green" : mins <= 60 ? "dwell-orange" : "dwell-red";
     const rows = data.tasks.map(t => `
       <tr>
         <td>${(t.title || "—").toString().replace(/</g, "")}${t.orderNumber ? ` <span class="muted">#${t.orderNumber}</span>` : ""}${!t.hasCompleteTracking ? ` <span class="warn">⚠</span>` : ""}</td>
+        ${mode === "dropoffPoint" ? `<td>${(t.clientName || "—").toString().replace(/</g, "")}</td>` : ""}
         <td>${t.driverName || "—"}</td>
         <td>${t.vehicleRegistration || "—"}</td>
         <td>${fmtDT(t.arrivedLoadAt)}</td>
@@ -116,6 +149,7 @@ function SiteTimeReportTab({ clients }) {
         <td>${fmtDT(t.arrivedDropAt)}</td>
         <td>${fmtDT(t.departedDropAt)}</td>
         <td class="${dwellFlagClass(t.dropDwellMinutes)}">${fmtMinutes(t.dropDwellMinutes)}</td>
+        <td class="${timingFlagClass(t.dropoffTimingMinutes)}">${fmtTiming(t.dropoffTimingMinutes)}</td>
         <td>${fmtDT(t.completedAt)}</td>
       </tr>
     `).join("");
@@ -123,12 +157,12 @@ function SiteTimeReportTab({ clients }) {
     win.document.write(`
       <html>
       <head>
-        <title>Site Time Report — ${(clientName || "Client").toString().replace(/</g, "")}</title>
+        <title>Site Time Report — ${(scopeName || "Report").toString().replace(/</g, "")}</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 24px; color:#111; }
           h1 { font-size: 20px; margin: 0 0 4px; }
           .sub { color:#555; font-size:12px; margin-bottom:20px; }
-          .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:20px; }
+          .grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; margin-bottom:20px; }
           .card { border:1px solid #ddd; border-radius:6px; padding:10px; }
           .card .label { font-size:11px; color:#666; }
           .card .value { font-size:14px; font-weight:600; }
@@ -144,23 +178,25 @@ function SiteTimeReportTab({ clients }) {
         </style>
       </head>
       <body>
-        <h1>Site Time Report — ${(clientName || "Client").toString().replace(/</g, "")}</h1>
+        <h1>Site Time Report — ${(scopeName || "Report").toString().replace(/</g, "")}${mode === "dropoffPoint" ? " (dropoff site, all clients)" : ""}</h1>
         <div class="sub">${from} to ${to} · ${data.summary.taskCount} completed task${data.summary.taskCount !== 1 ? "s" : ""}</div>
         <div class="grid">
           <div class="card"><div class="label">Completed Tasks</div><div class="value">${data.summary.taskCount}</div></div>
           <div class="card"><div class="label">Avg Load Dwell</div><div class="value ${dwellFlagClass(data.summary.loadDwell.avg)}">${fmtMinutes(data.summary.loadDwell.avg)}</div></div>
           <div class="card"><div class="label">Load Score</div><div class="value ${scoreFlagClass(data.summary.loadScore)}">${fmtScore(data.summary.loadScore)}</div></div>
           <div class="card"><div class="label">Avg Drop Dwell</div><div class="value ${dwellFlagClass(data.summary.dropDwell.avg)}">${fmtMinutes(data.summary.dropDwell.avg)}</div></div>
-          <div class="card"><div class="label">Drop Score</div><div class="value ${scoreFlagClass(data.summary.dropScore)}">${fmtScore(data.summary.dropScore)}</div></div>
+          <div class="card"><div class="label">Drop Dwell Score</div><div class="value ${scoreFlagClass(data.summary.dropDwellScore)}">${fmtScore(data.summary.dropDwellScore)}</div></div>
+          <div class="card"><div class="label">Avg Dropoff Timing</div><div class="value ${timingFlagClass(data.summary.dropoffTiming.avg)}">${fmtTiming(data.summary.dropoffTiming.avg)}</div></div>
+          <div class="card"><div class="label">On-Time Score</div><div class="value ${scoreFlagClass(data.summary.onTimeScore)}">${fmtScore(data.summary.onTimeScore)}</div></div>
           <div class="card"><div class="label">Avg Transit</div><div class="value">${fmtMinutes(data.summary.transit.avg)}</div></div>
           <div class="card"><div class="label">Incomplete Tracking</div><div class="value">${data.summary.incompleteTrackingCount}</div></div>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Task</th><th>Driver</th><th>Vehicle</th>
+              <th>Task</th>${mode === "dropoffPoint" ? "<th>Client</th>" : ""}<th>Driver</th><th>Vehicle</th>
               <th>Arrived Load</th><th>Departed Load</th><th>Load Dwell</th>
-              <th>Arrived Drop</th><th>Departed Drop</th><th>Drop Dwell</th>
+              <th>Arrived Drop</th><th>Departed Drop</th><th>Drop Dwell</th><th>Dropoff Timing</th>
               <th>Completed</th>
             </tr>
           </thead>
@@ -179,13 +215,40 @@ function SiteTimeReportTab({ clients }) {
       {/* Filters */}
       <div className="bg-white rounded-xl shadow border border-slate-200 p-4 mb-6 flex flex-wrap items-end gap-4">
         <div>
-          <label className="text-xs text-slate-500 font-semibold block mb-1">Client</label>
-          <select className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-w-[200px] focus:outline-none focus:border-blue-500"
-            value={clientId} onChange={e => setClientId(e.target.value)}>
-            <option value="">Select a client…</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <label className="text-xs text-slate-500 font-semibold block mb-1">Report by</label>
+          <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+            <button type="button" onClick={() => { setMode("client"); setData(null); setError(""); }}
+              className={`px-3 py-2 text-sm font-medium ${mode === "client" ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+              Client
+            </button>
+            <button type="button" onClick={() => { setMode("dropoffPoint"); setData(null); setError(""); }}
+              className={`px-3 py-2 text-sm font-medium border-l border-slate-300 ${mode === "dropoffPoint" ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+              Dropoff Point
+            </button>
+          </div>
         </div>
+        {mode === "client" ? (
+          <div>
+            <label className="text-xs text-slate-500 font-semibold block mb-1">Client</label>
+            <select className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-w-[200px] focus:outline-none focus:border-blue-500"
+              value={clientId} onChange={e => setClientId(e.target.value)}>
+              <option value="">Select a client…</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs text-slate-500 font-semibold block mb-1">Dropoff Point</label>
+            <select className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-w-[200px] focus:outline-none focus:border-blue-500"
+              value={pointId} onChange={e => setPointId(e.target.value)}>
+              <option value="">Select a dropoff point…</option>
+              {dropoffPoints.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+            </select>
+            {dropoffPoints.length === 0 && (
+              <p className="text-[11px] text-slate-400 mt-1">No saved dropoff points yet — add one on the Dropoff Points page.</p>
+            )}
+          </div>
+        )}
         <div>
           <label className="text-xs text-slate-500 font-semibold block mb-1">Date From</label>
           <input type="date" className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
@@ -210,7 +273,7 @@ function SiteTimeReportTab({ clients }) {
         <>
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm text-slate-500">
-              {clientName} · {from} to {to}
+              {scopeName}{mode === "dropoffPoint" && <span className="text-slate-400"> · all clients</span>} · {from} to {to}
             </div>
             <button onClick={handleDownloadReportPdf}
               className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg">
@@ -219,7 +282,7 @@ function SiteTimeReportTab({ clients }) {
           </div>
 
           {/* Summary stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Completed Tasks</div>
               <div className="text-xl font-bold text-slate-800">{data.summary.taskCount}</div>
@@ -237,8 +300,16 @@ function SiteTimeReportTab({ clients }) {
               <div className={`text-xl font-bold ${dwellClass(data.summary.dropDwell.avg)}`}>{fmtMinutes(data.summary.dropDwell.avg)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
-              <div className="text-xs text-slate-500">Drop Score</div>
-              <div className={`text-xl font-bold ${scoreClass(data.summary.dropScore)}`}>{fmtScore(data.summary.dropScore)}</div>
+              <div className="text-xs text-slate-500">Drop Dwell Score</div>
+              <div className={`text-xl font-bold ${scoreClass(data.summary.dropDwellScore)}`}>{fmtScore(data.summary.dropDwellScore)}</div>
+            </div>
+            <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
+              <div className="text-xs text-slate-500">Avg Dropoff Timing</div>
+              <div className={`text-xl font-bold ${timingClass(data.summary.dropoffTiming.avg)}`}>{fmtTiming(data.summary.dropoffTiming.avg)}</div>
+            </div>
+            <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
+              <div className="text-xs text-slate-500">On-Time Score</div>
+              <div className={`text-xl font-bold ${scoreClass(data.summary.onTimeScore)}`}>{fmtScore(data.summary.onTimeScore)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Avg Transit</div>
@@ -256,7 +327,7 @@ function SiteTimeReportTab({ clients }) {
           {data.tasks.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <div className="text-4xl mb-3">📭</div>
-              <p className="font-medium">No completed tasks for {clientName || "this client"} in this date range</p>
+              <p className="font-medium">No completed tasks for {scopeName || "this selection"} in this date range</p>
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow border border-slate-200 overflow-x-auto">
@@ -264,6 +335,7 @@ function SiteTimeReportTab({ clients }) {
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Task</th>
+                    {mode === "dropoffPoint" && <th className="text-left px-3 py-3 text-slate-600 font-semibold">Client</th>}
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Driver</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Vehicle</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Arrived Load</th>
@@ -272,6 +344,7 @@ function SiteTimeReportTab({ clients }) {
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Arrived Drop</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Departed Drop</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Drop Dwell</th>
+                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Dropoff Timing</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Completed</th>
                     <th className="px-3 py-3"></th>
                   </tr>
@@ -284,6 +357,7 @@ function SiteTimeReportTab({ clients }) {
                         {t.orderNumber && <div className="text-[11px] text-slate-400">#{t.orderNumber}</div>}
                         {!t.hasCompleteTracking && <div className="text-[10px] text-amber-600 font-medium mt-0.5">⚠ Incomplete tracking</div>}
                       </td>
+                      {mode === "dropoffPoint" && <td className="px-3 py-3 text-slate-600">{t.clientName || "—"}</td>}
                       <td className="px-3 py-3 text-slate-600">{t.driverName || "—"}</td>
                       <td className="px-3 py-3 text-slate-600 font-mono text-xs">{t.vehicleRegistration || "—"}</td>
                       <td className="px-3 py-3 text-slate-600 text-xs">{fmtDT(t.arrivedLoadAt)}</td>
@@ -292,6 +366,7 @@ function SiteTimeReportTab({ clients }) {
                       <td className="px-3 py-3 text-slate-600 text-xs">{fmtDT(t.arrivedDropAt)}</td>
                       <td className="px-3 py-3 text-slate-600 text-xs">{fmtDT(t.departedDropAt)}</td>
                       <td className={`px-3 py-3 ${dwellClass(t.dropDwellMinutes)}`}>{fmtMinutes(t.dropDwellMinutes)}</td>
+                      <td className={`px-3 py-3 ${timingClass(t.dropoffTimingMinutes)}`}>{fmtTiming(t.dropoffTimingMinutes)}</td>
                       <td className="px-3 py-3 text-slate-500 text-xs">{fmtDT(t.completedAt)}</td>
                       <td className="px-3 py-3">
                         <button onClick={() => setRouteTask(t)}
