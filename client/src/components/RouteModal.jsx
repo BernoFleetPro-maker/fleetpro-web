@@ -44,8 +44,7 @@ function scoreClass(score) {
 }
 function fmtTiming(mins) {
   if (mins == null) return "—";
-  if (mins <= 0) return `${Math.abs(mins)} min early`;
-  return `${mins} min late`;
+  return `${fmtMinutes(Math.abs(mins))} ${mins <= 0 ? "early" : "late"}`;
 }
 function timingClass(mins) {
   if (mins == null) return "text-slate-400";

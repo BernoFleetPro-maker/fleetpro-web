@@ -68,8 +68,7 @@ function scoreClass(score) {
 // agree with each other.
 function fmtTiming(mins) {
   if (mins == null) return "—";
-  if (mins <= 0) return `${Math.abs(mins)} min early`;
-  return `${mins} min late`;
+  return `${fmtMinutes(Math.abs(mins))} ${mins <= 0 ? "early" : "late"}`;
 }
 function timingClass(mins) {
   if (mins == null) return "text-slate-400";
@@ -390,24 +389,34 @@ function SiteTimeReportTab({ clients }) {
               </p>
             </div>
           ) : (
-            <div className="bg-white rounded-xl shadow border border-slate-200 overflow-x-auto">
+            // CSS can't do "overflow-x: auto, overflow-y: visible" on the same
+            // element — per spec, if either axis is non-visible the other's
+            // computed value is forced to auto too, no matter what's set
+            // explicitly. So a horizontally-scrolling wrapper is necessarily
+            // ALSO a vertical clipping/scroll context, which is exactly what a
+            // sticky thead needs to stick relative to (rather than the outer
+            // page). Given that, this wrapper gets a real max-height so it
+            // becomes its own intentional scroll region — the thead sticks to
+            // ITS top (a plain 0, no measuring needed), and only this box's
+            // rows scroll, independent of the page-level scroll above.
+            <div className="bg-white rounded-xl shadow border border-slate-200 overflow-auto" style={{ maxHeight: "70vh" }}>
               <table className="w-full text-sm whitespace-nowrap">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Task</th>
-                    {mode === "dropoffPoint" && <th className="text-left px-3 py-3 text-slate-600 font-semibold">Client</th>}
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Driver</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Vehicle</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Arrived Load</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Departed Load</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Load Dwell</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Scheduled Dropoff</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Arrived Drop</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Departed Drop</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Drop Dwell</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Dropoff Timing</th>
-                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Completed</th>
-                    <th className="px-3 py-3"></th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Task</th>
+                    {mode === "dropoffPoint" && <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Client</th>}
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Driver</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Vehicle</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Arrived Load</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Departed Load</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Load Dwell</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Scheduled Dropoff</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Arrived Drop</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Departed Drop</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Drop Dwell</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Dropoff Timing</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 text-left px-3 py-3 text-slate-600 font-semibold">Completed</th>
+                    <th className="sticky top-0 z-[5] bg-slate-50 px-3 py-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
