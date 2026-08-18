@@ -88,6 +88,39 @@ function firstOfMonthISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+// Same summarize/averageScore logic taskController.js uses server-side —
+// duplicated here so toggling "include incomplete tracking" recomputes the
+// summary tiles instantly against whichever tasks are currently visible,
+// with no round trip.
+function summarizeClient(values) {
+  if (values.length === 0) return { avg: null, min: null, max: null };
+  return {
+    avg: Math.round(values.reduce((sum, n) => sum + n, 0) / values.length),
+    min: Math.min(...values),
+    max: Math.max(...values),
+  };
+}
+function averageScoreClient(scores) {
+  const present = scores.filter(s => s != null);
+  if (present.length === 0) return null;
+  return Math.round(present.reduce((sum, s) => sum + s, 0) / present.length);
+}
+function recomputeSummary(tasks) {
+  const valuesFor = (key) => tasks.map(r => r[key]).filter(n => n != null);
+  return {
+    taskCount: tasks.length,
+    incompleteTrackingCount: tasks.filter(r => !r.hasCompleteTracking).length,
+    loadDwell:      summarizeClient(valuesFor("loadDwellMinutes")),
+    dropDwell:      summarizeClient(valuesFor("dropDwellMinutes")),
+    travelToLoad:   summarizeClient(valuesFor("travelToLoadMinutes")),
+    transit:        summarizeClient(valuesFor("transitMinutes")),
+    dropoffTiming:  summarizeClient(valuesFor("dropoffTimingMinutes")),
+    loadScore:      averageScoreClient(tasks.map(r => r.loadScore)),
+    dropDwellScore: averageScoreClient(tasks.map(r => r.dropDwellScore)),
+    onTimeScore:    averageScoreClient(tasks.map(r => r.onTimeScore)),
+  };
+}
+
 function SiteTimeReportTab({ clients }) {
   const [mode,      setMode]      = useState("client"); // "client" | "dropoffPoint"
   const [clientId,  setClientId]  = useState("");
@@ -99,6 +132,14 @@ function SiteTimeReportTab({ clients }) {
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState("");
   const [routeTask, setRouteTask] = useState(null); // task row currently drilled into, or null
+  // Off by default — a single stray incomplete-tracking row (missing
+  // acceptedAt, a bogus scheduled date, etc.) can otherwise blow up an
+  // average by tens of thousands of minutes. Opt back in to audit them.
+  const [includeIncomplete, setIncludeIncomplete] = useState(false);
+
+  const visibleTasks = data ? (includeIncomplete ? data.tasks : data.tasks.filter(t => t.hasCompleteTracking)) : [];
+  const summary = data ? recomputeSummary(visibleTasks) : null;
+  const hiddenIncompleteCount = data ? data.tasks.length - data.tasks.filter(t => t.hasCompleteTracking).length : 0;
 
   useEffect(() => {
     authFetch(`${API}/points`)
@@ -137,7 +178,7 @@ function SiteTimeReportTab({ clients }) {
     const dwellFlagClass = (mins) => mins == null ? "" : mins > DWELL_ORANGE_MAX_MIN ? "dwell-red" : mins > DWELL_GREEN_MAX_MIN ? "dwell-orange" : "dwell-green";
     const scoreFlagClass = (score) => score == null ? "" : score >= 75 ? "dwell-green" : score >= 50 ? "dwell-orange" : "dwell-red";
     const timingFlagClass = (mins) => mins == null ? "" : mins <= 30 ? "dwell-green" : mins <= 60 ? "dwell-orange" : "dwell-red";
-    const rows = data.tasks.map(t => `
+    const rows = visibleTasks.map(t => `
       <tr>
         <td>${(t.title || "—").toString().replace(/</g, "")}${t.orderNumber ? ` <span class="muted">#${t.orderNumber}</span>` : ""}${!t.hasCompleteTracking ? ` <span class="warn">⚠</span>` : ""}</td>
         ${mode === "dropoffPoint" ? `<td>${(t.clientName || "—").toString().replace(/</g, "")}</td>` : ""}
@@ -146,6 +187,7 @@ function SiteTimeReportTab({ clients }) {
         <td>${fmtDT(t.arrivedLoadAt)}</td>
         <td>${fmtDT(t.departedLoadAt)}</td>
         <td class="${dwellFlagClass(t.loadDwellMinutes)}">${fmtMinutes(t.loadDwellMinutes)}</td>
+        <td>${fmtDT(t.scheduledDropoffAt)}</td>
         <td>${fmtDT(t.arrivedDropAt)}</td>
         <td>${fmtDT(t.departedDropAt)}</td>
         <td class="${dwellFlagClass(t.dropDwellMinutes)}">${fmtMinutes(t.dropDwellMinutes)}</td>
@@ -179,24 +221,24 @@ function SiteTimeReportTab({ clients }) {
       </head>
       <body>
         <h1>Site Time Report — ${(scopeName || "Report").toString().replace(/</g, "")}${mode === "dropoffPoint" ? " (dropoff site, all clients)" : ""}</h1>
-        <div class="sub">${from} to ${to} · ${data.summary.taskCount} completed task${data.summary.taskCount !== 1 ? "s" : ""}</div>
+        <div class="sub">${from} to ${to} · ${summary.taskCount} completed task${summary.taskCount !== 1 ? "s" : ""}${!includeIncomplete && hiddenIncompleteCount ? ` · ${hiddenIncompleteCount} incomplete-tracking task${hiddenIncompleteCount !== 1 ? "s" : ""} excluded` : ""}</div>
         <div class="grid">
-          <div class="card"><div class="label">Completed Tasks</div><div class="value">${data.summary.taskCount}</div></div>
-          <div class="card"><div class="label">Avg Load Dwell</div><div class="value ${dwellFlagClass(data.summary.loadDwell.avg)}">${fmtMinutes(data.summary.loadDwell.avg)}</div></div>
-          <div class="card"><div class="label">Load Score</div><div class="value ${scoreFlagClass(data.summary.loadScore)}">${fmtScore(data.summary.loadScore)}</div></div>
-          <div class="card"><div class="label">Avg Drop Dwell</div><div class="value ${dwellFlagClass(data.summary.dropDwell.avg)}">${fmtMinutes(data.summary.dropDwell.avg)}</div></div>
-          <div class="card"><div class="label">Drop Dwell Score</div><div class="value ${scoreFlagClass(data.summary.dropDwellScore)}">${fmtScore(data.summary.dropDwellScore)}</div></div>
-          <div class="card"><div class="label">Avg Dropoff Timing</div><div class="value ${timingFlagClass(data.summary.dropoffTiming.avg)}">${fmtTiming(data.summary.dropoffTiming.avg)}</div></div>
-          <div class="card"><div class="label">On-Time Score</div><div class="value ${scoreFlagClass(data.summary.onTimeScore)}">${fmtScore(data.summary.onTimeScore)}</div></div>
-          <div class="card"><div class="label">Avg Transit</div><div class="value">${fmtMinutes(data.summary.transit.avg)}</div></div>
-          <div class="card"><div class="label">Incomplete Tracking</div><div class="value">${data.summary.incompleteTrackingCount}</div></div>
+          <div class="card"><div class="label">Completed Tasks</div><div class="value">${summary.taskCount}</div></div>
+          <div class="card"><div class="label">Avg Load Dwell</div><div class="value ${dwellFlagClass(summary.loadDwell.avg)}">${fmtMinutes(summary.loadDwell.avg)}</div></div>
+          <div class="card"><div class="label">Load Score</div><div class="value ${scoreFlagClass(summary.loadScore)}">${fmtScore(summary.loadScore)}</div></div>
+          <div class="card"><div class="label">Avg Drop Dwell</div><div class="value ${dwellFlagClass(summary.dropDwell.avg)}">${fmtMinutes(summary.dropDwell.avg)}</div></div>
+          <div class="card"><div class="label">Drop Dwell Score</div><div class="value ${scoreFlagClass(summary.dropDwellScore)}">${fmtScore(summary.dropDwellScore)}</div></div>
+          <div class="card"><div class="label">Avg Dropoff Timing</div><div class="value ${timingFlagClass(summary.dropoffTiming.avg)}">${fmtTiming(summary.dropoffTiming.avg)}</div></div>
+          <div class="card"><div class="label">On-Time Score</div><div class="value ${scoreFlagClass(summary.onTimeScore)}">${fmtScore(summary.onTimeScore)}</div></div>
+          <div class="card"><div class="label">Avg Transit</div><div class="value">${fmtMinutes(summary.transit.avg)}</div></div>
+          <div class="card"><div class="label">Incomplete Tracking</div><div class="value">${summary.incompleteTrackingCount}</div></div>
         </div>
         <table>
           <thead>
             <tr>
               <th>Task</th>${mode === "dropoffPoint" ? "<th>Client</th>" : ""}<th>Driver</th><th>Vehicle</th>
               <th>Arrived Load</th><th>Departed Load</th><th>Load Dwell</th>
-              <th>Arrived Drop</th><th>Departed Drop</th><th>Drop Dwell</th><th>Dropoff Timing</th>
+              <th>Scheduled Dropoff</th><th>Arrived Drop</th><th>Departed Drop</th><th>Drop Dwell</th><th>Dropoff Timing</th>
               <th>Completed</th>
             </tr>
           </thead>
@@ -212,7 +254,9 @@ function SiteTimeReportTab({ clients }) {
 
   return (
     <div>
-      {/* Filters */}
+      {/* Filters + summary stay pinned to the top of the scroll area so they're
+          always visible; only the task table scrolls past underneath. */}
+      <div className="sticky top-0 z-10 bg-slate-50 pb-4">
       <div className="bg-white rounded-xl shadow border border-slate-200 p-4 mb-6 flex flex-wrap items-end gap-4">
         <div>
           <label className="text-xs text-slate-500 font-semibold block mb-1">Report by</label>
@@ -271,63 +315,79 @@ function SiteTimeReportTab({ clients }) {
 
       {data && (
         <>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <div className="text-sm text-slate-500">
               {scopeName}{mode === "dropoffPoint" && <span className="text-slate-400"> · all clients</span>} · {from} to {to}
             </div>
-            <button onClick={handleDownloadReportPdf}
-              className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg">
-              ⬇ Download PDF
-            </button>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs text-slate-500 font-medium cursor-pointer">
+                <input type="checkbox" checked={includeIncomplete} onChange={e => setIncludeIncomplete(e.target.checked)}
+                  className="rounded border-slate-300" />
+                Include incomplete-tracking tasks
+                {!includeIncomplete && hiddenIncompleteCount > 0 && (
+                  <span className="text-amber-600">({hiddenIncompleteCount} hidden)</span>
+                )}
+              </label>
+              <button onClick={handleDownloadReportPdf}
+                className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg">
+                ⬇ Download PDF
+              </button>
+            </div>
           </div>
 
           {/* Summary stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Completed Tasks</div>
-              <div className="text-xl font-bold text-slate-800">{data.summary.taskCount}</div>
+              <div className="text-xl font-bold text-slate-800">{summary.taskCount}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Avg Load Dwell</div>
-              <div className={`text-xl font-bold ${dwellClass(data.summary.loadDwell.avg)}`}>{fmtMinutes(data.summary.loadDwell.avg)}</div>
+              <div className={`text-xl font-bold ${dwellClass(summary.loadDwell.avg)}`}>{fmtMinutes(summary.loadDwell.avg)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Load Score</div>
-              <div className={`text-xl font-bold ${scoreClass(data.summary.loadScore)}`}>{fmtScore(data.summary.loadScore)}</div>
+              <div className={`text-xl font-bold ${scoreClass(summary.loadScore)}`}>{fmtScore(summary.loadScore)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Avg Drop Dwell</div>
-              <div className={`text-xl font-bold ${dwellClass(data.summary.dropDwell.avg)}`}>{fmtMinutes(data.summary.dropDwell.avg)}</div>
+              <div className={`text-xl font-bold ${dwellClass(summary.dropDwell.avg)}`}>{fmtMinutes(summary.dropDwell.avg)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Drop Dwell Score</div>
-              <div className={`text-xl font-bold ${scoreClass(data.summary.dropDwellScore)}`}>{fmtScore(data.summary.dropDwellScore)}</div>
+              <div className={`text-xl font-bold ${scoreClass(summary.dropDwellScore)}`}>{fmtScore(summary.dropDwellScore)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Avg Dropoff Timing</div>
-              <div className={`text-xl font-bold ${timingClass(data.summary.dropoffTiming.avg)}`}>{fmtTiming(data.summary.dropoffTiming.avg)}</div>
+              <div className={`text-xl font-bold ${timingClass(summary.dropoffTiming.avg)}`}>{fmtTiming(summary.dropoffTiming.avg)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">On-Time Score</div>
-              <div className={`text-xl font-bold ${scoreClass(data.summary.onTimeScore)}`}>{fmtScore(data.summary.onTimeScore)}</div>
+              <div className={`text-xl font-bold ${scoreClass(summary.onTimeScore)}`}>{fmtScore(summary.onTimeScore)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Avg Transit</div>
-              <div className="text-xl font-bold text-slate-800">{fmtMinutes(data.summary.transit.avg)}</div>
+              <div className="text-xl font-bold text-slate-800">{fmtMinutes(summary.transit.avg)}</div>
             </div>
             <div className="bg-white rounded-xl shadow border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Incomplete Tracking</div>
-              <div className={`text-xl font-bold ${data.summary.incompleteTrackingCount > 0 ? "text-amber-600" : "text-slate-800"}`}>
-                {data.summary.incompleteTrackingCount}
+              <div className={`text-xl font-bold ${summary.incompleteTrackingCount > 0 ? "text-amber-600" : "text-slate-800"}`}>
+                {summary.incompleteTrackingCount}
               </div>
             </div>
           </div>
-
-          {/* Per-task table */}
-          {data.tasks.length === 0 ? (
+        </>
+      )}
+      </div>
+      {/* Per-task table — scrolls on its own, underneath the pinned filters/summary above */}
+      {data && (visibleTasks.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <div className="text-4xl mb-3">📭</div>
-              <p className="font-medium">No completed tasks for {scopeName || "this selection"} in this date range</p>
+              <p className="font-medium">
+                {data.tasks.length === 0
+                  ? `No completed tasks for ${scopeName || "this selection"} in this date range`
+                  : "All tasks in range have incomplete tracking — check \"Include incomplete-tracking tasks\" to see them"}
+              </p>
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow border border-slate-200 overflow-x-auto">
@@ -341,6 +401,7 @@ function SiteTimeReportTab({ clients }) {
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Arrived Load</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Departed Load</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Load Dwell</th>
+                    <th className="text-left px-3 py-3 text-slate-600 font-semibold">Scheduled Dropoff</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Arrived Drop</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Departed Drop</th>
                     <th className="text-left px-3 py-3 text-slate-600 font-semibold">Drop Dwell</th>
@@ -350,7 +411,7 @@ function SiteTimeReportTab({ clients }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.tasks.map(t => (
+                  {visibleTasks.map(t => (
                     <tr key={t.id} className="hover:bg-slate-50">
                       <td className="px-3 py-3">
                         <div className="font-semibold text-slate-800">{t.title || "—"}</div>
@@ -363,6 +424,7 @@ function SiteTimeReportTab({ clients }) {
                       <td className="px-3 py-3 text-slate-600 text-xs">{fmtDT(t.arrivedLoadAt)}</td>
                       <td className="px-3 py-3 text-slate-600 text-xs">{fmtDT(t.departedLoadAt)}</td>
                       <td className={`px-3 py-3 ${dwellClass(t.loadDwellMinutes)}`}>{fmtMinutes(t.loadDwellMinutes)}</td>
+                      <td className="px-3 py-3 text-slate-500 text-xs">{fmtDT(t.scheduledDropoffAt)}</td>
                       <td className="px-3 py-3 text-slate-600 text-xs">{fmtDT(t.arrivedDropAt)}</td>
                       <td className="px-3 py-3 text-slate-600 text-xs">{fmtDT(t.departedDropAt)}</td>
                       <td className={`px-3 py-3 ${dwellClass(t.dropDwellMinutes)}`}>{fmtMinutes(t.dropDwellMinutes)}</td>
@@ -379,9 +441,7 @@ function SiteTimeReportTab({ clients }) {
                 </tbody>
               </table>
             </div>
-          )}
-        </>
-      )}
+      ))}
 
       {routeTask && (
         <RouteModal

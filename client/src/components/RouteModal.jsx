@@ -29,9 +29,10 @@ function fmtMinutes(mins) {
   const h = Math.floor(mins / 60), m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
 }
-// Load score = tiered against raw load dwell. Drop score = tiered against
-// lateness vs. the task's scheduled dropoff time. Computed server-side —
-// see taskController.js's tieredScore/scheduledDropoffAt.
+// Load Score and Drop Dwell Score are tiered against raw dwell time.
+// On-Time Score is tiered against lateness vs. the task's scheduled dropoff
+// time. Computed server-side — see taskController.js's dwellTieredScore/
+// onTimeTieredScore/scheduledDropoffAt.
 function fmtScore(score) {
   return score == null ? "—" : `${score}%`;
 }
@@ -40,6 +41,27 @@ function scoreClass(score) {
   if (score >= 75) return "text-green-400 font-semibold";
   if (score >= 50) return "text-orange-400 font-semibold";
   return "text-red-400 font-bold";
+}
+function fmtTiming(mins) {
+  if (mins == null) return "—";
+  if (mins <= 0) return `${Math.abs(mins)} min early`;
+  return `${mins} min late`;
+}
+function timingClass(mins) {
+  if (mins == null) return "text-slate-400";
+  if (mins <= 30) return "text-green-400 font-semibold";
+  if (mins <= 60) return "text-orange-400 font-semibold";
+  return "text-red-400 font-bold";
+}
+
+// Compact label:value row used inside each phase section below.
+function Row({ label, value, valueClass = "text-white" }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 py-0.5">
+      <span className="text-slate-400">{label}</span>
+      <span className={`font-medium text-right ${valueClass}`}>{value}</span>
+    </div>
+  );
 }
 
 function bearingDeg(lat1, lng1, lat2, lng2) {
@@ -234,6 +256,7 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
 
     const dwellFlagClass = (mins) => mins == null ? "" : mins > DWELL_ORANGE_MAX_MIN ? "dwell-red" : mins > DWELL_GREEN_MAX_MIN ? "dwell-orange" : "dwell-green";
     const scoreFlagClass = (score) => score == null ? "" : score >= 75 ? "dwell-green" : score >= 50 ? "dwell-orange" : "dwell-red";
+    const timingFlagClass = (mins) => mins == null ? "" : mins <= 30 ? "dwell-green" : mins <= 60 ? "dwell-orange" : "dwell-red";
     const stopsRows = (route.stops || []).map((s, i) => `
       <tr><td>${i + 1}</td><td>${fmt(s.startTime)}</td><td>${fmt(s.endTime)}</td><td>${s.durationMin} min</td></tr>
     `).join("");
@@ -246,7 +269,7 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
           body { font-family: Arial, sans-serif; padding: 24px; color:#111; }
           h1 { font-size: 20px; margin: 0 0 4px; }
           .sub { color:#555; font-size:12px; margin-bottom:20px; }
-          .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:20px; }
+          .grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-bottom:20px; }
           .card { border:1px solid #ddd; border-radius:6px; padding:10px; }
           .card .label { font-size:11px; color:#666; }
           .card .value { font-size:14px; font-weight:600; }
@@ -262,6 +285,7 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
       <body>
         <h1>Route Report — ${(task.title || task.loadLocation || "Task").toString()}</h1>
         <div class="sub">${task.orderNumber ? `Order #${task.orderNumber} · ` : ""}Driver: ${driverName} · Vehicle: ${vehicleReg}</div>
+        <div class="sub">${(task.loadLocation || "—").toString()} &rarr; ${(task.dropoffLocation || "—").toString()}</div>
         <div class="grid">
           <div class="card"><div class="label">Accepted At</div><div class="value">${fmt(route.acceptedAt)}</div></div>
           <div class="card"><div class="label">Travel to Loading</div><div class="value">${fmtMinutes(route.travelToLoadMinutes)}</div></div>
@@ -270,10 +294,13 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
           <div class="card"><div class="label">Time at Loading Site</div><div class="value ${dwellFlagClass(route.loadDwellMinutes)}">${fmtMinutes(route.loadDwellMinutes)}</div></div>
           <div class="card"><div class="label">Load Score</div><div class="value ${scoreFlagClass(route.loadScore)}">${fmtScore(route.loadScore)}</div></div>
           <div class="card"><div class="label">Transit to Dropoff</div><div class="value">${fmtMinutes(route.transitMinutes)}</div></div>
+          <div class="card"><div class="label">Scheduled Dropoff</div><div class="value">${fmt(route.scheduledDropoffAt)}</div></div>
           <div class="card"><div class="label">Arrived at Dropoff</div><div class="value">${fmt(route.arrivedDropAt)}</div></div>
+          <div class="card"><div class="label">Dropoff Timing</div><div class="value ${timingFlagClass(route.dropoffTimingMinutes)}">${fmtTiming(route.dropoffTimingMinutes)}</div></div>
           <div class="card"><div class="label">Departed Dropoff</div><div class="value">${fmt(route.departedDropAt)}</div></div>
           <div class="card"><div class="label">Time at Dropoff Site</div><div class="value ${dwellFlagClass(route.dropDwellMinutes)}">${fmtMinutes(route.dropDwellMinutes)}</div></div>
-          <div class="card"><div class="label">Drop Score</div><div class="value ${scoreFlagClass(route.dropScore)}">${fmtScore(route.dropScore)}</div></div>
+          <div class="card"><div class="label">Drop Dwell Score</div><div class="value ${scoreFlagClass(route.dropDwellScore)}">${fmtScore(route.dropDwellScore)}</div></div>
+          <div class="card"><div class="label">On-Time Score</div><div class="value ${scoreFlagClass(route.onTimeScore)}">${fmtScore(route.onTimeScore)}</div></div>
           <div class="card"><div class="label">Completed At</div><div class="value">${fmt(route.completedAt)}</div></div>
           <div class="card"><div class="label">Distance to Loading</div><div class="value">${route.distanceToLoadKm ?? 0} km</div></div>
           <div class="card"><div class="label">Distance to Dropoff</div><div class="value">${route.distanceToDropKm ?? 0} km</div></div>
@@ -313,78 +340,66 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="bg-[#1e293b] rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-600">
-        <div className="flex items-center justify-between p-5 border-b border-slate-700">
-          <h2 className="text-lg font-bold text-white">
-            🗺 Route — {task.title || task.loadLocation || "Task"}
-            {task.orderNumber && <span className="ml-2 text-slate-400 font-normal text-sm">#{task.orderNumber}</span>}
-          </h2>
-          <div className="flex items-center gap-3">
-            <button onClick={handleDownloadPdf} disabled={loading} className="text-xs font-semibold bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg">⬇ Download PDF</button>
+      <div className="bg-[#1e293b] rounded-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto border border-slate-600">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+          <div>
+            <h2 className="text-base font-bold text-white leading-tight">
+              🗺 {task.title || "Route"}
+              {task.orderNumber && <span className="ml-2 text-slate-400 font-normal text-xs">#{task.orderNumber}</span>}
+            </h2>
+            <div className="text-xs text-slate-400 mt-0.5">
+              {task.loadLocation || "—"} <span className="text-slate-600">→</span> {task.dropoffLocation || "—"}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleDownloadPdf} disabled={loading} className="text-xs font-semibold bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg">⬇ PDF</button>
             <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none">×</button>
           </div>
         </div>
-        <div className="p-5 space-y-4">
+        <div className="p-4 space-y-2.5">
           <div className="text-xs text-slate-400">Driver: <span className="text-slate-200 font-medium">{driverName}</span> · Vehicle: <span className="text-slate-200 font-medium">{vehicleReg}</span></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">▶ Accepted At</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.acceptedAt)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">🚗 Travel to Loading</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmtMinutes(route?.travelToLoadMinutes)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">📦 Arrived at Loading</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.arrivedLoadAt)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">📤 Departed Loading</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.departedLoadAt)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">⏱ Time at Loading Site</div>
-              <div className={`text-sm font-medium ${loading ? "text-white" : dwellClass(route?.loadDwellMinutes)}`}>{loading ? "—" : fmtMinutes(route?.loadDwellMinutes)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">📊 Load Score</div>
-              <div className={`text-sm font-medium ${loading ? "text-white" : scoreClass(route?.loadScore)}`}>{loading ? "—" : fmtScore(route?.loadScore)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">🛣 Transit to Dropoff</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmtMinutes(route?.transitMinutes)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">🏁 Arrived at Dropoff</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.arrivedDropAt)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">📤 Departed Dropoff</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.departedDropAt)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">⏱ Time at Dropoff Site</div>
-              <div className={`text-sm font-medium ${loading ? "text-white" : dwellClass(route?.dropDwellMinutes)}`}>{loading ? "—" : fmtMinutes(route?.dropDwellMinutes)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">📊 Drop Score</div>
-              <div className={`text-sm font-medium ${loading ? "text-white" : scoreClass(route?.dropScore)}`}>{loading ? "—" : fmtScore(route?.dropScore)}</div>
-            </div>
-            <div className="bg-slate-800 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">✅ Completed At</div>
-              <div className="text-white text-sm font-medium">{loading ? "—" : fmt(route?.completedAt)}</div>
+
+          {/* Chronological, phase-grouped — loading, then transit, then dropoff */}
+          <div className="bg-slate-800 rounded-lg px-3 py-2">
+            <div className="text-[11px] font-bold text-blue-400 mb-1 tracking-wide">📦 LOADING</div>
+            <div className="grid grid-cols-2 gap-x-4 text-xs">
+              <Row label="Accepted" value={loading ? "—" : fmt(route?.acceptedAt)} />
+              <Row label="Travel to site" value={loading ? "—" : fmtMinutes(route?.travelToLoadMinutes)} />
+              <Row label="Arrived" value={loading ? "—" : fmt(route?.arrivedLoadAt)} />
+              <Row label="Departed" value={loading ? "—" : fmt(route?.departedLoadAt)} />
+              <Row label="Time on site" value={loading ? "—" : fmtMinutes(route?.loadDwellMinutes)} valueClass={loading ? "text-white" : dwellClass(route?.loadDwellMinutes)} />
+              <Row label="Load Score" value={loading ? "—" : fmtScore(route?.loadScore)} valueClass={loading ? "text-white" : scoreClass(route?.loadScore)} />
             </div>
           </div>
+
+          <div className="bg-slate-800 rounded-lg px-3 py-1.5 flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-400 tracking-wide">🛣 TRANSIT TO DROPOFF</span>
+            <span className="font-medium text-white">{loading ? "—" : fmtMinutes(route?.transitMinutes)}</span>
+          </div>
+
+          <div className="bg-slate-800 rounded-lg px-3 py-2">
+            <div className="text-[11px] font-bold text-green-400 mb-1 tracking-wide">🏁 DROPOFF</div>
+            <div className="grid grid-cols-2 gap-x-4 text-xs">
+              <Row label="Scheduled" value={loading ? "—" : fmt(route?.scheduledDropoffAt)} />
+              <Row label="Arrived" value={loading ? "—" : fmt(route?.arrivedDropAt)} />
+              <Row label="Timing" value={loading ? "—" : fmtTiming(route?.dropoffTimingMinutes)} valueClass={loading ? "text-white" : timingClass(route?.dropoffTimingMinutes)} />
+              <Row label="Departed" value={loading ? "—" : fmt(route?.departedDropAt)} />
+              <Row label="Time on site" value={loading ? "—" : fmtMinutes(route?.dropDwellMinutes)} valueClass={loading ? "text-white" : dwellClass(route?.dropDwellMinutes)} />
+              <Row label="Dwell Score" value={loading ? "—" : fmtScore(route?.dropDwellScore)} valueClass={loading ? "text-white" : scoreClass(route?.dropDwellScore)} />
+              <Row label="On-Time Score" value={loading ? "—" : fmtScore(route?.onTimeScore)} valueClass={loading ? "text-white" : scoreClass(route?.onTimeScore)} />
+              <Row label="Completed" value={loading ? "—" : fmt(route?.completedAt)} />
+            </div>
+          </div>
+
           <div>
-            <div className="text-sm font-semibold text-slate-300 mb-2">Route</div>
+            <div className="text-xs font-semibold text-slate-300 mb-1.5">Route</div>
             {loading ? (
               <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-400 text-sm animate-pulse">Loading route…</div>
             ) : !route?.points?.length ? (
               <div className="bg-slate-800 rounded-lg p-6 text-center text-slate-500 text-sm">No route data available for this task</div>
             ) : (
               <div style={{ position: "relative" }}>
-                <div ref={mapRef} style={{ width: "100%", height: "320px", borderRadius: "8px", overflow: "hidden" }} />
+                <div ref={mapRef} style={{ width: "100%", height: "220px", borderRadius: "8px", overflow: "hidden" }} />
                 <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 6, pointerEvents: "none" }}>
                   <span style={{ background: "rgba(30,136,229,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6 }}>
                     📦 To Load: {route.distanceToLoadKm} km
