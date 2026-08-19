@@ -166,21 +166,40 @@ export default function Drivers() {
     return d.name.toLowerCase().includes(q) || d.phone.toLowerCase().includes(q);
   });
 
+  const goToVehicleOnMap = (registration, driverName, isLastKnown) => {
+    const params = new URLSearchParams({ vehicle: registration });
+    if (isLastKnown) params.set("driverName", driverName); // MapView shows this explicitly since there's no active task to read a driver name from
+    window.location.href = `/?${params.toString()}`;
+  };
+
   const handleViewOnMap = (driver) => {
     const task = activeTasks.find(t => t.assignedDriverId === driver.id);
-    if (!task) {
-      showToast(`${driver.name} has no active task — cannot track on map.`);
+    if (task) {
+      // Look up the vehicle registration from vehicleId, then navigate to map
+      authFetch(`https://fleetpro-backend-production.up.railway.app/api/vehicles`)
+        .then(r => r.json())
+        .then(vehicles => {
+          const veh = Array.isArray(vehicles) ? vehicles.find(v => v.id === task.vehicleId) : null;
+          if (veh?.registration) {
+            goToVehicleOnMap(veh.registration, driver.name, false);
+          } else {
+            showToast("Could not find vehicle for this driver.");
+          }
+        })
+        .catch(() => showToast("Could not reach server — please try again."));
       return;
     }
-    // Look up the vehicle registration from vehicleId, then navigate to map
-    authFetch(`https://fleetpro-backend-production.up.railway.app/api/vehicles`)
+
+    // No active task right now — fall back to the vehicle from their most
+    // recent task of any status, so the button still works between jobs.
+    authFetch(`${API}/${driver.id}/last-vehicle`)
       .then(r => r.json())
-      .then(vehicles => {
-        const veh = Array.isArray(vehicles) ? vehicles.find(v => v.id === task.vehicleId) : null;
-        if (veh?.registration) {
-          window.location.href = `/?vehicle=${encodeURIComponent(veh.registration)}`;
+      .then(({ registration }) => {
+        if (registration) {
+          showToast(`Showing ${driver.name}'s last known vehicle — no active task right now.`);
+          goToVehicleOnMap(registration, driver.name, true);
         } else {
-          showToast("Could not find vehicle for this driver.");
+          showToast(`${driver.name} has never had a vehicle assigned — nothing to show.`);
         }
       })
       .catch(() => showToast("Could not reach server — please try again."));
