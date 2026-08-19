@@ -24,7 +24,6 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
   const routeLinesRef    = useRef({});
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null); // tracks selected vehicle for route highlight
-  const lastKnownDriverRef = useRef({}); // vehicleId -> driver name, set only via a Drivers-page "?driverName=" deep link when that vehicle has no active task to read a real driver name from
   const lastPositionsRef = useRef([]);   // last fetched (post-filter) positions — patched instantly by SSE
   const clientsRef       = useRef(null); // null = not fetched yet; [] once fetched (admin/staff only)
   // Draft visibility choice while turning a vehicle available — nothing is
@@ -243,15 +242,15 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
         </div>`;
     }
 
-    // Set only via a Drivers-page "View on Map" deep link for a driver with
-    // no active task — there's no live task to read a real driver name from
-    // in that case, so this is explicitly labeled as a last-known fact
-    // rather than presented like the live "Driver:" line in taskSection.
+    // Computed server-side (positionsRoutes.js) for every vehicle with no
+    // active task — there's no live task to read a real driver name from in
+    // that case, so this is explicitly labeled as a last-known fact rather
+    // than presented like the live "Driver:" line in taskSection.
     let lastKnownDriverSection = "";
-    if (!t && v.vehicleId && lastKnownDriverRef.current[v.vehicleId]) {
+    if (!t && v.lastKnownDriver?.name) {
       lastKnownDriverSection = `
         <hr style="margin:5px 0;border:none;border-top:1px solid #e0e0e0;"/>
-        <div style="font-size:10px;color:#92400e;"><strong>👤 Last known driver:</strong> ${lastKnownDriverRef.current[v.vehicleId]}</div>
+        <div style="font-size:10px;color:#92400e;"><strong>👤 Last known driver:</strong> ${v.lastKnownDriver.name}</div>
         <div style="font-size:9px;color:#aaa;">No active task right now — shown from their last assigned job.</div>`;
     }
 
@@ -837,15 +836,13 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
           await drawPoints(positions);
 
           // Auto-open vehicle popup if navigated from Tasks page, or from the
-          // Drivers page's "View on Map" (which also carries driverName when
-          // that driver has no active task — see lastKnownDriverRef above).
+          // Drivers page's "View on Map" (lastKnownDriver, if any, comes
+          // straight from the fetched position data — see buildInfoHtml).
           const urlParams  = new URLSearchParams(window.location.search);
           const urlVehicle = urlParams.get("vehicle");
-          const urlDriverName = urlParams.get("driverName");
           if (urlVehicle) {
             const match = positions.find(v => (v.descrip || "").trim().toUpperCase() === urlVehicle.trim().toUpperCase());
             if (match) {
-              if (urlDriverName && match.vehicleId) lastKnownDriverRef.current[match.vehicleId] = urlDriverName;
               const id = match.descrip || `veh-${match.id}`;
               const mk = markersRef.current[id];
               if (mk && mapInstance.current) {

@@ -166,10 +166,8 @@ export default function Drivers() {
     return d.name.toLowerCase().includes(q) || d.phone.toLowerCase().includes(q);
   });
 
-  const goToVehicleOnMap = (registration, driverName, isLastKnown) => {
-    const params = new URLSearchParams({ vehicle: registration });
-    if (isLastKnown) params.set("driverName", driverName); // MapView shows this explicitly since there's no active task to read a driver name from
-    window.location.href = `/?${params.toString()}`;
+  const goToVehicleOnMap = (registration) => {
+    window.location.href = `/?vehicle=${encodeURIComponent(registration)}`;
   };
 
   const handleViewOnMap = (driver) => {
@@ -181,7 +179,7 @@ export default function Drivers() {
         .then(vehicles => {
           const veh = Array.isArray(vehicles) ? vehicles.find(v => v.id === task.vehicleId) : null;
           if (veh?.registration) {
-            goToVehicleOnMap(veh.registration, driver.name, false);
+            goToVehicleOnMap(veh.registration);
           } else {
             showToast("Could not find vehicle for this driver.");
           }
@@ -192,12 +190,14 @@ export default function Drivers() {
 
     // No active task right now — fall back to the vehicle from their most
     // recent task of any status, so the button still works between jobs.
+    // MapView reads the driver's name itself (lastKnownDriver, computed
+    // server-side for every idle vehicle) rather than it being passed here.
     authFetch(`${API}/${driver.id}/last-vehicle`)
       .then(r => r.json())
       .then(({ registration }) => {
         if (registration) {
           showToast(`Showing ${driver.name}'s last known vehicle — no active task right now.`);
-          goToVehicleOnMap(registration, driver.name, true);
+          goToVehicleOnMap(registration);
         } else {
           showToast(`${driver.name} has never had a vehicle assigned — nothing to show.`);
         }
