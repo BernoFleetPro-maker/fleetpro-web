@@ -385,6 +385,8 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
   const [podTask,       setPodTask]       = useState(null);
   const [routeTask,     setRouteTask]     = useState(null);
   const [viewTask,      setViewTask]      = useState(null);
+  const [failTask,      setFailTask]      = useState(null); // task pending a failure reason before setStatus fires
+  const [failReason,    setFailReason]    = useState("");
   const [initialLoaded, setInitialLoaded] = useState(false);
   const lastOptimisticRef = useRef(0);
   const [vehicleETAs, setVehicleETAs] = useState({});
@@ -708,18 +710,18 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
     }
   };
 
-  const setStatus = async (id, status, result) => {
+  const setStatus = async (id, status, result, failureReason) => {
     // Optimistic update
     const previous = _cachedTasks;
     setTasks(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, status, ...(result ? { result } : {}) } : t);
+      const updated = prev.map(t => t.id === id ? { ...t, status, ...(result ? { result } : {}), ...(failureReason ? { failureReason } : {}) } : t);
       _cachedTasks = updated;
       return updated;
     });
     try {
       const res = await authFetch(`${API}/tasks/${id}/status`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, ...(result ? { result } : {}) }),
+        body: JSON.stringify({ status, ...(result ? { result } : {}), ...(failureReason ? { failureReason } : {}) }),
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
     } catch {
@@ -866,6 +868,9 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                           <span className="text-[10px] text-green-400">📷 {photoCount} photo{photoCount !== 1 ? "s" : ""}</span>
                         </div>
                       )}
+                      {task.result === "failed" && task.failureReason && (
+                        <div className="text-[10px] text-red-300/80 italic mt-0.5 truncate" title={task.failureReason}>"{task.failureReason}"</div>
+                      )}
                       <div className="flex flex-wrap gap-0.5 mt-1 pt-1 border-t border-slate-700/60">
                         {/* View POD / View Route are independent of the create/edit/delete
                             tier below — a restricted staff member (createTasks:false) still
@@ -883,7 +888,7 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                             <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
                             <button onClick={() => handleDelete(task.id)} className="px-1 py-0 bg-red-900 hover:bg-red-700 rounded text-[9px]">🗑 Del</button>
                             {(task.status === "unassigned" || task.status === "todo") && (
-                              <button onClick={() => setStatus(task.id, "completed", "failed")} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
+                              <button onClick={() => { setFailReason(""); setFailTask(task); }} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
                             )}
                             {task.status === "todo" && (
                               <button onClick={() => setStatus(task.id, "inprogress")} className="px-1 py-0 bg-yellow-700 hover:bg-yellow-600 rounded text-[9px]">▶ Accept</button>
@@ -891,7 +896,7 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                             {task.status === "inprogress" && (
                               <>
                                 <button onClick={() => setStatus(task.id, "completed")} className="px-1 py-0 bg-green-700 hover:bg-green-600 rounded text-[9px]">✅ Done</button>
-                                <button onClick={() => setStatus(task.id, "completed", "failed")} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
+                                <button onClick={() => { setFailReason(""); setFailTask(task); }} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
                               </>
                             )}
                           </>
@@ -956,11 +961,48 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                   <p className="text-slate-200">{viewTask.notes}</p>
                 </div>
               )}
+              {viewTask.result === "failed" && viewTask.failureReason && (
+                <div className="bg-[#0f1724] rounded-lg p-3">
+                  <p className="text-[10px] text-red-400 uppercase font-semibold mb-1">❌ Failure Reason</p>
+                  <p className="text-slate-200">{viewTask.failureReason}</p>
+                </div>
+              )}
             </div>
             <button onClick={() => setViewTask(null)}
               className="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold">
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {failTask && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setFailTask(null)}>
+          <div className="bg-[#1e293b] rounded-xl shadow-2xl w-full max-w-md p-6 border border-slate-700" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">❌ Mark as Failed</h3>
+              <button onClick={() => setFailTask(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+            </div>
+            <p className="text-sm text-slate-300 mb-2">Why did this load fail?</p>
+            <textarea
+              autoFocus
+              rows={3}
+              value={failReason}
+              onChange={e => setFailReason(e.target.value)}
+              placeholder="e.g. Client cancelled, load moved to a different date..."
+              className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white resize-none"
+            />
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setFailTask(null)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg text-sm font-semibold">
+                Cancel
+              </button>
+              <button
+                onClick={() => { setStatus(failTask.id, "completed", "failed", failReason.trim() || undefined); setFailTask(null); }}
+                className="flex-1 bg-orange-700 hover:bg-orange-600 text-white py-2 rounded-lg text-sm font-semibold">
+                ❌ Confirm Fail
+              </button>
+            </div>
           </div>
         </div>
       )}
