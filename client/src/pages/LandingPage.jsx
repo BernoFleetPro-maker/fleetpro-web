@@ -214,11 +214,21 @@ function Pill({ color, children }) {
 export default function LandingPage({ onLogin, onSignup, onContact }) {
   const [formState, setFormState] = useState({ name: "", company: "", email: "", phone: "", fleetSize: "", message: "" });
   const [submitted, setSubmitted] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (onContact) onContact(formState);
-    setSubmitted(true);
+    setSendError("");
+    setSending(true);
+    try {
+      if (onContact) await onContact(formState);
+      setSubmitted(true);
+    } catch (err) {
+      setSendError(err.message || "Something went wrong — please try again, or email us directly at bernokuduplant@gmail.com.");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -536,8 +546,11 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
                   value={formState.message}
                   onChange={(e) => setFormState({ ...formState, message: e.target.value })}
                 />
-                <button type="submit" className="fp-btn fp-btn-green" style={{ width: "100%" }}>
-                  Send
+                {sendError && (
+                  <p style={{ color: "#dc2626", fontSize: 13, margin: "0 0 12px" }}>{sendError}</p>
+                )}
+                <button type="submit" className="fp-btn fp-btn-green" style={{ width: "100%" }} disabled={sending}>
+                  {sending ? "Sending…" : "Send"}
                 </button>
               </form>
             )}

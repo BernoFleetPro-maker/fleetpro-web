@@ -302,6 +302,18 @@ function LoggedOutRoutes() {
           <LandingPage
             onLogin={() => navigate("/login")}
             onSignup={() => navigate("/login")}
+            onContact={(formState) =>
+              fetch(`${API}/contact`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(formState),
+              }).then(async (res) => {
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  throw new Error(data.error || "Failed to send");
+                }
+              })
+            }
           />
         }
       />
