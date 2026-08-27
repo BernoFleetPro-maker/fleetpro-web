@@ -708,18 +708,18 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
     }
   };
 
-  const setStatus = async (id, status) => {
+  const setStatus = async (id, status, result) => {
     // Optimistic update
     const previous = _cachedTasks;
     setTasks(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, status } : t);
+      const updated = prev.map(t => t.id === id ? { ...t, status, ...(result ? { result } : {}) } : t);
       _cachedTasks = updated;
       return updated;
     });
     try {
       const res = await authFetch(`${API}/tasks/${id}/status`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...(result ? { result } : {}) }),
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
     } catch {
@@ -882,13 +882,16 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                           <>
                             <button onClick={() => openEdit(task)} className="px-1 py-0 bg-slate-700 hover:bg-slate-600 rounded text-[9px]">✏ Edit</button>
                             <button onClick={() => handleDelete(task.id)} className="px-1 py-0 bg-red-900 hover:bg-red-700 rounded text-[9px]">🗑 Del</button>
+                            {(task.status === "unassigned" || task.status === "todo") && (
+                              <button onClick={() => setStatus(task.id, "completed", "failed")} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
+                            )}
                             {task.status === "todo" && (
                               <button onClick={() => setStatus(task.id, "inprogress")} className="px-1 py-0 bg-yellow-700 hover:bg-yellow-600 rounded text-[9px]">▶ Accept</button>
                             )}
                             {task.status === "inprogress" && (
                               <>
                                 <button onClick={() => setStatus(task.id, "completed")} className="px-1 py-0 bg-green-700 hover:bg-green-600 rounded text-[9px]">✅ Done</button>
-                                <button onClick={() => setStatus(task.id, "completed")} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
+                                <button onClick={() => setStatus(task.id, "completed", "failed")} className="px-1 py-0 bg-orange-700 hover:bg-orange-600 rounded text-[9px]">❌ Fail</button>
                               </>
                             )}
                           </>
