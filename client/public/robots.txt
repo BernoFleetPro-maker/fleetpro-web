@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /tasks
+Disallow: /drivers
+Disallow: /vehicles
+Disallow: /loading-points
+Disallow: /dropoff-points
+Disallow: /clients
+Disallow: /staff
+Disallow: /settings
+Disallow: /track/
+
+Sitemap: https://fleetprosa.co.za/sitemap.xml
