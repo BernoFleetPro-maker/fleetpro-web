@@ -182,11 +182,14 @@ export default function Settings({ canUseFeature = () => true }) {
 
   const payload = getAuthPayload();
   const role    = payload?.role || "admin";
-  // Clients only get the Notifications section — password changes for them
-  // are out of scope here now, same as everything else on this page.
-  const canChangePassword = role === "staff";
+  // "admin" is ambiguous: a tenant's own admin is a real Staff row (JWT
+  // carries staffId) with a real passwordHash, while the global env-based
+  // admin login has no database row at all — its "password" is a Railway
+  // env var and can't be changed here regardless of role string.
+  const isTenantAdmin = role === "admin" && !!payload?.staffId;
+  const canChangePassword = role === "staff" || role === "client" || isTenantAdmin;
 
-  const isAdminOrStaff = role === "admin" || role === "staff";
+  const isAdminOrStaff = role === "staff" || (role === "admin" && !isTenantAdmin);
 
   const [soundEnabled, setSoundEnabled] = useState(() => isAvailableSoundEnabled());
   const toggleSound = () => {

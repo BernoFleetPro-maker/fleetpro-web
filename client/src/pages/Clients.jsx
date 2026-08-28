@@ -22,7 +22,7 @@ const CLIENT_PERMISSION_FIELDS = [
 ];
 const DEFAULT_CLIENT_PERMISSIONS = { canViewMap: true, canViewTasks: true, canCreateTasks: false };
 
-const EMPTY_FORM = { name: "", username: "", password: "", permissions: DEFAULT_CLIENT_PERMISSIONS };
+const EMPTY_FORM = { name: "", username: "", password: "", email: "", permissions: DEFAULT_CLIENT_PERMISSIONS };
 
 // ── Site Time Report helpers ─────────────────────────────────────────────────
 // Thresholds set by the user directly (2026-08-13): green up to 1h30, orange
@@ -535,6 +535,7 @@ export default function Clients({ canUseFeature = () => true }) {
       name: client.name,
       username: client.username,
       password: "",
+      email: client.email || "",
       permissions: { ...DEFAULT_CLIENT_PERMISSIONS, ...(client.permissions || {}) },
     });
     setEditingId(client.id);
@@ -743,6 +744,14 @@ export default function Clients({ canUseFeature = () => true }) {
                   value={form.username}
                   onChange={e => setForm({...form, username: e.target.value.toLowerCase()})} />
                 <p className="text-[10px] text-slate-400 mt-0.5">Lowercase only, no spaces</p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">Email (optional)</label>
+                <input type="email" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. contact@client.com"
+                  value={form.email}
+                  onChange={e => setForm({...form, email: e.target.value})} />
+                <p className="text-[10px] text-slate-400 mt-0.5">Needed for this client to use "Forgot password" themselves</p>
               </div>
               <div>
                 <label className="text-xs text-slate-500 font-semibold block mb-1">

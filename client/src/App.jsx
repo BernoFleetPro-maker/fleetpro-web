@@ -18,6 +18,8 @@ import Settings from "./pages/Settings";
 import Clients from "./pages/Clients";
 import Staff from "./pages/Staff";
 import TrackingPage from "./pages/TrackingPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 import { playAvailableSound } from "./utils/soundPrefs";
 import { canSeeStaffItem } from "./utils/staffAccess";
@@ -334,6 +336,17 @@ export default function App() {
   const trackMatch = window.location.pathname.match(/^\/track\/([^/]+)$/);
   if (trackMatch) {
     return <TrackingPage token={trackMatch[1]} />;
+  }
+
+  // Password reset — also bypasses both route trees, same reasoning as
+  // /track above: a reset link must work even if a stale session token
+  // from a different account is still sitting in this browser's localStorage.
+  if (window.location.pathname === "/forgot-password") {
+    return <ForgotPasswordPage />;
+  }
+  const resetMatch = window.location.pathname.match(/^\/reset-password\/([^/]+)$/);
+  if (resetMatch) {
+    return <ResetPasswordPage token={resetMatch[1]} />;
   }
 
   const payload = getAuthPayload();

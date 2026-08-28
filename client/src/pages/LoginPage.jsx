@@ -75,6 +75,13 @@ export default function LoginPage({ onLogin }) {
             {loading ? "Logging in..." : "Login"}
           </button>
         </form>
+
+        <div className="text-center mt-4">
+          {/* Plain <a>, not a router Link — App() reads window.location.pathname
+              imperatively to decide whether to bypass its route trees for this
+              page, so this needs a real navigation, not a client-side one. */}
+          <a href="/forgot-password" className="text-slate-400 hover:text-slate-300 text-sm">Forgot password?</a>
+        </div>
       </div>
     </div>
   );

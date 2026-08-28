@@ -45,7 +45,7 @@ const SUB_PERMISSION_FIELDS = [
 const ALL_PERMISSION_FIELDS = [...PERMISSION_FIELDS, ...SUB_PERMISSION_FIELDS];
 const DEFAULT_PERMISSIONS = Object.fromEntries(ALL_PERMISSION_FIELDS.map(f => [f.key, true]));
 
-const EMPTY_FORM = { name: "", username: "", password: "", permissions: DEFAULT_PERMISSIONS };
+const EMPTY_FORM = { name: "", username: "", password: "", email: "", permissions: DEFAULT_PERMISSIONS };
 
 function AccessBadge({ row }) {
   if (row.role === "admin") {
@@ -100,6 +100,7 @@ export default function Staff() {
       name: s.name,
       username: s.username,
       password: "",
+      email: s.email || "",
       permissions: { ...DEFAULT_PERMISSIONS, ...(s.permissions || {}) },
     });
     setEditingId(s.id);
@@ -123,7 +124,7 @@ export default function Staff() {
     try {
       const url    = editingId ? `${API}/staff/${editingId}` : `${API}/staff`;
       const method = editingId ? "PUT" : "POST";
-      const body   = { name: form.name, username: form.username, password: form.password };
+      const body   = { name: form.name, username: form.username, password: form.password, email: form.email.trim() };
       if (editingId && !body.password) delete body.password;
       // Admin's own row always has full access — permissions don't apply,
       // so nothing is sent and the DB's (unused) value is left untouched.
@@ -273,6 +274,14 @@ export default function Staff() {
                   value={form.username}
                   onChange={e => setForm({...form, username: e.target.value.toLowerCase()})} />
                 <p className="text-[10px] text-slate-400 mt-0.5">Lowercase only, no spaces</p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">Email (optional)</label>
+                <input type="email" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. john@example.com"
+                  value={form.email}
+                  onChange={e => setForm({...form, email: e.target.value})} />
+                <p className="text-[10px] text-slate-400 mt-0.5">Needed for this person to use "Forgot password" themselves</p>
               </div>
               <div>
                 <label className="text-xs text-slate-500 font-semibold block mb-1">
