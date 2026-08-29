@@ -8,10 +8,20 @@ const PHASE_COLORS = { to_load: "#1e88e5", at_load: "#1e88e5", to_drop: "#43a047
 const PHASE_LABELS = { to_load: "🚛 En route to loading", at_load: "🏭 At loading station", to_drop: "🚛 En route to dropoff", at_drop: "✅ Arrived at client" };
 
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAY_NAME = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 function formatShortDate(dateStr) {
   if (!dateStr) return "";
   const [, m, d] = dateStr.split("-").map(Number);
   return `${d} ${MONTH_ABBR[m - 1]}`;
+}
+
+// Same "parse the string directly, use Date.UTC only to recover the
+// day-of-week" approach as whatsapp.service.js's identical helper — avoids
+// `new Date(dateStr)` local-timezone parsing shifting the date by a day.
+function formatWeekdayDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const weekday = WEEKDAY_NAME[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${weekday}, ${d} ${MONTH_ABBR[m - 1]}`;
 }
 
 // Excel-serial tracking-provider `dt` value → just "HH:MM" — the popup only
@@ -296,6 +306,11 @@ export default function TrackingPage({ token }) {
 
   const todayTasks       = data?.tasks?.filter((t) => t.dateGroup === "today") || [];
   const tomorrowTasks    = data?.tasks?.filter((t) => t.dateGroup === "tomorrow") || [];
+  // Anything further out than tomorrow — a multi-day haul still in progress
+  // (see trackRoutes.js's dateGroupFor) — gets its own section per distinct
+  // date instead of being folded into "Today".
+  const laterTasks       = data?.tasks?.filter((t) => t.dateGroup !== "today" && t.dateGroup !== "tomorrow") || [];
+  const laterDates       = [...new Set(laterTasks.map((t) => t.dateGroup))].sort();
   const withPositionCount = data?.tasks?.filter((t) => t.position).length || 0;
 
   // The page itself never scrolls (height:100dvh + overflow:hidden) — the
@@ -343,7 +358,7 @@ export default function TrackingPage({ token }) {
           {todayTasks.length > 0 && (
             <>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 Today ({formatShortDate(data.today)})</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: tomorrowTasks.length ? 14 : 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: (tomorrowTasks.length || laterDates.length) ? 14 : 0 }}>
                 {todayTasks.map(renderTaskCard)}
               </div>
             </>
@@ -352,11 +367,20 @@ export default function TrackingPage({ token }) {
           {tomorrowTasks.length > 0 && (
             <>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 Tomorrow ({formatShortDate(data.tomorrow)})</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: laterDates.length ? 14 : 0 }}>
                 {tomorrowTasks.map(renderTaskCard)}
               </div>
             </>
           )}
+
+          {laterDates.map((d, i) => (
+            <div key={d}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 {formatWeekdayDate(d)}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: i < laterDates.length - 1 ? 14 : 0 }}>
+                {laterTasks.filter((t) => t.dateGroup === d).map(renderTaskCard)}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
