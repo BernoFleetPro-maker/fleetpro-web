@@ -248,7 +248,7 @@ export default function Staff() {
       {/* Create/Edit modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
             <h3 className="text-lg font-bold text-slate-800 mb-4">
               {editingId ? "Edit Staff Member" : "Add New Staff Member"}
             </h3>
