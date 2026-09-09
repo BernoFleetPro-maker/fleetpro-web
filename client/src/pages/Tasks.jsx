@@ -863,27 +863,6 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                       {(task.date || task.pickupTime) && (
                         <div className="text-slate-500 text-[10px] mt-0.5">{task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}</div>
                       )}
-                      {task.status !== "completed" && task.history?.[task.history.length - 1]?.type === "reinstated" && (() => {
-                        const reinstatedEntry = task.history[task.history.length - 1];
-                        // The fail that led to this reinstate — walk backwards
-                        // from it, not just task.history[0], so the right pair
-                        // still lines up after a second fail/reinstate cycle.
-                        const failedEntry = [...task.history].slice(0, -1).reverse().find(h => h.type === "failed");
-                        return (
-                          <>
-                            {failedEntry?.text && (
-                              <div className="text-[10px] text-red-300/80 italic mt-0.5 truncate" title={failedEntry.text}>
-                                ❌ "{failedEntry.text}"
-                              </div>
-                            )}
-                            {reinstatedEntry.text && (
-                              <div className="text-[10px] text-blue-300/80 italic mt-0.5 truncate" title={reinstatedEntry.text}>
-                                🔄 "{reinstatedEntry.text}"
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
                       {task.status === "inprogress" && vehicleETAs[task.id] && (() => {
                         const eta = vehicleETAs[task.id];
                         const arrived = eta.duration === "Arrived";
@@ -910,8 +889,16 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                           <span className="text-[10px] text-green-400">📷 {photoCount} photo{photoCount !== 1 ? "s" : ""}</span>
                         </div>
                       )}
-                      {task.result === "failed" && task.failureReason && (
-                        <div className="text-[10px] text-red-300/80 italic mt-0.5 truncate" title={task.failureReason}>"{task.failureReason}"</div>
+                      {task.history?.length > 0 && (
+                        <div className="mt-0.5 space-y-0.5">
+                          {task.history.map((h, i) => (
+                            <div key={i}
+                              className={`text-[10px] italic truncate ${h.type === "failed" ? "text-red-300/80" : "text-blue-300/80"}`}
+                              title={h.text || ""}>
+                              {h.type === "failed" ? "❌" : "🔄"} "{h.text || "—"}"
+                            </div>
+                          ))}
+                        </div>
                       )}
                       <div className="flex flex-wrap gap-0.5 mt-1 pt-1 border-t border-slate-700/60">
                         {/* View POD / View Route are independent of the create/edit/delete
