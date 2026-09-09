@@ -871,9 +871,6 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                         const failedEntry = [...task.history].slice(0, -1).reverse().find(h => h.type === "failed");
                         return (
                           <>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-medium">🔄 Reinstated</span>
-                            </div>
                             {failedEntry?.text && (
                               <div className="text-[10px] text-red-300/80 italic mt-0.5 truncate" title={failedEntry.text}>
                                 ❌ "{failedEntry.text}"
