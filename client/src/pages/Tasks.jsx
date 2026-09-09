@@ -863,16 +863,30 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                       {(task.date || task.pickupTime) && (
                         <div className="text-slate-500 text-[10px] mt-0.5">{task.date}{task.pickupTime ? ` drop @${task.pickupTime}` : ""}</div>
                       )}
-                      {task.status !== "completed" && task.history?.[task.history.length - 1]?.type === "reinstated" && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-medium">🔄 Reinstated</span>
-                        </div>
-                      )}
-                      {task.status !== "completed" && task.history?.[task.history.length - 1]?.type === "reinstated" && task.history[task.history.length - 1].text && (
-                        <div className="text-[10px] text-blue-300/80 italic mt-0.5 truncate" title={task.history[task.history.length - 1].text}>
-                          "{task.history[task.history.length - 1].text}"
-                        </div>
-                      )}
+                      {task.status !== "completed" && task.history?.[task.history.length - 1]?.type === "reinstated" && (() => {
+                        const reinstatedEntry = task.history[task.history.length - 1];
+                        // The fail that led to this reinstate — walk backwards
+                        // from it, not just task.history[0], so the right pair
+                        // still lines up after a second fail/reinstate cycle.
+                        const failedEntry = [...task.history].slice(0, -1).reverse().find(h => h.type === "failed");
+                        return (
+                          <>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-medium">🔄 Reinstated</span>
+                            </div>
+                            {failedEntry?.text && (
+                              <div className="text-[10px] text-red-300/80 italic mt-0.5 truncate" title={failedEntry.text}>
+                                ❌ "{failedEntry.text}"
+                              </div>
+                            )}
+                            {reinstatedEntry.text && (
+                              <div className="text-[10px] text-blue-300/80 italic mt-0.5 truncate" title={reinstatedEntry.text}>
+                                🔄 "{reinstatedEntry.text}"
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                       {task.status === "inprogress" && vehicleETAs[task.id] && (() => {
                         const eta = vehicleETAs[task.id];
                         const arrived = eta.duration === "Arrived";
