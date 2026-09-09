@@ -387,6 +387,8 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
   const [viewTask,      setViewTask]      = useState(null);
   const [failTask,      setFailTask]      = useState(null); // task pending a failure reason before setStatus fires
   const [failReason,    setFailReason]    = useState("");
+  const [reinstateTask,   setReinstateTask]   = useState(null); // failed task pending a reinstate reason before the edit save fires
+  const [reinstateReason, setReinstateReason] = useState("");
   const [initialLoaded, setInitialLoaded] = useState(false);
   const lastOptimisticRef = useRef(0);
   const [vehicleETAs, setVehicleETAs] = useState({});
@@ -647,9 +649,28 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
     e.preventDefault();
     setFormError("");
     if (!form.loadLocation.trim()) { setFormError("Load location is required."); return; }
+
+    // Unassigning driver+vehicle on a previously-failed task reopens it (see
+    // the backend's `reopened` check) — ask why before that silently drops
+    // the old "cancelled" message with no record of what changed. The edit
+    // form stays open underneath; doSave() actually submits once confirmed.
+    if (editingId) {
+      const existingTask = tasks.find(t => t.id === editingId);
+      const willReopen = existingTask?.status === "completed" && !(form.assignedDriverId && form.vehicleId);
+      if (existingTask?.result === "failed" && willReopen) {
+        setReinstateReason("");
+        setReinstateTask(existingTask);
+        return;
+      }
+    }
+
+    await doSave();
+  };
+
+  const doSave = async (extra = {}) => {
     setSaving(true);
 
-    const payload = { ...form, pickupTime: form.dropoffTime };
+    const payload = { ...form, pickupTime: form.dropoffTime, ...extra };
     const url    = editingId ? `${API}/tasks/${editingId}` : `${API}/tasks`;
     const method = editingId ? "PUT" : "POST";
 
@@ -967,6 +988,22 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                   <p className="text-slate-200">{viewTask.failureReason}</p>
                 </div>
               )}
+              {viewTask.history?.length > 0 && (
+                <div className="bg-[#0f1724] rounded-lg p-3">
+                  <p className="text-[10px] text-slate-500 uppercase font-semibold mb-2">📜 Fail / Reinstate History</p>
+                  <div className="space-y-2">
+                    {viewTask.history.map((h, i) => (
+                      <div key={i} className="border-l-2 pl-2" style={{ borderColor: h.type === "failed" ? "#f87171" : "#4ade80" }}>
+                        <p className={`text-[10px] uppercase font-semibold ${h.type === "failed" ? "text-red-400" : "text-green-400"}`}>
+                          {h.type === "failed" ? "❌ Failed" : "🔄 Reinstated"}
+                          {h.at ? ` · ${new Date(h.at).toLocaleString("en-ZA")}` : ""}
+                        </p>
+                        <p className="text-slate-200 text-sm">{h.text || "—"}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <button onClick={() => setViewTask(null)}
               className="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold">
@@ -1001,6 +1038,43 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                 onClick={() => { setStatus(failTask.id, "completed", "failed", failReason.trim() || undefined); setFailTask(null); }}
                 className="flex-1 bg-orange-700 hover:bg-orange-600 text-white py-2 rounded-lg text-sm font-semibold">
                 ❌ Confirm Fail
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reinstateTask && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={() => setReinstateTask(null)}>
+          <div className="bg-[#1e293b] rounded-xl shadow-2xl w-full max-w-md p-6 border border-slate-700" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">🔄 Reinstate Load</h3>
+              <button onClick={() => setReinstateTask(null)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+            </div>
+            {reinstateTask.failureReason && (
+              <div className="bg-[#0f1724] rounded-lg p-3 mb-3">
+                <p className="text-[10px] text-red-400 uppercase font-semibold mb-1">❌ Originally failed because</p>
+                <p className="text-slate-300 text-sm">{reinstateTask.failureReason}</p>
+              </div>
+            )}
+            <p className="text-sm text-slate-300 mb-2">Why was this load reinstated?</p>
+            <textarea
+              autoFocus
+              rows={3}
+              value={reinstateReason}
+              onChange={e => setReinstateReason(e.target.value)}
+              placeholder="e.g. Client called back, still wants the load..."
+              className="w-full bg-[#0f1724] border border-slate-600 rounded p-2 text-sm text-white resize-none"
+            />
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setReinstateTask(null)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg text-sm font-semibold">
+                Cancel
+              </button>
+              <button
+                onClick={() => { const reason = reinstateReason.trim(); setReinstateTask(null); doSave({ reinstateReason: reason || undefined }); }}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold">
+                🔄 Confirm Reinstate
               </button>
             </div>
           </div>
