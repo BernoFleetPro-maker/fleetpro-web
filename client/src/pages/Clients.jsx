@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import RouteModal from "../components/RouteModal";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
@@ -118,6 +118,85 @@ function recomputeSummary(tasks) {
     dropDwellScore: averageScoreClient(tasks.map(r => r.dropDwellScore)),
     onTimeScore:    averageScoreClient(tasks.map(r => r.onTimeScore)),
   };
+}
+
+const CAL_DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+const CAL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+function toYMD(year, month, day) {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// A plain <input type="date"> displays MM/DD/YYYY or DD/MM/YYYY depending on
+// the visitor's own OS/browser locale — not something the app can control,
+// and confusing for a South African fleet where DD/MM/YYYY is the norm.
+// This always shows and picks DD/MM/YYYY regardless of that setting.
+function DateInput({ value, onChange, placeholder = "Select date" }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState(() => {
+    const d = value ? new Date(value + "T00:00:00") : new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const firstDay    = new Date(view.year, view.month, 1).getDay();
+  const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const prevMonth = () => setView(v => v.month === 0 ? { year: v.year - 1, month: 11 } : { ...v, month: v.month - 1 });
+  const nextMonth = () => setView(v => v.month === 11 ? { year: v.year + 1, month: 0 } : { ...v, month: v.month + 1 });
+  const today     = new Date();
+  const todayYMD  = toYMD(today.getFullYear(), today.getMonth(), today.getDate());
+
+  const display = value ? value.split("-").reverse().join("/") : placeholder;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 bg-white text-left flex items-center gap-2 min-w-[130px]">
+        <span>📅</span><span className={value ? "text-slate-800" : "text-slate-400"}>{display}</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-11 z-50 bg-white border border-slate-300 rounded-xl shadow-xl w-64 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={prevMonth} className="text-slate-400 hover:text-slate-800 px-2 py-1 rounded hover:bg-slate-100">‹</button>
+            <span className="text-sm font-semibold text-slate-700">{CAL_MONTHS[view.month]} {view.year}</span>
+            <button type="button" onClick={nextMonth} className="text-slate-400 hover:text-slate-800 px-2 py-1 rounded hover:bg-slate-100">›</button>
+          </div>
+          <div className="grid grid-cols-7 mb-1">
+            {CAL_DAYS.map(d => <div key={d} className="text-center text-[10px] text-slate-400 font-semibold py-0.5">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-y-0.5">
+            {cells.map((day, i) => {
+              if (!day) return <div key={`e-${i}`} />;
+              const ymd   = toYMD(view.year, view.month, day);
+              const isSel = ymd === value;
+              const isTod = ymd === todayYMD;
+              return (
+                <button key={ymd} type="button" onClick={() => { onChange(ymd); setOpen(false); }}
+                  className={`rounded-lg py-1 text-xs transition-colors
+                    ${isSel ? "bg-blue-600 text-white" : isTod ? "bg-slate-200 text-slate-800" : "hover:bg-slate-100 text-slate-700"}`}>
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex justify-between mt-2 pt-2 border-t border-slate-200">
+            <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="text-xs text-slate-400 hover:text-slate-700">Clear</button>
+            <button type="button" onClick={() => { onChange(todayYMD); setOpen(false); }} className="text-xs text-blue-600 hover:text-blue-700">Today</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SiteTimeReportTab({ clients }) {
@@ -294,13 +373,11 @@ function SiteTimeReportTab({ clients }) {
         )}
         <div>
           <label className="text-xs text-slate-500 font-semibold block mb-1">Date From</label>
-          <input type="date" className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-            value={from} onChange={e => setFrom(e.target.value)} />
+          <DateInput value={from} onChange={setFrom} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-semibold block mb-1">Date To</label>
-          <input type="date" className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-            value={to} onChange={e => setTo(e.target.value)} />
+          <DateInput value={to} onChange={setTo} />
         </div>
         <button onClick={generate} disabled={loading}
           className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-semibold">
