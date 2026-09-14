@@ -71,6 +71,27 @@ const FEATURE_FIELDS = [
 ];
 const DEFAULT_FEATURES = Object.fromEntries(FEATURE_FIELDS.map(f => [f.key, true]));
 
+const AUTH_SCHEMES = [
+  { value: "basic_with_product_id", label: "Basic auth + Product ID (Autotrak)" },
+  { value: "basic",                 label: "Basic auth (username + password)" },
+  { value: "api_key_header",        label: "API key in a request header" },
+  { value: "api_key_query",         label: "API key in the URL (query parameter)" },
+];
+const TIMESTAMP_FORMATS = [
+  { value: "excel_serial", label: "Excel serial number (Autotrak's own format)" },
+  { value: "unix_seconds", label: "Unix timestamp — seconds" },
+  { value: "unix_millis",  label: "Unix timestamp — milliseconds" },
+  { value: "iso_string",   label: "ISO date string (e.g. 2026-09-14T10:00:00Z)" },
+];
+const TRACKING_DEFAULTS = {
+  trackingApiUsername: "", trackingApiPassword: "", trackingApiBaseUrl: "",
+  trackingAuthScheme: "basic_with_product_id", trackingProductId: "", trackingApiKeyName: "",
+  trackingEndpointTemplate: "/vehicleposition/GetVehiclePositionsByRegistration/{registrations}",
+  trackingFieldRegistration: "descrip", trackingFieldLat: "lat", trackingFieldLon: "lon",
+  trackingFieldSpeed: "speed", trackingFieldHeading: "heading", trackingFieldTimestamp: "dt",
+  trackingTimestampFormat: "excel_serial", trackingResponseArrayPath: "",
+};
+
 // ── TENANTS LIST ──────────────────────────────────────────────────────────────
 function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
   const [showForm, setShowForm] = useState(false);
@@ -256,7 +277,9 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
     name: admin?.name || "", username: admin?.username || "", email: admin?.email || "", password: "",
   });
   const [trackingForm, setTrackingForm] = useState({
-    trackingApiUsername: tenant.trackingApiUsername || "", trackingApiPassword: "", trackingApiBaseUrl: tenant.trackingApiBaseUrl || "",
+    ...TRACKING_DEFAULTS,
+    ...Object.fromEntries(Object.keys(TRACKING_DEFAULTS).map(k => [k, tenant[k] ?? TRACKING_DEFAULTS[k]])),
+    trackingApiPassword: "", // never seeded from the server — see saveTracking
   });
   const [featuresForm, setFeaturesForm] = useState({ ...DEFAULT_FEATURES, ...(tenant.features || {}) });
   const [error, setError] = useState("");
@@ -398,29 +421,102 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
             )}
           </div>
 
-          {editingTracking ? (
-            <>
-              <p className="text-xs text-slate-500 mb-3">
-                Login details for this company's own GPS tracking provider (Autotrak or similar) — not a FleetPro login.
-              </p>
-              <div className="flex gap-2 mb-3">
-                <div className="flex-1"><label className={labelClass}>Username</label><input className={fieldClass} value={trackingForm.trackingApiUsername} onChange={e => setTrackingForm(f => ({ ...f, trackingApiUsername: e.target.value }))} /></div>
-                <div className="flex-1"><label className={labelClass}>New password (leave blank to keep current)</label><input className={fieldClass} type="password" value={trackingForm.trackingApiPassword} onChange={e => setTrackingForm(f => ({ ...f, trackingApiPassword: e.target.value }))} /></div>
-              </div>
-              <div className="mb-3">
-                <label className={labelClass}>Base URL (optional — leave blank to use Autotrak's default)</label>
-                <input className={fieldClass} style={{ width: "100%" }} placeholder="https://api.autotraklive.com" value={trackingForm.trackingApiBaseUrl} onChange={e => setTrackingForm(f => ({ ...f, trackingApiBaseUrl: e.target.value }))} />
-              </div>
-              <div className="flex gap-2">
-                <button onClick={saveTracking} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Save</button>
-                <button onClick={() => { setEditingTracking(false); setTrackingForm(f => ({ ...f, trackingApiPassword: "" })); }} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Cancel</button>
-              </div>
-            </>
-          ) : (
+          {editingTracking ? (() => {
+            const set = (key) => (e) => setTrackingForm(f => ({ ...f, [key]: e.target.value }));
+            const isApiKey = trackingForm.trackingAuthScheme === "api_key_header" || trackingForm.trackingAuthScheme === "api_key_query";
+            return (
+              <>
+                <p className="text-xs text-slate-500 mb-3">
+                  This company's own GPS tracking provider — whatever they already use, not necessarily Autotrak. Not a FleetPro login.
+                </p>
+
+                <div className="mb-3">
+                  <label className={labelClass}>Auth style</label>
+                  <select className={fieldClass} style={{ width: "100%" }} value={trackingForm.trackingAuthScheme} onChange={set("trackingAuthScheme")}>
+                    {AUTH_SCHEMES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex gap-2 mb-3">
+                  {!isApiKey && (
+                    <div className="flex-1"><label className={labelClass}>Username</label><input className={fieldClass} value={trackingForm.trackingApiUsername} onChange={set("trackingApiUsername")} /></div>
+                  )}
+                  <div className="flex-1">
+                    <label className={labelClass}>{isApiKey ? "New API key (leave blank to keep current)" : "New password (leave blank to keep current)"}</label>
+                    <input className={fieldClass} type="password" value={trackingForm.trackingApiPassword} onChange={set("trackingApiPassword")} />
+                  </div>
+                  {trackingForm.trackingAuthScheme === "basic_with_product_id" && (
+                    <div className="flex-1"><label className={labelClass}>Product ID</label><input className={fieldClass} value={trackingForm.trackingProductId} onChange={set("trackingProductId")} /></div>
+                  )}
+                  {isApiKey && (
+                    <div className="flex-1">
+                      <label className={labelClass}>{trackingForm.trackingAuthScheme === "api_key_header" ? "Header name" : "URL parameter name"}</label>
+                      <input className={fieldClass} placeholder="e.g. X-API-Key" value={trackingForm.trackingApiKeyName} onChange={set("trackingApiKeyName")} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2 mb-3">
+                  <div className="flex-1">
+                    <label className={labelClass}>Base URL (optional — leave blank to use Autotrak's default)</label>
+                    <input className={fieldClass} style={{ width: "100%" }} placeholder="https://api.autotraklive.com" value={trackingForm.trackingApiBaseUrl} onChange={set("trackingApiBaseUrl")} />
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className={labelClass}>Endpoint path — {"{registrations}"} is replaced with a comma-separated list of registrations</label>
+                  <input className={fieldClass} style={{ width: "100%" }} value={trackingForm.trackingEndpointTemplate} onChange={set("trackingEndpointTemplate")} />
+                </div>
+
+                <p className="text-xs text-slate-500 mb-1 mt-4">
+                  Response field mapping — which key in each vehicle's JSON record holds each value. Pre-filled with Autotrak's own field names as a starting point; only change what's actually different for this provider.
+                </p>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div><label className={labelClass}>Registration</label><input className={fieldClass} style={{width:"100%"}} value={trackingForm.trackingFieldRegistration} onChange={set("trackingFieldRegistration")} /></div>
+                  <div><label className={labelClass}>Latitude</label><input className={fieldClass} style={{width:"100%"}} value={trackingForm.trackingFieldLat} onChange={set("trackingFieldLat")} /></div>
+                  <div><label className={labelClass}>Longitude</label><input className={fieldClass} style={{width:"100%"}} value={trackingForm.trackingFieldLon} onChange={set("trackingFieldLon")} /></div>
+                  <div><label className={labelClass}>Speed</label><input className={fieldClass} style={{width:"100%"}} value={trackingForm.trackingFieldSpeed} onChange={set("trackingFieldSpeed")} /></div>
+                  <div><label className={labelClass}>Heading</label><input className={fieldClass} style={{width:"100%"}} value={trackingForm.trackingFieldHeading} onChange={set("trackingFieldHeading")} /></div>
+                  <div><label className={labelClass}>Timestamp</label><input className={fieldClass} style={{width:"100%"}} value={trackingForm.trackingFieldTimestamp} onChange={set("trackingFieldTimestamp")} /></div>
+                </div>
+                <div className="flex gap-2 mb-3">
+                  <div className="flex-1">
+                    <label className={labelClass}>Timestamp format</label>
+                    <select className={fieldClass} style={{ width: "100%" }} value={trackingForm.trackingTimestampFormat} onChange={set("trackingTimestampFormat")}>
+                      {TIMESTAMP_FORMATS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className={labelClass}>Array path (optional — only if the vehicle list isn't the raw response, e.g. "data")</label>
+                    <input className={fieldClass} value={trackingForm.trackingResponseArrayPath} onChange={set("trackingResponseArrayPath")} />
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={saveTracking} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Save</button>
+                  <button onClick={() => { setEditingTracking(false); setTrackingForm(f => ({ ...f, trackingApiPassword: "" })); }} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Cancel</button>
+                </div>
+              </>
+            );
+          })() : (
             <div className="text-sm space-y-1">
-              <p><span className="text-slate-400">Username:</span> {tenant.trackingApiUsername || "— (using default)"}</p>
-              <p><span className="text-slate-400">Password:</span> {tenant.hasTrackingApiPassword ? "•••••• set" : "Not set"}</p>
+              <p><span className="text-slate-400">Auth style:</span> {AUTH_SCHEMES.find(s => s.value === tenant.trackingAuthScheme)?.label || tenant.trackingAuthScheme || "Basic auth + Product ID (Autotrak)"}</p>
+              {tenant.trackingAuthScheme !== "api_key_header" && tenant.trackingAuthScheme !== "api_key_query" && (
+                <p><span className="text-slate-400">Username:</span> {tenant.trackingApiUsername || "— (using default)"}</p>
+              )}
+              <p><span className="text-slate-400">Password / API key:</span> {tenant.hasTrackingApiPassword ? "•••••• set" : "Not set"}</p>
+              {tenant.trackingAuthScheme === "basic_with_product_id" && (
+                <p><span className="text-slate-400">Product ID:</span> {tenant.trackingProductId || "— (using default)"}</p>
+              )}
+              {(tenant.trackingAuthScheme === "api_key_header" || tenant.trackingAuthScheme === "api_key_query") && (
+                <p><span className="text-slate-400">{tenant.trackingAuthScheme === "api_key_header" ? "Header name:" : "URL parameter name:"}</span> {tenant.trackingApiKeyName || "— (not set)"}</p>
+              )}
               <p><span className="text-slate-400">Base URL:</span> {tenant.trackingApiBaseUrl || "— (using default)"}</p>
+              <p><span className="text-slate-400">Endpoint path:</span> {tenant.trackingEndpointTemplate || TRACKING_DEFAULTS.trackingEndpointTemplate}</p>
+              <p className="text-slate-400 pt-1">Field mapping:</p>
+              <p className="text-slate-300 text-xs font-mono">
+                registration={tenant.trackingFieldRegistration || "descrip"} · lat={tenant.trackingFieldLat || "lat"} · lon={tenant.trackingFieldLon || "lon"} · speed={tenant.trackingFieldSpeed || "speed"} · heading={tenant.trackingFieldHeading || "heading"} · timestamp={tenant.trackingFieldTimestamp || "dt"} ({TIMESTAMP_FORMATS.find(t => t.value === tenant.trackingTimestampFormat)?.label || "Excel serial number (Autotrak's own format)"})
+                {tenant.trackingResponseArrayPath ? ` · array path: ${tenant.trackingResponseArrayPath}` : ""}
+              </p>
             </div>
           )}
         </div>

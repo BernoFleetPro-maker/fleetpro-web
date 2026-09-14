@@ -61,14 +61,17 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
     return points;
   }
 
+  // The backend now normalizes every provider's timestamp (Autotrak's own
+  // excel_serial format included) into a canonical UTC ISO string before it
+  // ever reaches here — see normalizeTimestamp in
+  // trackingProvider.service.js — so this just needs to parse+display it,
+  // no more guessing between an Excel serial number and a real date, and no
+  // more frontend-side timezone correction.
   function formatDate(dtValue) {
     if (!dtValue) return "Unknown";
-    const num = Number(dtValue); let date;
     try {
-      if (!Number.isFinite(num)) date = new Date(dtValue);
-      else if (num > 30000) date = new Date((num - 25569) * 86400 * 1000);
-      else date = new Date();
-      date = new Date(date.getTime() - 2 * 60 * 60 * 1000);
+      const date = new Date(dtValue);
+      if (isNaN(date.getTime())) return "Invalid date";
       return date.toLocaleString("en-ZA", { timeZone:"Africa/Johannesburg", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false });
     } catch { return "Invalid date"; }
   }
