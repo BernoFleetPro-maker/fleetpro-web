@@ -384,7 +384,7 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
             { label: "assign", color: COLORS.textMuted, title: "Create the task", body: "Pick a driver, a vehicle, a load point and a dropoff. Takes under a minute." },
             { label: "accept", color: COLORS.amber, title: "Driver accepts on the app", body: "One tap on their phone — name and phone number, no password to forget." },
             { label: "en route", color: COLORS.blue, title: "GPS does the rest", body: "The route line turns from blue to green automatically as the truck moves from load to dropoff. No driver input needed." },
-            { label: "delivered", color: COLORS.green, title: "Proof of delivery, instantly", body: "Photos upload from the road. Your client sees them the moment the task is marked complete." },
+            { label: "delivered", color: COLORS.green, title: "Proof of delivery, instantly", body: "Photos upload from the road, and your client gets a WhatsApp update the moment the task is marked complete." },
           ].map((step, i) => (
             <Reveal key={step.label} delay={i * 90}>
               <div
@@ -422,6 +422,9 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
           { tag: "live map", title: "Live vehicle tracking", body: "Every truck's position, refreshed continuously, with route lines colour-coded by phase so you can tell at a glance who's heading to load and who's heading to drop." },
           { tag: "kanban", title: "A task board that updates itself", body: "Unassigned, to do, in progress, completed — tasks move across the board in real time across every browser your team has open, no refresh required." },
           { tag: "pod", title: "Proof of delivery photos", body: "Drivers capture photos and notes on delivery. They're available to your client portal within seconds, stored securely off your main database." },
+          { tag: "whatsapp", title: "Client updates over WhatsApp — nothing to install", body: "Clients text your WhatsApp number and get an instant summary of every active load, plus a live tracking link. No app, no login, no password to reset." },
+          { tag: "reports", title: "Site Time Reports catch delays before your client does", body: "Automatic dwell-time and on-time scoring for every load, by client or by dropoff point, so a slow site shows up in your reports instead of a complaint." },
+          { tag: "compliance", title: "Compliance documents that warn you before they expire", body: "Driver and vehicle licences, permits, and inductions tracked with automatic expiry warnings, so nothing lapses without you knowing." },
           { tag: "roles", title: "Built for who's actually using it", body: "Admins get full access with an audit trail of who changed what. Staff only see what you give them access to. Clients see only their own loads. Drivers get one screen and one job." },
           { tag: "alerts", title: "Push notifications that reach the right driver", body: "New tasks and updates land on the driver's phone the moment they're assigned — not five minutes later, and never on someone else's phone." },
         ].map((row, i) => (
