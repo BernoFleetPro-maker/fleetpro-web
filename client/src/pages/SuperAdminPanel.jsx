@@ -244,6 +244,7 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
 function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
   const [editingCompany, setEditingCompany] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState(false);
+  const [editingTracking, setEditingTracking] = useState(false);
   const [editingFeatures, setEditingFeatures] = useState(false);
 
   const admin = tenant.staff?.[0] || null;
@@ -253,6 +254,9 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
   });
   const [adminForm, setAdminForm] = useState({
     name: admin?.name || "", username: admin?.username || "", email: admin?.email || "", password: "",
+  });
+  const [trackingForm, setTrackingForm] = useState({
+    trackingApiUsername: tenant.trackingApiUsername || "", trackingApiPassword: "", trackingApiBaseUrl: tenant.trackingApiBaseUrl || "",
   });
   const [featuresForm, setFeaturesForm] = useState({ ...DEFAULT_FEATURES, ...(tenant.features || {}) });
   const [error, setError] = useState("");
@@ -278,6 +282,20 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
       reload();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to update admin login");
+    }
+  }
+
+  async function saveTracking() {
+    setError("");
+    try {
+      const payload = { ...trackingForm };
+      if (!payload.trackingApiPassword) delete payload.trackingApiPassword; // don't overwrite with blank
+      await api.put(`/superadmin/tenants/${tenant.id}/tracking`, payload, authHeaders);
+      setTrackingForm(f => ({ ...f, trackingApiPassword: "" }));
+      setEditingTracking(false);
+      reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to update tracking API credentials");
     }
   }
 
@@ -368,6 +386,42 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
             </div>
           ) : (
             <p className="text-slate-500 text-sm">No head admin found for this company.</p>
+          )}
+        </div>
+
+        {/* Tracking API card */}
+        <div className={cardClass}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-semibold">Tracking API</h3>
+            {!editingTracking && (
+              <button onClick={() => setEditingTracking(true)} className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">Edit</button>
+            )}
+          </div>
+
+          {editingTracking ? (
+            <>
+              <p className="text-xs text-slate-500 mb-3">
+                Login details for this company's own GPS tracking provider (Autotrak or similar) — not a FleetPro login.
+              </p>
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1"><label className={labelClass}>Username</label><input className={fieldClass} value={trackingForm.trackingApiUsername} onChange={e => setTrackingForm(f => ({ ...f, trackingApiUsername: e.target.value }))} /></div>
+                <div className="flex-1"><label className={labelClass}>New password (leave blank to keep current)</label><input className={fieldClass} type="password" value={trackingForm.trackingApiPassword} onChange={e => setTrackingForm(f => ({ ...f, trackingApiPassword: e.target.value }))} /></div>
+              </div>
+              <div className="mb-3">
+                <label className={labelClass}>Base URL (optional — leave blank to use Autotrak's default)</label>
+                <input className={fieldClass} style={{ width: "100%" }} placeholder="https://api.autotraklive.com" value={trackingForm.trackingApiBaseUrl} onChange={e => setTrackingForm(f => ({ ...f, trackingApiBaseUrl: e.target.value }))} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={saveTracking} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Save</button>
+                <button onClick={() => { setEditingTracking(false); setTrackingForm(f => ({ ...f, trackingApiPassword: "" })); }} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Cancel</button>
+              </div>
+            </>
+          ) : (
+            <div className="text-sm space-y-1">
+              <p><span className="text-slate-400">Username:</span> {tenant.trackingApiUsername || "— (using default)"}</p>
+              <p><span className="text-slate-400">Password:</span> {tenant.hasTrackingApiPassword ? "•••••• set" : "Not set"}</p>
+              <p><span className="text-slate-400">Base URL:</span> {tenant.trackingApiBaseUrl || "— (using default)"}</p>
+            </div>
           )}
         </div>
 
