@@ -342,16 +342,6 @@ export default function Vehicles() {
         </div>
       </div>
 
-      {!loading && (vehicles.length > 0 || trailers.length > 0) && (
-        <input
-          type="text"
-          placeholder="Search vehicles or trailers by registration or description..."
-          className="border p-2 rounded w-full text-sm mb-4"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      )}
-
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded text-sm mb-4">
           {error}
@@ -421,6 +411,15 @@ export default function Vehicles() {
       {/* ── Vehicles list ── */}
       {!loading && (
         <>
+          {(vehicles.length > 0 || trailers.length > 0) && (
+            <input
+              type="text"
+              placeholder="Search vehicles or trailers by registration or description..."
+              className="border p-2 rounded w-full text-sm mb-4"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          )}
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Vehicles</h3>
           {vehicles.length === 0 && <p className="text-gray-400 text-sm mb-4">No vehicles added yet.</p>}
           {vehicles.length > 0 && filteredVehicles.length === 0 && <p className="text-gray-400 text-sm mb-4">No vehicles match "{search}".</p>}
