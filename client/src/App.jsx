@@ -21,6 +21,7 @@ import TrackingPage from "./pages/TrackingPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import InviteRedirectPage from "./pages/InviteRedirectPage";
 
 import { playAvailableSound } from "./utils/soundPrefs";
 import { canSeeStaffItem } from "./utils/staffAccess";
@@ -354,6 +355,15 @@ export default function App() {
   // review, or anyone just checking it), same reasoning as /track above.
   if (window.location.pathname === "/privacy") {
     return <PrivacyPolicyPage />;
+  }
+
+  // Real https:// landing page for a driver invite link — see
+  // InviteRedirectPage.jsx for why this exists (WhatsApp won't linkify
+  // the app's own fleetprodriver:// scheme). Must work logged out, since
+  // a driver tapping this has no FleetPro session yet.
+  const inviteMatch = window.location.pathname.match(/^\/invite\/([^/?#]+)$/);
+  if (inviteMatch) {
+    return <InviteRedirectPage token={inviteMatch[1]} />;
   }
 
   const payload = getAuthPayload();
