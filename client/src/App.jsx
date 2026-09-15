@@ -20,6 +20,7 @@ import Staff from "./pages/Staff";
 import TrackingPage from "./pages/TrackingPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 
 import { playAvailableSound } from "./utils/soundPrefs";
 import { canSeeStaffItem } from "./utils/staffAccess";
@@ -347,6 +348,12 @@ export default function App() {
   const resetMatch = window.location.pathname.match(/^\/reset-password\/([^/]+)$/);
   if (resetMatch) {
     return <ResetPasswordPage token={resetMatch[1]} />;
+  }
+
+  // Public privacy policy — needs to work logged-in or out (Play Store
+  // review, or anyone just checking it), same reasoning as /track above.
+  if (window.location.pathname === "/privacy") {
+    return <PrivacyPolicyPage />;
   }
 
   const payload = getAuthPayload();

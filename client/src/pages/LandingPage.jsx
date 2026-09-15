@@ -571,7 +571,7 @@ export default function LandingPage({ onLogin, onSignup, onContact }) {
             © {new Date().getFullYear()} FleetPro. All rights reserved. Registered in South Africa.
           </span>
           <div style={{ display: "flex", gap: 18 }}>
-            <a href="#" className="fp-link fp-nav-link" style={{ fontSize: 12.5 }}>Privacy</a>
+            <a href="/privacy" className="fp-link fp-nav-link" style={{ fontSize: 12.5 }}>Privacy</a>
             <a href="#" className="fp-link fp-nav-link" style={{ fontSize: 12.5 }}>Terms</a>
           </div>
         </div>
