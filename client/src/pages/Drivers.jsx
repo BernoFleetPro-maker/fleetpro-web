@@ -160,6 +160,24 @@ export default function Drivers() {
     }
   };
 
+  const handleInvite = async (driver) => {
+    try {
+      const res = await authFetch(`${API}/${driver.id}/invite`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      try {
+        await navigator.clipboard.writeText(data.link);
+        showToast(`Invite link copied — send it to ${driver.name} (valid for 7 days).`);
+      } catch {
+        // Clipboard API can fail (permissions, non-HTTPS context) — fall
+        // back to showing it so it can still be copied manually.
+        window.prompt(`Copy this link and send it to ${driver.name}:`, data.link);
+      }
+    } catch {
+      showToast("Failed to create invite — please try again.");
+    }
+  };
+
   const filteredDrivers = drivers.filter((d) => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
@@ -349,6 +367,13 @@ export default function Drivers() {
                 title="View driver info & compliance documents"
               >
                 ℹ️ Info
+              </button>
+              <button
+                onClick={() => handleInvite(d)}
+                className="flex items-center gap-1 px-2 py-1 bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 rounded text-xs font-medium"
+                title="Get a one-time link to activate the driver app for this company"
+              >
+                🔗 Invite
               </button>
               <button onClick={() => startEdit(d)} className="text-blue-600 hover:underline text-sm">Edit</button>
               <button onClick={() => handleDelete(d.id)} className="text-red-600 hover:underline text-sm">Delete</button>
