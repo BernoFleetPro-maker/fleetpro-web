@@ -165,6 +165,9 @@ function WhatsappBotSettings() {
       ) : (
         <>
           <p className={`text-sm font-semibold ${conn.color}`}>{conn.text}</p>
+          {status?.status === "open" && status?.connectedNumber && (
+            <p className="text-xs text-slate-500 mt-1">Paired number: <span className="font-mono">+{status.connectedNumber}</span></p>
+          )}
           {status?.hasPendingQr && (
             <div className="mt-3 bg-white border border-green-200 rounded-lg p-4 text-center">
               <p className="text-xs text-slate-500 mb-2">Scan with the WhatsApp account you want the bot to use:</p>
