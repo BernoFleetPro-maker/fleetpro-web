@@ -60,6 +60,7 @@ const CONNECTION_LABELS = {
 function WhatsappBotSettings() {
   const [status,  setStatus]  = useState(null);
   const [qrUrl,   setQrUrl]   = useState(null);
+  const [connecting, setConnecting] = useState(false);
   const [keywordsInput, setKeywordsInput] = useState("");
   const [templateInput, setTemplateInput] = useState("");
   const [saving,  setSaving]  = useState(false);
@@ -70,6 +71,18 @@ function WhatsappBotSettings() {
       const res = await authFetch(`${API}/whatsapp/status`);
       if (res.ok) setStatus(await res.json());
     } catch {}
+  };
+
+  // The only way a tenant that's never paired before gets its first QR —
+  // nothing starts a connection on its own anymore (see whatsapp.service.js's
+  // ensureConnectionStarted), so this explicit click is required.
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      const res = await authFetch(`${API}/whatsapp/connect`, { method: "POST" });
+      if (res.ok) setStatus(await res.json());
+    } catch {}
+    finally { setConnecting(false); }
   };
 
   const loadConfig = async () => {
@@ -134,17 +147,31 @@ function WhatsappBotSettings() {
   };
 
   const conn = CONNECTION_LABELS[status?.status] || CONNECTION_LABELS.disconnected;
+  const neverStarted = status && !status.started;
 
   return (
     <div className="bg-green-50 border border-green-200 rounded-xl p-5">
       <h3 className="font-semibold text-green-800 mb-2">📱 WhatsApp Bot</h3>
-      <p className={`text-sm font-semibold ${conn.color}`}>{conn.text}</p>
 
-      {status?.hasPendingQr && (
-        <div className="mt-3 bg-white border border-green-200 rounded-lg p-4 text-center">
-          <p className="text-xs text-slate-500 mb-2">Scan with the WhatsApp account you want the bot to use:</p>
-          {qrUrl ? <img src={qrUrl} alt="WhatsApp QR code" className="mx-auto" width={220} height={220} /> : <p className="text-xs text-slate-400">Loading QR…</p>}
-        </div>
+      {neverStarted ? (
+        <>
+          <p className="text-sm font-semibold text-slate-600">⚪ Not connected</p>
+          <p className="text-xs text-slate-500 mt-1">No WhatsApp number is paired yet — nothing runs in the background until you connect one.</p>
+          <button onClick={handleConnect} disabled={connecting}
+            className="mt-3 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+            {connecting ? "Starting…" : "Connect WhatsApp Bot"}
+          </button>
+        </>
+      ) : (
+        <>
+          <p className={`text-sm font-semibold ${conn.color}`}>{conn.text}</p>
+          {status?.hasPendingQr && (
+            <div className="mt-3 bg-white border border-green-200 rounded-lg p-4 text-center">
+              <p className="text-xs text-slate-500 mb-2">Scan with the WhatsApp account you want the bot to use:</p>
+              {qrUrl ? <img src={qrUrl} alt="WhatsApp QR code" className="mx-auto" width={220} height={220} /> : <p className="text-xs text-slate-400">Loading QR…</p>}
+            </div>
+          )}
+        </>
       )}
 
       <div className="mt-4 pt-4 border-t border-green-200">
