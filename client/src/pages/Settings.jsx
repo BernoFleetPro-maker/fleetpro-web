@@ -61,6 +61,7 @@ function WhatsappBotSettings() {
   const [status,  setStatus]  = useState(null);
   const [qrUrl,   setQrUrl]   = useState(null);
   const [connecting, setConnecting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [keywordsInput, setKeywordsInput] = useState("");
   const [templateInput, setTemplateInput] = useState("");
   const [saving,  setSaving]  = useState(false);
@@ -83,6 +84,17 @@ function WhatsappBotSettings() {
       if (res.ok) setStatus(await res.json());
     } catch {}
     finally { setConnecting(false); }
+  };
+
+  // Backs out of a connection attempt that hasn't finished pairing yet —
+  // closes the socket server-side and resets back to "Connect WhatsApp Bot".
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      const res = await authFetch(`${API}/whatsapp/cancel`, { method: "POST" });
+      if (res.ok) setStatus(await res.json());
+    } catch {}
+    finally { setCancelling(false); }
   };
 
   const loadConfig = async () => {
@@ -148,6 +160,7 @@ function WhatsappBotSettings() {
 
   const conn = CONNECTION_LABELS[status?.status] || CONNECTION_LABELS.disconnected;
   const neverStarted = status && !status.started;
+  const pairingInProgress = status?.started && status?.status !== "open";
 
   return (
     <div className="bg-green-50 border border-green-200 rounded-xl p-5">
@@ -173,6 +186,12 @@ function WhatsappBotSettings() {
               <p className="text-xs text-slate-500 mb-2">Scan with the WhatsApp account you want the bot to use:</p>
               {qrUrl ? <img src={qrUrl} alt="WhatsApp QR code" className="mx-auto" width={220} height={220} /> : <p className="text-xs text-slate-400">Loading QR…</p>}
             </div>
+          )}
+          {pairingInProgress && (
+            <button onClick={handleCancel} disabled={cancelling}
+              className="mt-3 bg-slate-200 hover:bg-slate-300 disabled:bg-slate-100 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold">
+              {cancelling ? "Cancelling…" : "Cancel"}
+            </button>
           )}
         </>
       )}
