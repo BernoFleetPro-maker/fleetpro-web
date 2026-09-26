@@ -306,11 +306,14 @@ export default function TrackingPage({ token }) {
 
   const todayTasks       = data?.tasks?.filter((t) => t.dateGroup === "today") || [];
   const tomorrowTasks    = data?.tasks?.filter((t) => t.dateGroup === "tomorrow") || [];
-  // Anything further out than tomorrow — a multi-day haul still in progress
-  // (see trackRoutes.js's dateGroupFor) — gets its own section per distinct
-  // date instead of being folded into "Today".
-  const laterTasks       = data?.tasks?.filter((t) => t.dateGroup !== "today" && t.dateGroup !== "tomorrow") || [];
-  const laterDates       = [...new Set(laterTasks.map((t) => t.dateGroup))].sort();
+  // Every other dateGroup is a plain date string (see trackRoutes.js's
+  // dateGroupFor) and gets its own section per distinct date instead of being
+  // folded into "Today": a load still open past its dropoff date sits ahead
+  // of Today under that date, a multi-day haul further out sits after Tomorrow.
+  const datedTasks       = data?.tasks?.filter((t) => t.dateGroup !== "today" && t.dateGroup !== "tomorrow") || [];
+  const datedGroups      = [...new Set(datedTasks.map((t) => t.dateGroup))].sort();
+  const overdueDates     = datedGroups.filter((d) => d < data.today);
+  const laterDates       = datedGroups.filter((d) => d > data.today);
   const withPositionCount = data?.tasks?.filter((t) => t.position).length || 0;
 
   // The page itself never scrolls (height:100dvh + overflow:hidden) — the
@@ -355,6 +358,15 @@ export default function TrackingPage({ token }) {
 
       {!loading && data && data.tasks.length > 0 && (
         <div style={{ flex: 1, overflowY: "auto", maxWidth: 720, width: "100%", margin: "0 auto", padding: "0 16px 16px", boxSizing: "border-box" }}>
+          {overdueDates.map((d, i) => (
+            <div key={d}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 {formatWeekdayDate(d)}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: (i < overdueDates.length - 1 || todayTasks.length || tomorrowTasks.length || laterDates.length) ? 14 : 0 }}>
+                {datedTasks.filter((t) => t.dateGroup === d).map(renderTaskCard)}
+              </div>
+            </div>
+          ))}
+
           {todayTasks.length > 0 && (
             <>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 Today ({formatShortDate(data.today)})</div>
@@ -377,7 +389,7 @@ export default function TrackingPage({ token }) {
             <div key={d}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", margin: "0 0 6px" }}>📅 {formatWeekdayDate(d)}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: i < laterDates.length - 1 ? 14 : 0 }}>
-                {laterTasks.filter((t) => t.dateGroup === d).map(renderTaskCard)}
+                {datedTasks.filter((t) => t.dateGroup === d).map(renderTaskCard)}
               </div>
             </div>
           ))}
