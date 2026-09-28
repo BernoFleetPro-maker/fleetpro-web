@@ -571,7 +571,10 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
 
         document.getElementById("fp-share-link").onclick = () => {
           if (navigator.share) {
-            navigator.share({ title: `${reg} Location`, text: shareText, url: mapsUrl }).catch(() => {});
+            // shareText already embeds mapsUrl — a separate `url` field here
+            // gets appended after `text` by share targets like WhatsApp on
+            // Android, showing the same link twice.
+            navigator.share({ title: `${reg} Location`, text: shareText }).catch(() => {});
           } else {
             navigator.clipboard.writeText(shareText).then(() => {
               document.getElementById("fp-share-link").textContent = "✅ Copied!";
