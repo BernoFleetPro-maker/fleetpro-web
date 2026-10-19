@@ -11,4 +11,4 @@ Disallow: /staff
 Disallow: /settings
 Disallow: /track/
 
-Sitemap: https://fleetprosa.co.za/sitemap.xml
+Sitemap: https://www.fleetprosa.co.za/sitemap.xml
