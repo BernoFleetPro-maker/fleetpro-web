@@ -45,7 +45,10 @@ const DECLINE_REASONS = {
 };
 
 const AUDIT_ACTIONS = {
-  card_created:       "Card created",
+  card_created:       "Card added",
+  card_assigned:      "Card assigned",
+  card_reassigned:    "Card reassigned",
+  card_unassigned:    "Card unassigned",
   limits_changed:     "Limits changed",
   categories_changed: "Categories changed",
   card_frozen:        "Card frozen",
@@ -210,9 +213,28 @@ function DashboardTab({ categories }) {
   );
 }
 
-// ── Create / edit card form ──────────────────────────────────────────────────
+// ── Cards ────────────────────────────────────────────────────────────────────
+// Cards are created by the company in its own online banking, added here, and
+// assigned to drivers — unassigned when a driver leaves, then given to the
+// next one. A driver holds at most one card at a time.
+
+function cardName(card) {
+  const digits = card.last4 ? `•••• ${card.last4}` : "";
+  return [card.label, digits].filter(Boolean).join(" ") || "Card";
+}
+
+const UNASSIGN_REASONS = {
+  manual: "unassigned",
+  reassigned: "reassigned",
+  driver_deleted: "driver deleted",
+  card_cancelled: "card cancelled",
+};
+
+// Add a card, or edit its name and limits.
 function CardFormModal({ card, drivers, onClose, onSaved }) {
   const editing = !!card;
+  const [label, setLabel] = useState(editing ? card.label || "" : "");
+  const [last4, setLast4] = useState("");
   const [driverId, setDriverId] = useState("");
   const [dailyLimit, setDailyLimit] = useState(editing ? String(card.dailyLimit) : "");
   const [monthlyLimit, setMonthlyLimit] = useState(editing && card.monthlyLimit != null ? String(card.monthlyLimit) : "");
@@ -222,13 +244,17 @@ function CardFormModal({ card, drivers, onClose, onSaved }) {
   async function save(e) {
     e.preventDefault();
     setError("");
-    if (!editing && !driverId) { setError("Choose a driver."); return; }
+    if (!editing && !label.trim() && !last4.trim()) { setError("Give the card a name or its last 4 digits."); return; }
+    if (!editing && last4.trim() && !/^\d{4}$/.test(last4.trim())) { setError("Last 4 digits must be exactly 4 numbers."); return; }
     if (!dailyLimit.trim()) { setError("Enter a daily limit."); return; }
     setSaving(true);
     try {
       const monthly = monthlyLimit.trim() === "" ? null : monthlyLimit;
-      if (editing) await api.patch(`/pay/cards/${card.id}`, { dailyLimit, monthlyLimit: monthly }, authHeaders());
-      else await api.post("/pay/cards", { driverId, dailyLimit, monthlyLimit: monthly }, authHeaders());
+      if (editing) {
+        await api.patch(`/pay/cards/${card.id}`, { label, dailyLimit, monthlyLimit: monthly }, authHeaders());
+      } else {
+        await api.post("/pay/cards", { label, last4: last4.trim(), dailyLimit, monthlyLimit: monthly, driverId: driverId || undefined }, authHeaders());
+      }
       onSaved();
     } catch (err) {
       setError(errorText(err, "Failed to save card"));
@@ -241,23 +267,25 @@ function CardFormModal({ card, drivers, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <form onSubmit={save} className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
-        <h2 className="text-lg font-bold text-slate-800">
-          {editing ? `Limits for ${card.driver?.name || "driver"}` : "Give a driver a card"}
-        </h2>
-
+        <h2 className="text-lg font-bold text-slate-800">{editing ? `Edit ${cardName(card)}` : "Add a card"}</h2>
         {!editing && (
-          <div>
-            <label className="text-xs text-slate-500 font-semibold block mb-1">Driver</label>
-            {drivers.length === 0 ? (
-              <p className="text-sm text-slate-500">Every driver already has a card.</p>
-            ) : (
-              <select className={inputCls} value={driverId} onChange={e => setDriverId(e.target.value)}>
-                <option value="">Choose a driver…</option>
-                {drivers.map(d => <option key={d.id} value={d.id}>{d.name} · {d.phone}</option>)}
-              </select>
-            )}
-          </div>
+          <p className="text-xs text-slate-500">
+            Create the virtual card in your online banking first, then add it here with the same name and its last 4 digits.
+          </p>
         )}
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className={editing ? "col-span-3" : "col-span-2"}>
+            <label className="text-xs text-slate-500 font-semibold block mb-1">Card name</label>
+            <input className={inputCls} placeholder="e.g. Card 3 or KUDU 01" value={label} onChange={e => setLabel(e.target.value)} />
+          </div>
+          {!editing && (
+            <div>
+              <label className="text-xs text-slate-500 font-semibold block mb-1">Last 4 digits</label>
+              <input className={inputCls} inputMode="numeric" maxLength={4} placeholder="4321" value={last4} onChange={e => setLast4(e.target.value.replace(/\D/g, ""))} />
+            </div>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -269,15 +297,26 @@ function CardFormModal({ card, drivers, onClose, onSaved }) {
             <input className={inputCls} inputMode="decimal" placeholder="No monthly limit" value={monthlyLimit} onChange={e => setMonthlyLimit(e.target.value)} />
           </div>
         </div>
+
+        {!editing && (
+          <div>
+            <label className="text-xs text-slate-500 font-semibold block mb-1">Assign to (optional)</label>
+            <select className={inputCls} value={driverId} onChange={e => setDriverId(e.target.value)}>
+              <option value="">Leave unassigned for now</option>
+              {drivers.map(d => <option key={d.id} value={d.id}>{d.name} · {d.phone}</option>)}
+            </select>
+          </div>
+        )}
+
         <p className="text-[11px] text-slate-400">
-          The card stays locked until the driver taps Pay in the app. It then accepts any purchase for 60 seconds, up to these limits.
+          The card stays locked until its driver taps Pay in the app. It then accepts any purchase for 60 seconds, up to these limits.
         </p>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-3 pt-1">
-          <button type="submit" disabled={saving || (!editing && drivers.length === 0)}
+          <button type="submit" disabled={saving}
             className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white py-2 rounded-lg font-semibold text-sm">
-            {saving ? "Saving…" : editing ? "Save limits" : "Create card"}
+            {saving ? "Saving…" : editing ? "Save" : "Add card"}
           </button>
           <button type="button" onClick={onClose} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold text-sm">
             Cancel
@@ -288,13 +327,98 @@ function CardFormModal({ card, drivers, onClose, onSaved }) {
   );
 }
 
-// ── Cards tab ────────────────────────────────────────────────────────────────
+// Assign / reassign a card, with who has had it before.
+function AssignModal({ card, drivers, canManage, onClose, onSaved }) {
+  const [driverId, setDriverId] = useState("");
+  const [history, setHistory] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.get(`/pay/cards/${card.id}/assignments`, authHeaders())
+      .then(r => setHistory(r.data))
+      .catch(() => setHistory([]));
+  }, [card.id]);
+
+  async function save(e) {
+    e.preventDefault();
+    if (!driverId) { setError("Choose a driver."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      await api.post(`/pay/cards/${card.id}/assign`, { driverId }, authHeaders());
+      onSaved();
+    } catch (err) {
+      setError(errorText(err, "Failed to assign card"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const day = (d) => new Date(d).toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg", day: "2-digit", month: "short", year: "numeric" });
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <form onSubmit={save} className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
+        <h2 className="text-lg font-bold text-slate-800">{cardName(card)}</h2>
+        <p className="text-sm text-slate-600">
+          {card.driver ? <>Assigned to <strong>{card.driver.name}</strong></> : "Not assigned to anyone"}
+        </p>
+
+        {canManage && card.status !== "cancelled" && (
+          <div>
+            <label className="text-xs text-slate-500 font-semibold block mb-1">{card.driver ? "Reassign to" : "Assign to"}</label>
+            {drivers.length === 0 ? (
+              <p className="text-sm text-slate-500">Every driver already has a card. Unassign one first.</p>
+            ) : (
+              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={driverId} onChange={e => setDriverId(e.target.value)}>
+                <option value="">Choose a driver…</option>
+                {drivers.map(d => <option key={d.id} value={d.id}>{d.name} · {d.phone}</option>)}
+              </select>
+            )}
+            {card.driver && <p className="text-[11px] text-slate-400 mt-1">{card.driver.name} loses the card straight away.</p>}
+          </div>
+        )}
+
+        <div>
+          <div className="text-xs text-slate-500 font-semibold mb-1">Who has had this card</div>
+          {history === null ? <p className="text-xs text-slate-400">Loading…</p>
+            : history.length === 0 ? <p className="text-xs text-slate-400">Nobody yet.</p>
+            : (
+              <ul className="text-xs text-slate-600 space-y-1 max-h-40 overflow-y-auto">
+                {history.map(h => (
+                  <li key={h.id}>
+                    <span className="font-medium text-slate-800">{h.driverName}</span>
+                    {" · "}{day(h.assignedAt)} – {h.unassignedAt ? `${day(h.unassignedAt)} (${UNASSIGN_REASONS[h.unassignReason] || h.unassignReason})` : "now"}
+                  </li>
+                ))}
+              </ul>
+            )}
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex gap-3 pt-1">
+          {canManage && card.status !== "cancelled" && drivers.length > 0 && (
+            <button type="submit" disabled={saving}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white py-2 rounded-lg font-semibold text-sm">
+              {saving ? "Saving…" : card.driver ? "Reassign" : "Assign"}
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold text-sm">
+            Close
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function CardsTab({ access }) {
   const [cards, setCards] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [form, setForm] = useState(null); // null | { card?: card }
+  const [form, setForm] = useState(null);     // null | { card?: card }
+  const [assigning, setAssigning] = useState(null);
 
   async function load() {
     setError("");
@@ -313,10 +437,11 @@ function CardsTab({ access }) {
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function changeStatus(card, action) {
-    const name = card.driver?.name || "this driver";
-    if (action === "cancel" && !window.confirm(`Cancel ${name}'s card? This can't be undone — they'd need a new card.`)) return;
-    if (action === "freeze" && !window.confirm(`Freeze ${name}'s card? All payments will be declined until it's unfrozen.`)) return;
+  async function act(card, action) {
+    const name = cardName(card);
+    if (action === "cancel" && !window.confirm(`Cancel ${name}? Only do this if the card was cancelled in your online banking too. It can't be undone.`)) return;
+    if (action === "freeze" && !window.confirm(`Freeze ${name}? All payments will be declined until it's unfrozen.`)) return;
+    if (action === "unassign" && !window.confirm(`Take ${name} away from ${card.driver?.name}? They won't be able to pay with it any more.`)) return;
     setError("");
     try {
       await api.post(`/pay/cards/${card.id}/${action}`, {}, authHeaders());
@@ -326,39 +451,54 @@ function CardsTab({ access }) {
     }
   }
 
+  const unassignedCount = cards.filter(c => !c.driver).length;
   return (
     <div>
-      {access.canManage && (
-        <div className="flex justify-end mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <p className="text-sm text-slate-500">
+          {cards.length} card{cards.length === 1 ? "" : "s"}{unassignedCount > 0 && ` · ${unassignedCount} unassigned`}
+        </p>
+        {access.canManage && (
           <button onClick={() => setForm({})} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">
-            + Give a driver a card
+            + Add card
           </button>
-        </div>
-      )}
+        )}
+      </div>
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
             <tr>
-              <th className="text-left px-4 py-3">Driver</th>
+              <th className="text-left px-4 py-3">Card</th>
+              <th className="text-left px-4 py-3">Assigned to</th>
               <th className="text-left px-4 py-3">Status</th>
               <th className="text-left px-4 py-3">Today</th>
               <th className="text-left px-4 py-3">This week</th>
               <th className="text-left px-4 py-3">This month</th>
-              {access.canManage && <th className="px-4 py-3" />}
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Loading…</td></tr>
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Loading…</td></tr>
             ) : cards.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">No cards yet.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">No cards yet. Create one in your online banking, then add it here.</td></tr>
             ) : cards.map(card => (
               <tr key={card.id} className="border-t border-slate-100 align-top">
                 <td className="px-4 py-3">
-                  <div className="font-medium text-slate-800">{card.driver?.name}</div>
-                  <div className="text-xs text-slate-400">{card.last4 ? `•••• ${card.last4}` : card.driver?.phone}</div>
+                  <div className="font-medium text-slate-800 whitespace-nowrap">{card.label || "Card"}</div>
+                  <div className="text-xs text-slate-400">{card.last4 ? `•••• ${card.last4}` : ""}</div>
+                </td>
+                <td className="px-4 py-3">
+                  {card.driver ? (
+                    <div>
+                      <div className="text-slate-800">{card.driver.name}</div>
+                      <div className="text-xs text-slate-400">{card.driver.phone}</div>
+                    </div>
+                  ) : (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">Unassigned</span>
+                  )}
                 </td>
                 <td className="px-4 py-3"><StatusBadge card={card} /></td>
                 <td className="px-4 py-3"><SpendBar spent={card.spentToday} limit={card.dailyLimit} /></td>
@@ -367,17 +507,23 @@ function CardsTab({ access }) {
                   {money(card.spentThisMonth)}
                   {card.monthlyLimit != null && <span className="text-slate-400"> of {money(card.monthlyLimit)}</span>}
                 </td>
-                {access.canManage && (
-                  <td className="px-4 py-3 whitespace-nowrap text-right space-x-2">
-                    <button onClick={() => setForm({ card })} className="text-blue-600 hover:underline text-xs font-semibold">Limits</button>
-                    {card.status === "frozen" ? (
-                      <button onClick={() => changeStatus(card, "unfreeze")} className="text-green-700 hover:underline text-xs font-semibold">Unfreeze</button>
-                    ) : (
-                      <button onClick={() => changeStatus(card, "freeze")} className="text-blue-700 hover:underline text-xs font-semibold">Freeze</button>
-                    )}
-                    <button onClick={() => changeStatus(card, "cancel")} className="text-red-600 hover:underline text-xs font-semibold">Cancel</button>
-                  </td>
-                )}
+                <td className="px-4 py-3 whitespace-nowrap text-right space-x-2">
+                  <button onClick={() => setAssigning(card)} className="text-blue-600 hover:underline text-xs font-semibold">
+                    {!access.canManage ? "History" : card.driver ? "Reassign" : "Assign"}
+                  </button>
+                  {access.canManage && (
+                    <>
+                      {card.driver && <button onClick={() => act(card, "unassign")} className="text-amber-700 hover:underline text-xs font-semibold">Unassign</button>}
+                      <button onClick={() => setForm({ card })} className="text-blue-600 hover:underline text-xs font-semibold">Limits</button>
+                      {card.status === "frozen" ? (
+                        <button onClick={() => act(card, "unfreeze")} className="text-green-700 hover:underline text-xs font-semibold">Unfreeze</button>
+                      ) : (
+                        <button onClick={() => act(card, "freeze")} className="text-blue-700 hover:underline text-xs font-semibold">Freeze</button>
+                      )}
+                      <button onClick={() => act(card, "cancel")} className="text-red-600 hover:underline text-xs font-semibold">Cancel</button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -385,25 +531,25 @@ function CardsTab({ access }) {
       </div>
 
       {form && (
-        <CardFormModal
-          card={form.card}
-          drivers={drivers}
-          onClose={() => setForm(null)}
-          onSaved={() => { setForm(null); load(); }}
-        />
+        <CardFormModal card={form.card} drivers={drivers} onClose={() => setForm(null)} onSaved={() => { setForm(null); load(); }} />
+      )}
+      {assigning && (
+        <AssignModal card={assigning} drivers={drivers} canManage={access.canManage}
+          onClose={() => setAssigning(null)} onSaved={() => { setAssigning(null); load(); }} />
       )}
     </div>
   );
 }
 
-// Driver list for the filter dropdowns — everyone who has (or had) a card.
+// Driver list for the filter dropdowns — every current driver of the company.
+// (Not taken from the cards: a driver whose card was reassigned still has
+// payments to look up.)
 function useCardDrivers() {
   const [drivers, setDrivers] = useState([]);
   useEffect(() => {
-    api.get("/pay/cards?includeCancelled=1", authHeaders()).then(r => {
-      const seen = new Map();
-      for (const c of r.data) if (c.driver) seen.set(c.driver.id, c.driver.name);
-      setDrivers([...seen].sort((a, b) => a[1].localeCompare(b[1])));
+    api.get("/drivers", authHeaders()).then(r => {
+      const list = Array.isArray(r.data) ? r.data : [];
+      setDrivers(list.map(d => [d.id, d.name]).sort((a, b) => a[1].localeCompare(b[1])));
     }).catch(() => {});
   }, []);
   return drivers;
@@ -621,7 +767,7 @@ function HistoryTab() {
       .catch(err => setError(errorText(err, "Failed to load history")));
   }, []);
 
-  const driverByCard = useMemo(() => Object.fromEntries(cards.map(c => [c.id, c.driver?.name])), [cards]);
+  const nameByCard = useMemo(() => Object.fromEntries(cards.map(c => [c.id, cardName(c)])), [cards]);
   const detail = (r) => {
     const c = r.changes || {};
     if (r.action === "limits_changed" && c.before && c.after) {
@@ -629,6 +775,9 @@ function HistoryTab() {
       return [part("daily", c.before.dailyLimit, c.after.dailyLimit), part("monthly", c.before.monthlyLimit, c.after.monthlyLimit)].filter(Boolean).join(", ");
     }
     if (r.action === "card_created") return `daily ${money(c.dailyLimit)}${c.monthlyLimit != null ? `, monthly ${money(c.monthlyLimit)}` : ""}`;
+    if (r.action === "card_assigned") return `to ${c.driver}`;
+    if (r.action === "card_reassigned") return `${c.from} → ${c.driver}`;
+    if (r.action === "card_unassigned") return `from ${c.driver || "driver"}${c.reason === "driver_deleted" ? " (driver deleted)" : ""}`;
     if (c.reason === "driver_deleted") return "driver was deleted";
     return "";
   };
@@ -642,7 +791,7 @@ function HistoryTab() {
           <div key={r.id} className="px-4 py-3 text-sm flex flex-wrap gap-x-3">
             <span className="text-slate-400 whitespace-nowrap">{when(r.createdAt)}</span>
             <span className="font-medium text-slate-800">{AUDIT_ACTIONS[r.action] || r.action}</span>
-            {r.cardId && driverByCard[r.cardId] && <span className="text-slate-600">· {driverByCard[r.cardId]}</span>}
+            {r.cardId && nameByCard[r.cardId] && <span className="text-slate-600">· {nameByCard[r.cardId]}</span>}
             {detail(r) && <span className="text-slate-500">· {detail(r)}</span>}
             <span className="text-slate-400 ml-auto">{r.actorType === "system" ? "Automatic" : r.actorName || r.actorType}</span>
           </div>
