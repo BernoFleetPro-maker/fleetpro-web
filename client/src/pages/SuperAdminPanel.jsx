@@ -87,6 +87,24 @@ function PayProviderCard({ tenantId, authHeaders }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(PAY_FORM_EMPTY);
   const [error, setError] = useState("");
+  const [testResult, setTestResult] = useState("");
+  const [testing, setTesting] = useState(false);
+
+  async function testConnection() {
+    setError(""); setTestResult(""); setTesting(true);
+    try {
+      const r = (await api.post(`/superadmin/tenants/${tenantId}/pay-provider/test`, {}, authHeaders)).data;
+      const parts = ["Login works"];
+      if (r.cards != null) parts.push(`${r.cards} card${r.cards === 1 ? "" : "s"} found`);
+      if (r.cardsError) parts.push(r.cardsError);
+      if (r.accounts != null) parts.push(`${r.accounts} account${r.accounts === 1 ? "" : "s"} readable`);
+      setTestResult(parts.join(" · "));
+    } catch (err) {
+      setError(err.response?.data?.error || "Connection test failed");
+    } finally {
+      setTesting(false);
+    }
+  }
 
   useEffect(() => {
     api.get(`/superadmin/tenants/${tenantId}/pay-provider`, authHeaders)
@@ -158,7 +176,12 @@ function PayProviderCard({ tenantId, authHeaders }) {
           <p><span className="text-slate-400">Client secret:</span> {config.hasClientSecret ? "•••••• set" : "Not set"}</p>
           <p><span className="text-slate-400">API key:</span> {config.hasApiKey ? "•••••• set" : "Not set"}</p>
           <p><span className="text-slate-400">Account ID:</span> {config.accountId || "— not set"}</p>
-          <p className="text-xs text-slate-500 pt-1">Cards can't pay yet: the Investec connection is still being built.</p>
+          <div className="pt-2 flex items-center gap-3">
+            <button onClick={testConnection} disabled={testing} className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs px-3 py-1 rounded">
+              {testing ? "Testing…" : "Test connection"}
+            </button>
+            {testResult && <span className="text-xs text-green-400">{testResult}</span>}
+          </div>
         </div>
       ) : (
         <p className="text-sm text-slate-400">Not set up. Cards for this company stay "not connected" and can't pay.</p>

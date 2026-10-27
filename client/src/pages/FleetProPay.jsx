@@ -36,6 +36,7 @@ const STATUS_STYLES = {
 
 const DECLINE_REASONS = {
   card_locked:        "Card locked (driver didn't tap Pay)",
+  bank_declined:      "Declined by the bank",
   daily_limit:        "Daily limit reached",
   monthly_limit:      "Monthly limit reached",
   card_frozen:        "Card frozen",
@@ -49,6 +50,8 @@ const AUDIT_ACTIONS = {
   card_assigned:      "Card assigned",
   card_reassigned:    "Card reassigned",
   card_unassigned:    "Card unassigned",
+  card_linked:        "Card linked to bank card",
+  card_connected:     "Card connected at the bank",
   limits_changed:     "Limits changed",
   categories_changed: "Categories changed",
   card_frozen:        "Card frozen",
@@ -419,6 +422,9 @@ function CardsTab({ access }) {
   const [error, setError] = useState("");
   const [form, setForm] = useState(null);     // null | { card?: card }
   const [assigning, setAssigning] = useState(null);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState("");
+  const bank = access.provider !== "none";
 
   async function load() {
     setError("");
@@ -451,6 +457,33 @@ function CardsTab({ access }) {
     }
   }
 
+  // Bank actions (step 4). Each shows its outcome in the green notice line.
+  async function bankAction(key, fn) {
+    setError(""); setNotice(""); setBusy(key);
+    try { setNotice(await fn()); await load(); }
+    catch (err) { setError(errorText(err, "The bank didn't respond")); }
+    finally { setBusy(""); }
+  }
+  const syncCards = () => {
+    const daily = window.prompt("Daily limit for any new cards found at the bank (you can change each one afterwards):", "2000");
+    if (daily === null) return;
+    bankAction("sync", async () => {
+      const r = await api.post("/pay/bank/sync-cards", { defaultDailyLimit: daily }, authHeaders());
+      return `Found ${r.data.found} card${r.data.found === 1 ? "" : "s"} at the bank: ${r.data.added} added, ${r.data.linked} linked to cards already here, ${r.data.skipped} already known or not programmable.`;
+    });
+  };
+  const refreshPayments = () => bankAction("payments", async () => {
+    const r = await api.post("/pay/bank/sync-payments", {}, authHeaders());
+    return `${r.data.recorded} new payment${r.data.recorded === 1 ? "" : "s"} from ${r.data.cards} connected card${r.data.cards === 1 ? "" : "s"}.${r.data.errors?.length ? ` ${r.data.errors.length} card(s) couldn't be read.` : ""}`;
+  });
+  const connect = (card) => {
+    if (!window.confirm(`Connect ${cardName(card)} at the bank? FleetPro installs its own card code on this card. From then on the card only pays in the 60 seconds after its driver taps Pay.`)) return;
+    bankAction("connect-" + card.id, async () => {
+      await api.post(`/pay/cards/${card.id}/connect`, {}, authHeaders());
+      return `${cardName(card)} is connected and locked until its driver taps Pay.`;
+    });
+  };
+
   const unassignedCount = cards.filter(c => !c.driver).length;
   return (
     <div>
@@ -459,12 +492,27 @@ function CardsTab({ access }) {
           {cards.length} card{cards.length === 1 ? "" : "s"}{unassignedCount > 0 && ` · ${unassignedCount} unassigned`}
         </p>
         {access.canManage && (
-          <button onClick={() => setForm({})} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">
-            + Add card
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {bank && (
+              <>
+                <button onClick={refreshPayments} disabled={!!busy}
+                  className="bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-sm font-semibold px-4 py-2 rounded-lg">
+                  {busy === "payments" ? "Reading…" : "Refresh payments"}
+                </button>
+                <button onClick={syncCards} disabled={!!busy}
+                  className="bg-white border border-blue-300 hover:bg-blue-50 disabled:opacity-50 text-blue-700 text-sm font-semibold px-4 py-2 rounded-lg">
+                  {busy === "sync" ? "Syncing…" : "Sync cards from bank"}
+                </button>
+              </>
+            )}
+            <button onClick={() => setForm({})} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+              + Add card
+            </button>
+          </div>
         )}
       </div>
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+      {notice && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">{notice}</p>}
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">
@@ -488,7 +536,7 @@ function CardsTab({ access }) {
               <tr key={card.id} className="border-t border-slate-100 align-top">
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-800 whitespace-nowrap">{card.label || "Card"}</div>
-                  <div className="text-xs text-slate-400">{card.last4 ? `•••• ${card.last4}` : ""}</div>
+                  <div className="text-xs text-slate-400">{card.last4 ? `•••• ${card.last4}` : ""}{card.providerCardId ? " · at bank" : ""}</div>
                 </td>
                 <td className="px-4 py-3">
                   {card.driver ? (
@@ -513,6 +561,11 @@ function CardsTab({ access }) {
                   </button>
                   {access.canManage && (
                     <>
+                      {bank && card.providerCardId && !card.connectedAt && card.status !== "cancelled" && (
+                        <button onClick={() => connect(card)} disabled={!!busy} className="text-green-700 hover:underline text-xs font-semibold">
+                          {busy === "connect-" + card.id ? "Connecting…" : "Connect"}
+                        </button>
+                      )}
                       {card.driver && <button onClick={() => act(card, "unassign")} className="text-amber-700 hover:underline text-xs font-semibold">Unassign</button>}
                       <button onClick={() => setForm({ card })} className="text-blue-600 hover:underline text-xs font-semibold">Limits</button>
                       {card.status === "frozen" ? (
