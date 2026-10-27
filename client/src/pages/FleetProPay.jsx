@@ -52,6 +52,7 @@ const AUDIT_ACTIONS = {
   card_unassigned:    "Card unassigned",
   card_linked:        "Card linked to bank card",
   card_connected:     "Card connected at the bank",
+  provider_removed:   "Bank disconnected",
   limits_changed:     "Limits changed",
   categories_changed: "Categories changed",
   card_frozen:        "Card frozen",
@@ -904,6 +905,18 @@ function BankTab() {
     }
   }
 
+  async function disconnect() {
+    if (!window.confirm("Disconnect your bank? Every card is locked and stops paying until you connect the bank again and click Connect on each card. Your cards, drivers and payment history stay.")) return;
+    setError(""); setTestResult("");
+    try {
+      const r = (await api.delete("/pay/bank", authHeaders())).data;
+      setConfig(null);
+      setTestResult(r.cardsUnreachable ? `Disconnected. ${r.cardsUnreachable} card(s) couldn't be reached at the bank — lock them in Investec Online if needed.` : "Bank disconnected.");
+    } catch (err) {
+      setError(errorText(err, "Failed to disconnect the bank"));
+    }
+  }
+
   async function test() {
     setError(""); setTestResult(""); setTesting(true);
     try {
@@ -952,9 +965,10 @@ function BankTab() {
             <p className="text-xs text-slate-500">
               In Investec Online, open <strong>Manage → Investec Developer</strong> and create an API key with the <strong>cards</strong> scope. Copy the client ID, client secret and API key here.
             </p>
-            <div><label className={labelCls}>Client ID</label><input className={inputCls} value={form.clientId} onChange={set("clientId")} autoComplete="off" /></div>
-            <div><label className={labelCls}>Client secret</label><input type="password" autoComplete="new-password" className={inputCls} placeholder={config?.hasClientSecret ? "•••••• saved — leave blank to keep" : ""} value={form.clientSecret} onChange={set("clientSecret")} /></div>
-            <div><label className={labelCls}>API key</label><input type="password" autoComplete="new-password" className={inputCls} placeholder={config?.hasApiKey ? "•••••• saved — leave blank to keep" : ""} value={form.apiKey} onChange={set("apiKey")} /></div>
+            <div><label className={labelCls}>Client ID</label><input className={inputCls} placeholder="e.g. yAxzQRFX97vOcyQAwluEU6H6ePxMA5eY" value={form.clientId} onChange={set("clientId")} autoComplete="off" /></div>
+            <div><label className={labelCls}>Client secret</label><input type="password" autoComplete="new-password" className={inputCls} placeholder={config?.hasClientSecret ? "•••••• saved — leave blank to keep" : "e.g. 4dY0PjEYqoBrZ99r"} value={form.clientSecret} onChange={set("clientSecret")} /></div>
+            <div><label className={labelCls}>API key</label><input type="password" autoComplete="new-password" className={inputCls} placeholder={config?.hasApiKey ? "•••••• saved — leave blank to keep" : "e.g. eUF4elFSRlg5N3ZPY3lRQXdsdUVVNkg2ZVB4TUE1ZVk6YVc1… (a long code)"} value={form.apiKey} onChange={set("apiKey")} /></div>
+            <p className="text-[11px] text-slate-400 -mt-1">The examples are Investec's public test keys — your own keys look similar but are different.</p>
             <div><label className={labelCls}>Account number (optional)</label><input className={inputCls} placeholder="Only use cards on this account" value={form.accountId} onChange={set("accountId")} /></div>
             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
               <input type="checkbox" className="rounded border-slate-300" checked={form.sandbox} onChange={e => setForm(f => ({ ...f, sandbox: e.target.checked }))} />
@@ -983,10 +997,16 @@ function BankTab() {
                 {testing ? "Testing…" : "Test connection"}
               </button>
               {testResult && <span className="text-sm text-green-700">{testResult}</span>}
+              <button onClick={disconnect} className="ml-auto text-red-600 hover:underline text-sm font-semibold">
+                Disconnect bank
+              </button>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-500">Not connected. Your cards can be set up and assigned, but can't pay until your bank is connected.</p>
+          <div className="space-y-2">
+            {testResult && <p className="text-sm text-green-700">{testResult}</p>}
+            <p className="text-sm text-slate-500">Not connected. Your cards can be set up and assigned, but can't pay until your bank is connected.</p>
+          </div>
         )}
       </div>
     </div>
