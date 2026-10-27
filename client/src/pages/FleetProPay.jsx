@@ -5,6 +5,10 @@ import api from "../api";
 // change limits, whether the company has it at all) is enforced by
 // /api/pay on the server; this page only hides buttons the server would
 // refuse anyway, based on /pay/access.
+//
+// Drivers open their card by tapping Pay in the app (60 seconds, any
+// purchase within the limits); the category they pick only labels the
+// payment. So the office side here is about limits, figures and slips.
 
 function authHeaders() {
   const token = localStorage.getItem("fleetpro_token") || "";
@@ -12,9 +16,16 @@ function authHeaders() {
 }
 
 const money = (n) => Number(n || 0).toLocaleString("en-ZA", { style: "currency", currency: "ZAR" });
+const moneyShort = (n) => (n >= 1000 ? `R${Math.round(n / 1000)}k` : `R${Math.round(n)}`);
 const when = (d) => new Date(d).toLocaleString("en-ZA", {
   timeZone: "Africa/Johannesburg", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
 });
+const monthLabel = (key) => new Date(`${key}-15T12:00:00Z`).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
+
+// Same colour per category everywhere on the page (chips, bars, legend).
+const CATEGORY_COLORS = {
+  toll: "#3b82f6", diesel: "#10b981", petrol: "#14b8a6", oil: "#78716c", truck_stop: "#f59e0b", other: "#8b5cf6",
+};
 
 const STATUS_STYLES = {
   not_connected: { label: "Not connected", cls: "bg-slate-100 text-slate-600" },
@@ -24,14 +35,13 @@ const STATUS_STYLES = {
 };
 
 const DECLINE_REASONS = {
-  daily_limit:          "Daily limit reached",
-  monthly_limit:        "Monthly limit reached",
-  category_daily_limit: "Category daily limit reached",
-  category_blocked:     "Category not allowed",
-  card_frozen:          "Card frozen",
-  card_cancelled:       "Card cancelled",
-  card_not_connected:   "Card not connected",
-  invalid_amount:       "Invalid amount",
+  card_locked:        "Card locked (driver didn't tap Pay)",
+  daily_limit:        "Daily limit reached",
+  monthly_limit:      "Monthly limit reached",
+  card_frozen:        "Card frozen",
+  card_cancelled:     "Card cancelled",
+  card_not_connected: "Card not connected",
+  invalid_amount:     "Invalid amount",
 };
 
 const AUDIT_ACTIONS = {
@@ -66,30 +76,148 @@ function SpendBar({ spent, limit }) {
   );
 }
 
+function CategoryChip({ category, label }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 whitespace-nowrap">
+      <span className="w-2.5 h-2.5 rounded-sm" style={{ background: CATEGORY_COLORS[category] || "#94a3b8" }} />
+      {label || category}
+    </span>
+  );
+}
+
 function errorText(err, fallback) {
   return err.response?.data?.error || fallback;
 }
 
+// ── Dashboard tab ────────────────────────────────────────────────────────────
+function StatTile({ label, value, sub, accent }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-2xl font-bold mt-1" style={{ color: accent }}>{value}</div>
+      {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function DashboardTab({ categories }) {
+  const [stats, setStats] = useState(null);
+  const [error, setError] = useState("");
+  const [driverPeriod, setDriverPeriod] = useState("month");
+  const catLabel = useMemo(() => Object.fromEntries(categories.map(c => [c.key, c.label])), [categories]);
+
+  useEffect(() => {
+    api.get("/pay/stats", authHeaders())
+      .then(r => setStats(r.data))
+      .catch(err => setError(errorText(err, "Failed to load spend figures")));
+  }, []);
+
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (!stats) return <p className="text-sm text-slate-400">Loading…</p>;
+
+  const catMax = Math.max(1, ...stats.byCategoryMonth.map(c => c.amount));
+  const trendMax = Math.max(1, ...stats.trend.map(t => t.total));
+  const drivers = [...stats.drivers].sort((a, b) => b[driverPeriod] - a[driverPeriod]);
+  const driverMax = Math.max(1, ...drivers.map(d => d[driverPeriod]));
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatTile label="Spent today" value={money(stats.totals.today)} accent="#0f172a" />
+        <StatTile label="Spent this week" value={money(stats.totals.week)} sub="Since Monday" accent="#0f172a" />
+        <StatTile label="Spent this month" value={money(stats.totals.month)} sub={`${stats.totals.monthCount} payment${stats.totals.monthCount === 1 ? "" : "s"}`} accent="#d97706" />
+        <StatTile label="Cards" value={stats.cards.total}
+          sub={`${stats.cards.active} active · ${stats.cards.frozen} frozen${stats.cards.notConnected ? ` · ${stats.cards.notConnected} not connected` : ""}`} accent="#2563eb" />
+      </div>
+      {stats.slipsMissingThisMonth > 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-2">
+          <strong>{stats.slipsMissingThisMonth}</strong> payment{stats.slipsMissingThisMonth === 1 ? "" : "s"} this month without a slip photo — see "Pay taps & slips".
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">Spend by category — this month</h3>
+          <div className="space-y-2">
+            {stats.byCategoryMonth.map(c => (
+              <div key={c.category} className="flex items-center gap-3 text-sm">
+                <div className="w-24 shrink-0"><CategoryChip category={c.category} label={catLabel[c.category]} /></div>
+                <div className="flex-1 h-4 bg-slate-100 rounded overflow-hidden">
+                  <div className="h-full rounded" style={{ width: `${(c.amount / catMax) * 100}%`, background: CATEGORY_COLORS[c.category] }} />
+                </div>
+                <div className="w-28 text-right text-slate-600 text-xs">{money(c.amount)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">Monthly spend — last 6 months</h3>
+          <div className="flex flex-wrap gap-3 mb-3">
+            {categories.map(c => <CategoryChip key={c.key} category={c.key} label={c.label} />)}
+          </div>
+          <div className="flex items-end gap-3 h-48">
+            {stats.trend.map(t => (
+              <div key={t.month} className="flex-1 flex flex-col items-center justify-end h-full">
+                <div className="text-[10px] text-slate-500 mb-1 whitespace-nowrap">{t.total > 0 ? moneyShort(t.total) : ""}</div>
+                <div className="w-full max-w-[48px] flex flex-col-reverse rounded overflow-hidden" style={{ height: `${(t.total / trendMax) * 100}%` }}
+                  title={`${monthLabel(t.month)}: ${money(t.total)}`}>
+                  {categories.map(c => t.byCategory[c.key] > 0 && (
+                    <div key={c.key} style={{ height: `${(t.byCategory[c.key] / t.total) * 100}%`, background: CATEGORY_COLORS[c.key] }} />
+                  ))}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1 whitespace-nowrap">{monthLabel(t.month)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h3 className="text-sm font-semibold text-slate-700">Spend per driver</h3>
+          <div className="flex gap-1">
+            {[["today", "Today"], ["week", "This week"], ["month", "This month"]].map(([key, label]) => (
+              <button key={key} onClick={() => setDriverPeriod(key)}
+                className={`text-xs px-3 py-1 rounded-full ${driverPeriod === key ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {drivers.length === 0 ? (
+          <p className="text-sm text-slate-400">No payments this month yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {drivers.map(d => (
+              <div key={d.driverId || d.driverName} className="flex items-center gap-3 text-sm">
+                <div className="w-40 shrink-0 truncate text-slate-700">{d.driverName}</div>
+                <div className="flex-1 h-4 bg-slate-100 rounded overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded" style={{ width: `${(d[driverPeriod] / driverMax) * 100}%` }} />
+                </div>
+                <div className="w-28 text-right text-xs text-slate-600">{money(d[driverPeriod])}</div>
+                <div className="w-28 text-right text-xs">
+                  {d.slipsMissing > 0
+                    ? <span className="text-amber-700 font-semibold">{d.slipsMissing} slip{d.slipsMissing === 1 ? "" : "s"} missing</span>
+                    : <span className="text-slate-400">{d.count} payment{d.count === 1 ? "" : "s"}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Create / edit card form ──────────────────────────────────────────────────
-function CardFormModal({ categories, card, drivers, onClose, onSaved }) {
+function CardFormModal({ card, drivers, onClose, onSaved }) {
   const editing = !!card;
   const [driverId, setDriverId] = useState("");
   const [dailyLimit, setDailyLimit] = useState(editing ? String(card.dailyLimit) : "");
   const [monthlyLimit, setMonthlyLimit] = useState(editing && card.monthlyLimit != null ? String(card.monthlyLimit) : "");
-  const [cats, setCats] = useState(() => Object.fromEntries(categories.map(c => {
-    const row = card?.categoryLimits.find(l => l.category === c.key);
-    return [c.key, {
-      enabled: row ? row.enabled : c.defaultEnabled,
-      dailyLimit: row?.dailyLimit != null ? String(row.dailyLimit) : "",
-    }];
-  })));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  const setCat = (key, patch) => setCats(c => ({ ...c, [key]: { ...c[key], ...patch } }));
-  const categoryPayload = () => Object.fromEntries(Object.entries(cats).map(([k, v]) => [k, {
-    enabled: v.enabled, dailyLimit: v.dailyLimit.trim() === "" ? null : v.dailyLimit,
-  }]));
 
   async function save(e) {
     e.preventDefault();
@@ -99,12 +227,8 @@ function CardFormModal({ categories, card, drivers, onClose, onSaved }) {
     setSaving(true);
     try {
       const monthly = monthlyLimit.trim() === "" ? null : monthlyLimit;
-      if (editing) {
-        await api.patch(`/pay/cards/${card.id}`, { dailyLimit, monthlyLimit: monthly }, authHeaders());
-        await api.put(`/pay/cards/${card.id}/categories`, categoryPayload(), authHeaders());
-      } else {
-        await api.post("/pay/cards", { driverId, dailyLimit, monthlyLimit: monthly, categories: categoryPayload() }, authHeaders());
-      }
+      if (editing) await api.patch(`/pay/cards/${card.id}`, { dailyLimit, monthlyLimit: monthly }, authHeaders());
+      else await api.post("/pay/cards", { driverId, dailyLimit, monthlyLimit: monthly }, authHeaders());
       onSaved();
     } catch (err) {
       setError(errorText(err, "Failed to save card"));
@@ -116,7 +240,7 @@ function CardFormModal({ categories, card, drivers, onClose, onSaved }) {
   const inputCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500";
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <form onSubmit={save} className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 space-y-4">
+      <form onSubmit={save} className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
         <h2 className="text-lg font-bold text-slate-800">
           {editing ? `Limits for ${card.driver?.name || "driver"}` : "Give a driver a card"}
         </h2>
@@ -145,25 +269,9 @@ function CardFormModal({ categories, card, drivers, onClose, onSaved }) {
             <input className={inputCls} inputMode="decimal" placeholder="No monthly limit" value={monthlyLimit} onChange={e => setMonthlyLimit(e.target.value)} />
           </div>
         </div>
-
-        <div>
-          <label className="text-xs text-slate-500 font-semibold block mb-1">What the card can pay for</label>
-          <p className="text-[11px] text-slate-400 mb-2">A category's own limit is optional — leave it blank and only the daily limit above applies.</p>
-          <div className="space-y-2">
-            {categories.map(c => (
-              <div key={c.key} className="flex items-center gap-3 bg-slate-50 rounded-lg px-3 py-2">
-                <label className="flex items-center gap-2 text-sm text-slate-700 flex-1 cursor-pointer">
-                  <input type="checkbox" className="rounded border-slate-300" checked={cats[c.key].enabled}
-                    onChange={e => setCat(c.key, { enabled: e.target.checked })} />
-                  {c.label}
-                </label>
-                <input className="w-28 border border-slate-300 rounded-lg px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                  inputMode="decimal" placeholder="Own limit" disabled={!cats[c.key].enabled}
-                  value={cats[c.key].dailyLimit} onChange={e => setCat(c.key, { dailyLimit: e.target.value })} />
-              </div>
-            ))}
-          </div>
-        </div>
+        <p className="text-[11px] text-slate-400">
+          The card stays locked until the driver taps Pay in the app. It then accepts any purchase for 60 seconds, up to these limits.
+        </p>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-3 pt-1">
@@ -181,13 +289,12 @@ function CardFormModal({ categories, card, drivers, onClose, onSaved }) {
 }
 
 // ── Cards tab ────────────────────────────────────────────────────────────────
-function CardsTab({ access, categories }) {
+function CardsTab({ access }) {
   const [cards, setCards] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState(null); // null | { card?: card }
-  const catLabel = useMemo(() => Object.fromEntries(categories.map(c => [c.key, c.label])), [categories]);
 
   async function load() {
     setError("");
@@ -237,8 +344,8 @@ function CardsTab({ access, categories }) {
               <th className="text-left px-4 py-3">Driver</th>
               <th className="text-left px-4 py-3">Status</th>
               <th className="text-left px-4 py-3">Today</th>
+              <th className="text-left px-4 py-3">This week</th>
               <th className="text-left px-4 py-3">This month</th>
-              <th className="text-left px-4 py-3">Allowed</th>
               {access.canManage && <th className="px-4 py-3" />}
             </tr>
           </thead>
@@ -255,18 +362,10 @@ function CardsTab({ access, categories }) {
                 </td>
                 <td className="px-4 py-3"><StatusBadge card={card} /></td>
                 <td className="px-4 py-3"><SpendBar spent={card.spentToday} limit={card.dailyLimit} /></td>
-                <td className="px-4 py-3 text-xs text-slate-600">
+                <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{money(card.spentThisWeek)}</td>
+                <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
                   {money(card.spentThisMonth)}
                   {card.monthlyLimit != null && <span className="text-slate-400"> of {money(card.monthlyLimit)}</span>}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1 max-w-xs">
-                    {card.categoryLimits.filter(c => c.enabled).map(c => (
-                      <span key={c.category} className="bg-slate-100 text-slate-600 text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap">
-                        {catLabel[c.category] || c.category}{c.dailyLimit != null ? ` · ${money(c.dailyLimit)}` : ""}
-                      </span>
-                    ))}
-                  </div>
                 </td>
                 {access.canManage && (
                   <td className="px-4 py-3 whitespace-nowrap text-right space-x-2">
@@ -287,7 +386,6 @@ function CardsTab({ access, categories }) {
 
       {form && (
         <CardFormModal
-          categories={categories}
           card={form.card}
           drivers={drivers}
           onClose={() => setForm(null)}
@@ -298,18 +396,33 @@ function CardsTab({ access, categories }) {
   );
 }
 
+// Driver list for the filter dropdowns — everyone who has (or had) a card.
+function useCardDrivers() {
+  const [drivers, setDrivers] = useState([]);
+  useEffect(() => {
+    api.get("/pay/cards?includeCancelled=1", authHeaders()).then(r => {
+      const seen = new Map();
+      for (const c of r.data) if (c.driver) seen.set(c.driver.id, c.driver.name);
+      setDrivers([...seen].sort((a, b) => a[1].localeCompare(b[1])));
+    }).catch(() => {});
+  }, []);
+  return drivers;
+}
+
+// Whole days in South African time, whatever timezone this browser is in.
+function dateParams(params, from, to) {
+  if (from) params.set("from", `${from}T00:00:00+02:00`);
+  if (to) params.set("to", `${to}T23:59:59.999+02:00`);
+}
+
 // ── Payments tab ─────────────────────────────────────────────────────────────
 function PaymentsTab({ categories }) {
   const [rows, setRows] = useState([]);
-  const [cards, setCards] = useState([]);
+  const drivers = useCardDrivers();
   const [filters, setFilters] = useState({ driverId: "", category: "", status: "", from: "", to: "" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const catLabel = useMemo(() => Object.fromEntries(categories.map(c => [c.key, c.label])), [categories]);
-
-  useEffect(() => {
-    api.get("/pay/cards?includeCancelled=1", authHeaders()).then(r => setCards(r.data)).catch(() => {});
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -317,9 +430,7 @@ function PaymentsTab({ categories }) {
     if (filters.driverId) params.set("driverId", filters.driverId);
     if (filters.category) params.set("category", filters.category);
     if (filters.status) params.set("status", filters.status);
-    // Whole days in South African time, whatever timezone this browser is in.
-    if (filters.from) params.set("from", `${filters.from}T00:00:00+02:00`);
-    if (filters.to) params.set("to", `${filters.to}T23:59:59.999+02:00`);
+    dateParams(params, filters.from, filters.to);
     setLoading(true);
     api.get(`/pay/transactions?${params}`, authHeaders())
       .then(r => { if (!cancelled) { setRows(r.data); setError(""); } })
@@ -328,11 +439,6 @@ function PaymentsTab({ categories }) {
     return () => { cancelled = true; };
   }, [filters]);
 
-  const drivers = useMemo(() => {
-    const seen = new Map();
-    for (const c of cards) if (c.driver) seen.set(c.driver.id, c.driver.name);
-    return [...seen].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [cards]);
   const approvedTotal = rows.filter(r => r.status === "approved").reduce((s, r) => s + r.amount, 0);
   const set = (key) => (e) => setFilters(f => ({ ...f, [key]: e.target.value }));
   const selCls = "border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white";
@@ -370,13 +476,14 @@ function PaymentsTab({ categories }) {
               <th className="text-left px-4 py-3">Category</th>
               <th className="text-right px-4 py-3">Amount</th>
               <th className="text-left px-4 py-3">Result</th>
+              <th className="text-left px-4 py-3">Slip</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">No payments yet.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">No payments yet.</td></tr>
             ) : rows.map(t => (
               <tr key={t.id} className="border-t border-slate-100">
                 <td className="px-4 py-2 whitespace-nowrap text-slate-600">{when(t.occurredAt)}</td>
@@ -385,9 +492,8 @@ function PaymentsTab({ categories }) {
                 <td className="px-4 py-2">
                   {t.merchantName}
                   {t.merchantCity && <span className="text-xs text-slate-400"> · {t.merchantCity}</span>}
-                  {t.slipPhotoUrl && <a href={t.slipPhotoUrl} target="_blank" rel="noreferrer" className="ml-2 text-xs text-blue-600 hover:underline">slip</a>}
                 </td>
-                <td className="px-4 py-2 text-slate-600">{catLabel[t.category] || t.category}</td>
+                <td className="px-4 py-2"><CategoryChip category={t.category} label={catLabel[t.category]} /></td>
                 <td className={`px-4 py-2 text-right font-medium ${t.status === "approved" ? "text-slate-800" : "text-slate-400 line-through"}`}>{money(t.amount)}</td>
                 <td className="px-4 py-2">
                   {t.status === "approved" ? (
@@ -397,6 +503,102 @@ function PaymentsTab({ categories }) {
                   ) : (
                     <span className="text-xs font-semibold text-red-600">Declined — {DECLINE_REASONS[t.declineReason] || t.declineReason || "unknown"}</span>
                   )}
+                </td>
+                <td className="px-4 py-2 text-xs">
+                  {t.session?.slipPhotoUrl
+                    ? <a href={t.session.slipPhotoUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">View</a>
+                    : t.status === "approved" ? <span className="text-amber-700 font-semibold">Missing</span> : <span className="text-slate-300">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Pay taps & slips tab ─────────────────────────────────────────────────────
+// Every time a driver opened their card, and whether the slip came in.
+function SessionsTab({ categories }) {
+  const [rows, setRows] = useState([]);
+  const drivers = useCardDrivers();
+  const [filters, setFilters] = useState({ driverId: "", slip: "", from: "", to: "" });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const catLabel = useMemo(() => Object.fromEntries(categories.map(c => [c.key, c.label])), [categories]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (filters.driverId) params.set("driverId", filters.driverId);
+    if (filters.slip) params.set("slip", filters.slip);
+    dateParams(params, filters.from, filters.to);
+    setLoading(true);
+    api.get(`/pay/sessions?${params}`, authHeaders())
+      .then(r => { if (!cancelled) { setRows(r.data); setError(""); } })
+      .catch(err => { if (!cancelled) setError(errorText(err, "Failed to load pay taps")); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [filters]);
+
+  const set = (key) => (e) => setFilters(f => ({ ...f, [key]: e.target.value }));
+  const selCls = "border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white";
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 mb-3 items-center">
+        <select className={selCls} value={filters.driverId} onChange={set("driverId")}>
+          <option value="">All drivers</option>
+          {drivers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <select className={selCls} value={filters.slip} onChange={set("slip")}>
+          <option value="">All taps</option>
+          <option value="missing">Paid, slip missing</option>
+          <option value="has">With slip</option>
+        </select>
+        <input type="date" className={selCls} value={filters.from} onChange={set("from")} title="From" />
+        <input type="date" className={selCls} value={filters.to} onChange={set("to")} title="To" />
+      </div>
+      {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+              <th className="text-left px-4 py-3">Tapped Pay</th>
+              <th className="text-left px-4 py-3">Driver</th>
+              <th className="text-left px-4 py-3">For</th>
+              <th className="text-left px-4 py-3">Payment</th>
+              <th className="text-left px-4 py-3">Slip</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-400">Loading…</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-400">No pay taps yet.</td></tr>
+            ) : rows.map(s => (
+              <tr key={s.id} className="border-t border-slate-100">
+                <td className="px-4 py-2 whitespace-nowrap text-slate-600">{when(s.openedAt)}</td>
+                <td className="px-4 py-2">{s.driverName}</td>
+                <td className="px-4 py-2"><CategoryChip category={s.category} label={catLabel[s.category]} /></td>
+                <td className="px-4 py-2 text-xs">
+                  {s.transaction ? (
+                    <span className={s.transaction.status === "approved" ? "text-slate-800" : "text-red-600"}>
+                      {money(s.transaction.amount)} · {s.transaction.merchantName}
+                      {s.transaction.status !== "approved" && ` (${s.transaction.status})`}
+                    </span>
+                  ) : <span className="text-slate-400">No payment came through</span>}
+                </td>
+                <td className="px-4 py-2 text-xs">
+                  {s.slipPhotoUrl ? (
+                    <a href={s.slipPhotoUrl} target="_blank" rel="noreferrer">
+                      <img src={s.slipPhotoUrl} alt="Slip" className="h-10 w-10 object-cover rounded border border-slate-200" />
+                    </a>
+                  ) : s.transaction?.status === "approved"
+                    ? <span className="text-amber-700 font-semibold">Missing</span>
+                    : <span className="text-slate-300">—</span>}
                 </td>
               </tr>
             ))}
@@ -454,7 +656,7 @@ export default function FleetProPay() {
   const [access, setAccess] = useState(null);
   const [categories, setCategories] = useState([]);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState("cards");
+  const [tab, setTab] = useState("dashboard");
 
   useEffect(() => {
     Promise.all([api.get("/pay/access", authHeaders()), api.get("/pay/categories", authHeaders())])
@@ -462,11 +664,11 @@ export default function FleetProPay() {
       .catch(err => setError(errorText(err, "Failed to load FleetProPay")));
   }, []);
 
-  const tabs = [["cards", "Cards"], ["payments", "Payments"], ["history", "History"]];
+  const tabs = [["dashboard", "Dashboard"], ["cards", "Cards"], ["payments", "Payments"], ["sessions", "Pay taps & slips"], ["history", "History"]];
   return (
     <div className="p-6 max-w-6xl">
       <h1 className="text-2xl font-bold text-slate-800">FleetProPay</h1>
-      <p className="text-sm text-slate-500 mb-4">Driver cards for tolls, truck stops, oil and parts — paid by tapping their phone.</p>
+      <p className="text-sm text-slate-500 mb-4">Driver cards for tolls, fuel, oil and truck stops — paid by tapping their phone.</p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {access && (
@@ -476,16 +678,18 @@ export default function FleetProPay() {
               <strong>Your bank isn't connected yet.</strong> You can set up cards and limits now, but no card can pay until it is.
             </div>
           )}
-          <div className="flex gap-1 border-b border-slate-200 mb-4">
+          <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto overflow-y-hidden">
             {tabs.map(([key, label]) => (
               <button key={key} onClick={() => setTab(key)}
-                className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 ${tab === key ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 whitespace-nowrap ${tab === key ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
                 {label}
               </button>
             ))}
           </div>
-          {tab === "cards" && <CardsTab access={access} categories={categories} />}
+          {tab === "dashboard" && <DashboardTab categories={categories} />}
+          {tab === "cards" && <CardsTab access={access} />}
           {tab === "payments" && <PaymentsTab categories={categories} />}
+          {tab === "sessions" && <SessionsTab categories={categories} />}
           {tab === "history" && <HistoryTab />}
         </>
       )}
