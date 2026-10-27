@@ -22,6 +22,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import InviteRedirectPage from "./pages/InviteRedirectPage";
+import FleetProPay from "./pages/FleetProPay";
 
 import { playAvailableSound } from "./utils/soundPrefs";
 import { canSeeStaffItem } from "./utils/staffAccess";
@@ -239,6 +240,23 @@ function useUnmappedWhatsappGroupsCount(enabled) {
   return count;
 }
 
+// FleetProPay visibility comes from the server, not the JWT: the feature is
+// off by default (unlike every other flag, so the usual fail-open check would
+// wrongly show it) and the staff permission is read fresh there too. A 200
+// from /pay/access means this login may use it; anything else hides it.
+function usePayAccess(enabled) {
+  const [allowed, setAllowed] = useState(false);
+  useEffect(() => {
+    if (!enabled) { setAllowed(false); return; }
+    let cancelled = false;
+    authFetch(`${API}/pay/access`)
+      .then(res => { if (!cancelled) setAllowed(res.ok); })
+      .catch(() => { if (!cancelled) setAllowed(false); });
+    return () => { cancelled = true; };
+  }, [enabled]);
+  return allowed;
+}
+
 function getAuthPayload() {
   const token = localStorage.getItem("fleetpro_token");
   if (!token) return null;
@@ -386,6 +404,7 @@ export default function App() {
   const unmappedWhatsappGroupsCount = useUnmappedWhatsappGroupsCount(
     !!payload && (payload.role === "admin" || payload.role === "staff") && canUseFeature("whatsappBot")
   );
+  const canUsePay = usePayAccess(!!payload && (payload.role === "admin" || payload.role === "staff") && !!payload.tenantId);
 
   if (!payload) {
     return <LoggedOutRoutes />;
@@ -442,6 +461,7 @@ export default function App() {
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "dropoffPoints") && { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points" },
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && { to: "/clients", icon: "🏢", label: "Clients" },
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "staff")         && { to: "/staff", icon: "👔", label: "Staff" },
+    canUsePay && { to: "/fleetpropay", icon: "💳", label: "FleetProPay" },
   ].filter(Boolean);
 
   const mapElement = canSeeMap
@@ -450,7 +470,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} unmappedWhatsappGroupsCount={unmappedWhatsappGroupsCount} canUseFeature={canUseFeature} />
+      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} unmappedWhatsappGroupsCount={unmappedWhatsappGroupsCount} canUseFeature={canUseFeature} canUsePay={canUsePay} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"      element={mapElement} />
@@ -465,6 +485,7 @@ export default function App() {
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "dropoffPoints")  && <Route path="/dropoff-points" element={<DropoffPoints />} />}
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && <Route path="/clients" element={<Clients canUseFeature={canUseFeature} />} />}
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "staff")          && <Route path="/staff"          element={<Staff />} />}
+          {canUsePay && <Route path="/fleetpropay" element={<FleetProPay />} />}
           {/* Settings is open to every role — it self-filters its sections
               (client permissions, password change) based on role internally. */}
           <Route path="/settings" element={canSeeSettingsPage ? <Settings canUseFeature={canUseFeature} /> : <NoAccessMessage label="settings" />} />

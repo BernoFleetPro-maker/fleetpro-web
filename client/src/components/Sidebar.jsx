@@ -16,6 +16,7 @@ const MAIN_LINKS = [
   { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points", key: "dropoffPoints" },
   { to: "/clients",        icon: "🏢", label: "Clients",        key: "clients" },
   { to: "/staff",          icon: "👔", label: "Staff",          key: "staff", svgIcon: true },
+  { to: "/fleetpropay",    icon: "💳", label: "FleetProPay",    key: "fleetProPay" },
   { divider: true },
   { to: "/settings",       icon: "⚙",  label: "Settings",       key: "settings" },
 ];
@@ -47,11 +48,14 @@ function pruneDanglingMarkers(items) {
   return result;
 }
 
-export default function Sidebar({ role = "admin", user = {}, availableCount = 0, expiringDocsCount = 0, expiringVehicleDocsCount = 0, unmappedWhatsappGroupsCount = 0, canUseFeature = () => true }) {
+export default function Sidebar({ role = "admin", user = {}, availableCount = 0, expiringDocsCount = 0, expiringVehicleDocsCount = 0, unmappedWhatsappGroupsCount = 0, canUseFeature = () => true, canUsePay = false }) {
   const isStaff = role === "staff";
   // Clients is tenant-wide gated (clientPortal) on top of any per-staff key —
   // applies uniformly here since canUseFeature already bypasses for admin.
-  const featureVisible = (item) => item.key !== "clients" || canUseFeature("clientPortal");
+  // FleetProPay is decided by the server for admin and staff alike (see
+  // usePayAccess in App.jsx), not by the fail-open per-staff key.
+  const featureVisible = (item) => item.key === "fleetProPay" ? canUsePay
+    : item.key !== "clients" || canUseFeature("clientPortal");
   const LINKS = role === "admin" ? MAIN_LINKS.filter(featureVisible)
               : isStaff ? pruneDanglingMarkers(MAIN_LINKS.filter(item => canSeeStaffItem(role, user.permissions, item.key) && featureVisible(item)))
               : CLIENT_LINKS;

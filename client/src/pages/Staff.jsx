@@ -42,6 +42,15 @@ const SUB_PERMISSION_FIELDS = [
   { key: "manageStaff", label: "Can Manage Staff", parentKey: "staff",
     hint: "Uncheck for view-only — they can see the staff list but can't add, edit, or delete anyone (and can never edit their own account, either way)" },
 ];
+// FleetProPay — kept apart from the lists above: these default OFF (it's
+// money), only the company admin can change them (the server ignores them
+// from anyone else), and they're only shown once the company has FleetProPay.
+const PAY_PERMISSION_FIELDS = [
+  { key: "fleetProPay", label: "FleetProPay",
+    hint: "Can see driver cards, payments and history" },
+  { key: "manageCards", label: "Can Manage Cards", parentKey: "fleetProPay",
+    hint: "Can give drivers cards, change limits, and freeze or cancel cards" },
+];
 const ALL_PERMISSION_FIELDS = [...PERMISSION_FIELDS, ...SUB_PERMISSION_FIELDS];
 const DEFAULT_PERMISSIONS = Object.fromEntries(ALL_PERMISSION_FIELDS.map(f => [f.key, true]));
 
@@ -75,6 +84,7 @@ export default function Staff() {
   const [saving,      setSaving]      = useState(false);
   const [error,       setError]       = useState("");
   const [success,     setSuccess]     = useState("");
+  const [payEnabled,  setPayEnabled]  = useState(false);
 
   const load = async () => {
     try {
@@ -86,6 +96,10 @@ export default function Staff() {
   };
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (myPayload?.role !== "admin") return;
+    authFetch(`${API}/pay/access`).then(res => setPayEnabled(res.ok)).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openCreate = () => {
     setForm({ ...EMPTY_FORM, permissions: { ...DEFAULT_PERMISSIONS } });
@@ -111,6 +125,14 @@ export default function Staff() {
 
   const togglePermission = (key) => {
     setForm(f => ({ ...f, permissions: { ...f.permissions, [key]: !f.permissions[key] } }));
+  };
+  // Turning FleetProPay off takes "Can Manage Cards" with it.
+  const togglePayPermission = (key) => {
+    setForm(f => {
+      const next = { ...f.permissions, [key]: f.permissions[key] !== true };
+      if (key === "fleetProPay" && !next.fleetProPay) next.manageCards = false;
+      return { ...f, permissions: next };
+    });
   };
 
   const handleSave = async (e) => {
@@ -332,6 +354,28 @@ export default function Staff() {
                           </span>
                         </label>
                       ))}
+                    </div>
+                  )}
+
+                  {myPayload?.role === "admin" && payEnabled && (
+                    <div className="mt-3">
+                      <label className="text-xs text-slate-500 font-semibold block mb-2">FleetProPay</label>
+                      <div className="space-y-2">
+                        {PAY_PERMISSION_FIELDS.filter(f => !f.parentKey || form.permissions[f.parentKey] === true).map(f => (
+                          <label key={f.key} className="flex items-start gap-2 text-sm text-slate-700 bg-emerald-50 rounded-lg px-3 py-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={form.permissions[f.key] === true}
+                              onChange={() => togglePayPermission(f.key)}
+                              className="rounded border-slate-300 mt-0.5"
+                            />
+                            <span>
+                              <span className="block font-medium">{f.label}</span>
+                              <span className="block text-[11px] text-slate-500">{f.hint}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
