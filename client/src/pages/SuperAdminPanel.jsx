@@ -68,127 +68,13 @@ const FEATURE_FIELDS = [
   { key: "availableToLoad",     label: "Available to Load",     hint: "Vehicle availability toggle and client visibility" },
   { key: "siteTimeReports",     label: "Site Time Reports",     hint: "Loading/dropoff dwell-time reports under Clients" },
   { key: "whatsappBot",         label: "WhatsApp Bot",          hint: "Client update bot in WhatsApp groups + tracking links" },
-  // Off unless switched on — unlike the rest. Only turn it on once the
-  // company's bank login (FleetProPay card below) is saved.
+  // Off unless switched on — unlike the rest. The company's own admin then
+  // connects their bank on the FleetProPay page; super admin never sees it.
   { key: "fleetProPay",         label: "FleetProPay",           hint: "Driver spend cards (tolls, truck stops, oil, parts) with daily limits", defaultOn: false },
 ];
 const DEFAULT_FEATURES = Object.fromEntries(FEATURE_FIELDS.map(f => [f.key, f.defaultOn !== false]));
 const featureOn = (features, f) => features?.[f.key] ?? (f.defaultOn !== false);
 
-const PAY_PROVIDERS = [{ value: "investec", label: "Investec Programmable Banking" }];
-const PAY_FORM_EMPTY = { provider: "investec", sandbox: true, clientId: "", clientSecret: "", apiKey: "", accountId: "" };
-
-// A company's own bank API login for FleetProPay. Secrets are write-only:
-// the server only ever says whether one is set, and a blank field on save
-// keeps the stored one.
-function PayProviderCard({ tenantId, authHeaders }) {
-  const [config, setConfig] = useState(null);
-  const [loaded, setLoaded] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(PAY_FORM_EMPTY);
-  const [error, setError] = useState("");
-  const [testResult, setTestResult] = useState("");
-  const [testing, setTesting] = useState(false);
-
-  async function testConnection() {
-    setError(""); setTestResult(""); setTesting(true);
-    try {
-      const r = (await api.post(`/superadmin/tenants/${tenantId}/pay-provider/test`, {}, authHeaders)).data;
-      const parts = ["Login works"];
-      if (r.cards != null) parts.push(`${r.cards} card${r.cards === 1 ? "" : "s"} found`);
-      if (r.cardsError) parts.push(r.cardsError);
-      if (r.accounts != null) parts.push(`${r.accounts} account${r.accounts === 1 ? "" : "s"} readable`);
-      setTestResult(parts.join(" · "));
-    } catch (err) {
-      setError(err.response?.data?.error || "Connection test failed");
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  useEffect(() => {
-    api.get(`/superadmin/tenants/${tenantId}/pay-provider`, authHeaders)
-      .then(r => setConfig(r.data.config))
-      .catch(err => setError(err.response?.data?.error || "Failed to load bank login"))
-      .finally(() => setLoaded(true));
-  }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function startEdit() {
-    setForm({
-      ...PAY_FORM_EMPTY,
-      ...(config && { provider: config.provider, sandbox: config.sandbox, clientId: config.clientId || "", accountId: config.accountId || "" }),
-    });
-    setError("");
-    setEditing(true);
-  }
-
-  async function save() {
-    setError("");
-    try {
-      const payload = { ...form };
-      if (!payload.clientSecret) delete payload.clientSecret;
-      if (!payload.apiKey) delete payload.apiKey;
-      const r = await api.put(`/superadmin/tenants/${tenantId}/pay-provider`, payload, authHeaders);
-      setConfig(r.data.config);
-      setEditing(false);
-    } catch (err) {
-      setError(err.response?.data?.error || "Failed to save bank login");
-    }
-  }
-
-  const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
-  return (
-    <div className={cardClass}>
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-sm font-semibold">FleetProPay bank login</h3>
-        {loaded && !editing && (
-          <button onClick={startEdit} className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">{config ? "Edit" : "Set up"}</button>
-        )}
-      </div>
-      {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
-      {editing ? (
-        <div className="space-y-3">
-          <div>
-            <label className={labelClass}>Bank</label>
-            <select className={`${fieldClass} w-full`} value={form.provider} onChange={set("provider")}>
-              {PAY_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={form.sandbox} onChange={e => setForm(f => ({ ...f, sandbox: e.target.checked }))} className="rounded border-slate-500" />
-            <span>Sandbox (test) keys — untick only for the company's real account</span>
-          </label>
-          <div><label className={labelClass}>Client ID</label><input className={`${fieldClass} w-full`} value={form.clientId} onChange={set("clientId")} /></div>
-          <div><label className={labelClass}>Client secret</label><input type="password" autoComplete="new-password" className={`${fieldClass} w-full`} placeholder={config?.hasClientSecret ? "•••••• set — leave blank to keep" : ""} value={form.clientSecret} onChange={set("clientSecret")} /></div>
-          <div><label className={labelClass}>API key</label><input type="password" autoComplete="new-password" className={`${fieldClass} w-full`} placeholder={config?.hasApiKey ? "•••••• set — leave blank to keep" : ""} value={form.apiKey} onChange={set("apiKey")} /></div>
-          <div><label className={labelClass}>Account ID</label><input className={`${fieldClass} w-full`} value={form.accountId} onChange={set("accountId")} /></div>
-          <div className="flex gap-2">
-            <button onClick={save} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">Save</button>
-            <button onClick={() => setEditing(false)} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded">Cancel</button>
-          </div>
-        </div>
-      ) : !loaded ? (
-        <p className="text-sm text-slate-400">Loading…</p>
-      ) : config ? (
-        <div className="text-sm space-y-1">
-          <p><span className="text-slate-400">Bank:</span> {PAY_PROVIDERS.find(p => p.value === config.provider)?.label || config.provider} {config.sandbox && <span className="text-amber-400">(sandbox)</span>}</p>
-          <p><span className="text-slate-400">Client ID:</span> {config.clientId || "— not set"}</p>
-          <p><span className="text-slate-400">Client secret:</span> {config.hasClientSecret ? "•••••• set" : "Not set"}</p>
-          <p><span className="text-slate-400">API key:</span> {config.hasApiKey ? "•••••• set" : "Not set"}</p>
-          <p><span className="text-slate-400">Account ID:</span> {config.accountId || "— not set"}</p>
-          <div className="pt-2 flex items-center gap-3">
-            <button onClick={testConnection} disabled={testing} className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-xs px-3 py-1 rounded">
-              {testing ? "Testing…" : "Test connection"}
-            </button>
-            {testResult && <span className="text-xs text-green-400">{testResult}</span>}
-          </div>
-        </div>
-      ) : (
-        <p className="text-sm text-slate-400">Not set up. Cards for this company stay "not connected" and can't pay.</p>
-      )}
-    </div>
-  );
-}
 
 const AUTH_SCHEMES = [
   { value: "basic_with_product_id", label: "Basic auth + Product ID (Autotrak)" },
@@ -684,8 +570,6 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
             </div>
           )}
         </div>
-
-        <PayProviderCard tenantId={tenant.id} authHeaders={authHeaders} />
 
         <p className="text-xs text-slate-500">
           Staff and client logins for this company are managed by their own admin,

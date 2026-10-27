@@ -854,6 +854,145 @@ function HistoryTab() {
   );
 }
 
+// ── Bank tab (company admin only) ────────────────────────────────────────────
+// The company's own bank login. Only this company's admin sees it — staff
+// and FleetPro's super admin can't. Secrets are write-only: the server only
+// says whether one is saved, and a blank field on save keeps the stored one.
+const BANKS = [{ value: "investec", label: "Investec Programmable Banking" }];
+const BANK_FORM_EMPTY = { provider: "investec", sandbox: false, clientId: "", clientSecret: "", apiKey: "", accountId: "" };
+
+function BankTab() {
+  const [config, setConfig] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(BANK_FORM_EMPTY);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.get("/pay/bank", authHeaders())
+      .then(r => setConfig(r.data.config))
+      .catch(err => setError(errorText(err, "Failed to load the bank connection")))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  function startEdit() {
+    setForm({
+      ...BANK_FORM_EMPTY,
+      ...(config && { provider: config.provider, sandbox: config.sandbox, clientId: config.clientId || "", accountId: config.accountId || "" }),
+    });
+    setError(""); setTestResult("");
+    setEditing(true);
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    setError(""); setSaving(true);
+    try {
+      const payload = { ...form };
+      if (!payload.clientSecret) delete payload.clientSecret;
+      if (!payload.apiKey) delete payload.apiKey;
+      const r = await api.put("/pay/bank", payload, authHeaders());
+      setConfig(r.data.config);
+      setEditing(false);
+    } catch (err) {
+      setError(errorText(err, "Failed to save the bank connection"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function test() {
+    setError(""); setTestResult(""); setTesting(true);
+    try {
+      const r = (await api.post("/pay/bank/test", {}, authHeaders())).data;
+      const parts = ["Login works"];
+      if (r.cards != null) parts.push(`${r.cards} card${r.cards === 1 ? "" : "s"} found`);
+      if (r.cardsError) parts.push(r.cardsError);
+      if (r.accounts != null) parts.push(`${r.accounts} account${r.accounts === 1 ? "" : "s"} readable`);
+      setTestResult(parts.join(" · "));
+    } catch (err) {
+      setError(errorText(err, "Connection test failed"));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+  const inputCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500";
+  const labelCls = "text-xs text-slate-500 font-semibold block mb-1";
+
+  return (
+    <div className="max-w-xl space-y-4">
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-base font-semibold text-slate-800">Bank connection</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Only you, as your company's admin, can see or change this.</p>
+          </div>
+          {loaded && !editing && (
+            <button onClick={startEdit} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg whitespace-nowrap">
+              {config ? "Edit" : "Connect your bank"}
+            </button>
+          )}
+        </div>
+
+        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+
+        {editing ? (
+          <form onSubmit={save} className="space-y-3">
+            <div>
+              <label className={labelCls}>Bank</label>
+              <select className={inputCls} value={form.provider} onChange={set("provider")}>
+                {BANKS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+              </select>
+            </div>
+            <p className="text-xs text-slate-500">
+              In Investec Online, open <strong>Manage → Investec Developer</strong> and create an API key with the <strong>cards</strong> scope. Copy the client ID, client secret and API key here.
+            </p>
+            <div><label className={labelCls}>Client ID</label><input className={inputCls} value={form.clientId} onChange={set("clientId")} autoComplete="off" /></div>
+            <div><label className={labelCls}>Client secret</label><input type="password" autoComplete="new-password" className={inputCls} placeholder={config?.hasClientSecret ? "•••••• saved — leave blank to keep" : ""} value={form.clientSecret} onChange={set("clientSecret")} /></div>
+            <div><label className={labelCls}>API key</label><input type="password" autoComplete="new-password" className={inputCls} placeholder={config?.hasApiKey ? "•••••• saved — leave blank to keep" : ""} value={form.apiKey} onChange={set("apiKey")} /></div>
+            <div><label className={labelCls}>Account number (optional)</label><input className={inputCls} placeholder="Only use cards on this account" value={form.accountId} onChange={set("accountId")} /></div>
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+              <input type="checkbox" className="rounded border-slate-300" checked={form.sandbox} onChange={e => setForm(f => ({ ...f, sandbox: e.target.checked }))} />
+              Test keys (Investec sandbox) — leave unticked for your real account
+            </label>
+            <div className="flex gap-3 pt-1">
+              <button type="submit" disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white py-2 rounded-lg font-semibold text-sm">
+                {saving ? "Saving…" : "Save"}
+              </button>
+              <button type="button" onClick={() => setEditing(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold text-sm">
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : !loaded ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : config ? (
+          <div className="text-sm space-y-1 text-slate-700">
+            <p><span className="text-slate-500">Bank:</span> {BANKS.find(b => b.value === config.provider)?.label || config.provider} {config.sandbox && <span className="text-amber-600">(test keys)</span>}</p>
+            <p><span className="text-slate-500">Client ID:</span> {config.clientId || "— not set"}</p>
+            <p><span className="text-slate-500">Client secret:</span> {config.hasClientSecret ? "•••••• saved" : "Not set"}</p>
+            <p><span className="text-slate-500">API key:</span> {config.hasApiKey ? "•••••• saved" : "Not set"}</p>
+            <p><span className="text-slate-500">Account number:</span> {config.accountId || "— all accounts"}</p>
+            <div className="pt-3 flex flex-wrap items-center gap-3">
+              <button onClick={test} disabled={testing} className="bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-sm font-semibold px-4 py-2 rounded-lg">
+                {testing ? "Testing…" : "Test connection"}
+              </button>
+              {testResult && <span className="text-sm text-green-700">{testResult}</span>}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Not connected. Your cards can be set up and assigned, but can't pay until your bank is connected.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function FleetProPay() {
   const [access, setAccess] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -866,7 +1005,8 @@ export default function FleetProPay() {
       .catch(err => setError(errorText(err, "Failed to load FleetProPay")));
   }, []);
 
-  const tabs = [["dashboard", "Dashboard"], ["cards", "Cards"], ["payments", "Payments"], ["sessions", "Pay taps & slips"], ["history", "History"]];
+  const tabs = [["dashboard", "Dashboard"], ["cards", "Cards"], ["payments", "Payments"], ["sessions", "Pay taps & slips"], ["history", "History"],
+    ...(access?.isCompanyAdmin ? [["bank", "Bank"]] : [])];
   return (
     <div className="p-6 max-w-6xl">
       <h1 className="text-2xl font-bold text-slate-800">FleetProPay</h1>
@@ -877,7 +1017,10 @@ export default function FleetProPay() {
         <>
           {access.provider === "none" && (
             <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3 mb-4">
-              <strong>Your bank isn't connected yet.</strong> You can set up cards and limits now, but no card can pay until it is.
+              <strong>Your bank isn't connected yet.</strong> You can set up cards and limits now, but no card can pay until it is.{" "}
+              {access.isCompanyAdmin
+                ? <button onClick={() => setTab("bank")} className="underline font-semibold">Connect your bank</button>
+                : "Your company's admin can connect it."}
             </div>
           )}
           <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto overflow-y-hidden">
@@ -893,6 +1036,7 @@ export default function FleetProPay() {
           {tab === "payments" && <PaymentsTab categories={categories} />}
           {tab === "sessions" && <SessionsTab categories={categories} />}
           {tab === "history" && <HistoryTab />}
+          {tab === "bank" && access.isCompanyAdmin && <BankTab />}
         </>
       )}
     </div>
