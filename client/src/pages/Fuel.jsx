@@ -486,6 +486,104 @@ function csvCell(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+// Per-truck overview for the chosen range: three bar charts that share one
+// truck order (highest cost first), so one truck sits on the same line in
+// each chart. Hovering a truck highlights it in all three. Single-measure
+// charts, so one colour and no legend — the chart title names the measure.
+const BAR = "#2a78d6";
+
+function sumByTruck(rows) {
+  const trucks = new Map();
+  for (const r of rows) {
+    const key = r.vehicleId || r.vehicleReg;
+    const t = trucks.get(key) || { key, reg: r.vehicleReg, fills: 0, truckLitres: 0, trailerLitres: 0, truckCost: 0, trailerCost: 0, km: 0, segmentKm: 0, segmentLitres: 0 };
+    for (const f of ["fills", "truckLitres", "trailerLitres", "truckCost", "trailerCost", "km", "segmentKm", "segmentLitres"]) t[f] += r[f] || 0;
+    trucks.set(key, t);
+  }
+  return [...trucks.values()]
+    .map(t => ({ ...t, kmPerLitre: t.segmentKm > 0 && t.segmentLitres > 0 ? t.segmentKm / t.segmentLitres : null }))
+    .sort((a, b) => b.truckCost - a.truckCost || a.reg.localeCompare(b.reg));
+}
+
+function BarChart({ title, sub, trucks, value, format, hover, setHover, reference }) {
+  const max = Math.max(...trucks.map(t => value(t) || 0), reference?.value || 0) || 1;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <h3 className="font-semibold text-slate-800 text-sm">{title}</h3>
+      <p className="text-xs text-slate-500 mb-3">{sub}</p>
+      <div className="relative">
+        {reference && (
+          <div className="absolute top-0 bottom-0 border-l border-dashed border-slate-400 pointer-events-none z-10"
+            style={{ left: `calc(5.5rem + (100% - 5.5rem - 4.5rem) * ${reference.value / max})` }}>
+            <span className="absolute -top-4 -translate-x-1/2 text-[10px] text-slate-500 whitespace-nowrap">{reference.label}</span>
+          </div>
+        )}
+        {trucks.map(t => {
+          const v = value(t);
+          const dim = hover && hover !== t.key;
+          return (
+            <div key={t.key} className={`flex items-center h-8 rounded transition-opacity ${dim ? "opacity-35" : ""} ${hover === t.key ? "bg-slate-50" : ""}`}
+              onMouseEnter={() => setHover(t.key)} onMouseLeave={() => setHover(null)}>
+              <div className="w-[5.5rem] shrink-0 pr-2 text-xs font-semibold text-slate-700 truncate" title={t.reg}>{t.reg}</div>
+              <div className="flex-1 flex items-center min-w-0">
+                {v != null && v > 0
+                  ? <div className="h-[18px] rounded-r" style={{ width: `${(v / max) * 100}%`, background: BAR, minWidth: 2 }} />
+                  : null}
+              </div>
+              <div className="w-[4.5rem] shrink-0 pl-2 text-xs text-slate-700 tabular-nums whitespace-nowrap">{v != null ? format(v) : <span className="text-slate-400">—</span>}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TruckOverview({ report }) {
+  const [hover, setHover] = useState(null);
+  const trucks = useMemo(() => sumByTruck(report.rows), [report]);
+  if (!trucks.length) return null;
+  const all = sumByTruck(report.rows.map(r => ({ ...r, vehicleId: "all", vehicleReg: "all" })))[0];
+  const h = trucks.find(t => t.key === hover);
+  const short = (n) => n >= 10000 ? `R${(n / 1000).toFixed(0)}k` : `R${Math.round(n).toLocaleString("en-ZA")}`;
+  const tiles = [
+    ["Truck diesel", litres(all.truckLitres)],
+    ["Truck cost", money(all.truckCost)],
+    ["Fleet km/L", all.kmPerLitre != null ? all.kmPerLitre.toFixed(2) : "—"],
+    ["Trailer (tanker pump)", all.trailerLitres ? `${litres(all.trailerLitres)} · ${money(all.trailerCost)}` : "—"],
+  ];
+  return (
+    <div className="mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+        {tiles.map(([k, v]) => (
+          <div key={k} className="bg-white rounded-xl border border-slate-200 px-4 py-3">
+            <div className="text-xs text-slate-500">{k}</div>
+            <div className="text-lg font-bold text-slate-800 whitespace-nowrap">{v}</div>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <BarChart title="Diesel used per truck" sub="Truck litres in this period" trucks={trucks}
+          value={t => t.truckLitres} format={v => litres(Math.round(v))} hover={hover} setHover={setHover} />
+        <BarChart title="Cost per truck" sub="Truck diesel cost in this period" trucks={trucks}
+          value={t => t.truckCost} format={short} hover={hover} setHover={setHover} />
+        <BarChart title="km/L per truck" sub="Higher is better · dashed line = fleet" trucks={trucks}
+          value={t => t.kmPerLitre} format={v => v.toFixed(2)} hover={hover} setHover={setHover}
+          reference={all.kmPerLitre != null ? { value: all.kmPerLitre, label: `fleet ${all.kmPerLitre.toFixed(2)}` } : null} />
+      </div>
+      {/* One details line for the hovered truck, so the bars stay uncluttered */}
+      <div className="h-6 mt-2 text-sm text-slate-600">
+        {h ? (
+          <span><strong className="text-slate-800">{h.reg}</strong> · {h.fills} fill-up{h.fills === 1 ? "" : "s"} · {litres(h.truckLitres)} · {money(h.truckCost)}
+            {h.km ? <> · {km(h.km)} · R{(h.truckCost / h.km).toFixed(2)}/km</> : null}
+            {h.kmPerLitre != null ? <> · {h.kmPerLitre.toFixed(2)} km/L</> : " · no full-to-full stretch yet"}
+            {h.trailerLitres ? <> · trailer {litres(h.trailerLitres)} ({money(h.trailerCost)})</> : null}</span>
+        ) : <span className="text-slate-400">Point at a truck to see all its figures.</span>}
+      </div>
+    </div>
+  );
+}
+
 function ReportsTab() {
   const [group, setGroup] = useState("month");
   const [range, setRange] = useState(() => ({ preset: "3_months", ...presetRange("3_months") }));
@@ -552,6 +650,7 @@ function ReportsTab() {
       {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
       {!report && !error && <p className="text-sm text-slate-400">Loading…</p>}
       {report && byPeriod.length === 0 && <p className="text-sm text-slate-400">No fill-ups in this period.</p>}
+      {report && byPeriod.length > 0 && <TruckOverview report={report} />}
 
       <div className="space-y-5">
         {byPeriod.map(({ total, rows }) => (
