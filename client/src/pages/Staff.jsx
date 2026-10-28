@@ -27,6 +27,7 @@ const PERMISSION_FIELDS = [
   { key: "tasks",          label: "Tasks" },
   { key: "drivers",        label: "Drivers" },
   { key: "vehicles",       label: "Vehicles" },
+  { key: "fuel",           label: "Fuel" },
   { key: "loadingPoints",  label: "Loading Points" },
   { key: "dropoffPoints",  label: "Dropoff Points" },
   { key: "clients",        label: "Clients" },

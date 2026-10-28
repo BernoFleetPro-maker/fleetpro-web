@@ -12,6 +12,7 @@ const MAIN_LINKS = [
   { section: "Management" },
   { to: "/drivers",        icon: "🧑‍✈️", label: "Drivers",        key: "drivers" },
   { to: "/vehicles",       icon: "🚚", label: "Vehicles",       key: "vehicles" },
+  { to: "/fuel",           icon: "⛽", label: "Fuel",           key: "fuel" },
   { to: "/loading-points", icon: "📦", label: "Loading Points", key: "loadingPoints" },
   { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points", key: "dropoffPoints" },
   { to: "/clients",        icon: "🏢", label: "Clients",        key: "clients" },
@@ -55,6 +56,7 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0,
   // FleetProPay is decided by the server for admin and staff alike (see
   // usePayAccess in App.jsx), not by the fail-open per-staff key.
   const featureVisible = (item) => item.key === "fleetProPay" ? canUsePay
+    : item.key === "fuel" ? canUseFeature("fuel")
     : item.key !== "clients" || canUseFeature("clientPortal");
   const LINKS = role === "admin" ? MAIN_LINKS.filter(featureVisible)
               : isStaff ? pruneDanglingMarkers(MAIN_LINKS.filter(item => canSeeStaffItem(role, user.permissions, item.key) && featureVisible(item)))

@@ -68,6 +68,7 @@ const FEATURE_FIELDS = [
   { key: "availableToLoad",     label: "Available to Load",     hint: "Vehicle availability toggle and client visibility" },
   { key: "siteTimeReports",     label: "Site Time Reports",     hint: "Loading/dropoff dwell-time reports under Clients" },
   { key: "whatsappBot",         label: "WhatsApp Bot",          hint: "Client update bot in WhatsApp groups + tracking links" },
+  { key: "fuel",                label: "Fuel",                  hint: "Drivers send diesel fill-ups from the app; km/L and cost reports" },
   // Off unless switched on — unlike the rest. The company's own admin then
   // connects their bank on the FleetProPay page; super admin never sees it.
   { key: "fleetProPay",         label: "FleetProPay",           hint: "Driver spend cards (tolls, truck stops, oil, parts) with daily limits", defaultOn: false },

@@ -23,6 +23,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import InviteRedirectPage from "./pages/InviteRedirectPage";
 import FleetProPay from "./pages/FleetProPay";
+import Fuel from "./pages/Fuel";
 
 import { playAvailableSound } from "./utils/soundPrefs";
 import { canSeeStaffItem } from "./utils/staffAccess";
@@ -457,6 +458,7 @@ export default function App() {
     canSeeTasksPage && { to: "/tasks", icon: "📋", label: "Tasks" },
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "drivers")       && { to: "/drivers", icon: "🧑‍✈️", label: "Drivers" },
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "vehicles")      && { to: "/vehicles", icon: "🚚", label: "Vehicles" },
+    hasFullAccess && canSeeStaffItem(role, payload.permissions, "fuel") && canUseFeature("fuel") && { to: "/fuel", icon: "⛽", label: "Fuel" },
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "loadingPoints") && { to: "/loading-points", icon: "📦", label: "Loading Points" },
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "dropoffPoints") && { to: "/dropoff-points", icon: "🏁", label: "Dropoff Points" },
     hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && { to: "/clients", icon: "🏢", label: "Clients" },
@@ -486,6 +488,7 @@ export default function App() {
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "clients") && canUseFeature("clientPortal") && <Route path="/clients" element={<Clients canUseFeature={canUseFeature} />} />}
           {hasFullAccess && canSeeStaffItem(role, payload.permissions, "staff")          && <Route path="/staff"          element={<Staff />} />}
           {canUsePay && <Route path="/fleetpropay" element={<FleetProPay />} />}
+          {hasFullAccess && canSeeStaffItem(role, payload.permissions, "fuel") && canUseFeature("fuel") && <Route path="/fuel" element={<Fuel />} />}
           {/* Settings is open to every role — it self-filters its sections
               (client permissions, password change) based on role internally. */}
           <Route path="/settings" element={canSeeSettingsPage ? <Settings canUseFeature={canUseFeature} /> : <NoAccessMessage label="settings" />} />
