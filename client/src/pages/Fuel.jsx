@@ -504,14 +504,14 @@ function sumByTruck(rows) {
   const trucks = new Map();
   for (const r of rows) {
     const key = r.vehicleId || r.vehicleReg;
-    const t = trucks.get(key) || { key, reg: r.vehicleReg, fills: 0, truckLitres: 0, trailerLitres: 0, truckCost: 0, trailerCost: 0, km: 0, segmentKm: 0, segmentLitres: 0 };
-    for (const f of ["fills", "truckLitres", "trailerLitres", "truckCost", "trailerCost", "km", "segmentKm", "segmentLitres"]) t[f] += r[f] || 0;
+    const t = trucks.get(key) || { key, reg: r.vehicleReg, fills: 0, truckLitres: 0, trailerLitres: 0, truckCost: 0, trailerCost: 0, km: 0, segmentKm: 0, segmentLitres: 0, segmentCost: 0 };
+    for (const f of ["fills", "truckLitres", "trailerLitres", "truckCost", "trailerCost", "km", "segmentKm", "segmentLitres", "segmentCost"]) t[f] += r[f] || 0;
     trucks.set(key, t);
   }
   return [...trucks.values()].map(t => ({
     ...t,
     kmPerLitre: t.segmentKm > 0 && t.segmentLitres > 0 ? t.segmentKm / t.segmentLitres : null,
-    costPerKm: t.km > 0 ? t.truckCost / t.km : null,
+    costPerKm: t.segmentKm > 0 ? t.segmentCost / t.segmentKm : null,
   }));
 }
 
@@ -759,7 +759,7 @@ function ReportsTab() {
       {report && byPeriod.length > 0 && (
         <p className="text-xs text-slate-400 mt-3">
           km = odometer distance between this truck's fill-ups in the period. km/L = tank-to-tank stretches (full fill to full fill) that ended in the period.
-          Cost/km uses truck diesel only. Trailer litres are tanker-pump diesel, shown apart and not counted in the truck's km/L or cost/km.
+          Cost/km uses the same full-to-full stretches (so a truck's first fill, burnt before it was recorded, doesn't count) and truck diesel only. Trailer litres are tanker-pump diesel, shown apart and not counted in the truck's km/L or cost/km.
         </p>
       )}
     </div>
