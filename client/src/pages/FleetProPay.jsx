@@ -53,6 +53,11 @@ const AUDIT_ACTIONS = {
   card_linked:        "Card linked to bank card",
   card_connected:     "Card connected at the bank",
   provider_removed:   "Bank disconnected",
+  wallet_settings_changed: "Wallet settings changed",
+  topup_started:      "Pay-by-bank top-up started",
+  topup_successful:   "Top-up paid",
+  topup_failed:       "Top-up not paid",
+  topup_expired:      "Top-up link expired",
   limits_changed:     "Limits changed",
   categories_changed: "Categories changed",
   card_frozen:        "Card frozen",
@@ -107,6 +112,353 @@ function StatTile({ label, value, sub, accent }) {
   );
 }
 
+// ── Wallet (top of the dashboard) ────────────────────────────────────────────
+// The company's Investec account: live balance, low-balance warning, and
+// Add funds — EFT, PayShap or pay by bank (Ozow). Money goes straight into
+// the company's own account; FleetPro never holds it.
+const TOPUP_STATUS = {
+  created:    { label: "Waiting for payment", cls: "text-slate-500" },
+  pending:    { label: "Processing at the bank", cls: "text-amber-700" },
+  successful: { label: "Paid", cls: "text-green-700" },
+  failed:     { label: "Not paid", cls: "text-red-600" },
+  expired:    { label: "Link expired", cls: "text-slate-400" },
+};
+
+function CopyRow({ label, value }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  const copy = () => {
+    try { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* no clipboard */ }
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5 border-b border-slate-100 last:border-0">
+      <span className="text-xs text-slate-500">{label}</span>
+      <span className="flex items-center gap-2">
+        <span className="text-sm font-medium text-slate-800">{value}</span>
+        <button type="button" onClick={copy} className="text-xs text-blue-600 hover:underline">{copied ? "Copied" : "Copy"}</button>
+      </span>
+    </div>
+  );
+}
+
+function AddFundsModal({ wallet, onClose }) {
+  const [method, setMethod] = useState(wallet.ozowEnabled ? "ozow" : "eft");
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const d = wallet.deposit || {};
+
+  async function payByBank(e) {
+    e.preventDefault();
+    setError(""); setBusy(true);
+    try {
+      const r = await api.post("/pay/wallet/topups", { amount }, authHeaders());
+      window.location.href = r.data.redirectUrl; // off to Ozow; they send the browser back here
+    } catch (err) {
+      setError(errorText(err, "Couldn't start the payment"));
+      setBusy(false);
+    }
+  }
+
+  const methods = [
+    ["ozow", "Pay by bank", "Log in to your bank and approve — instant"],
+    ["eft", "EFT", "From your own online banking"],
+    ["payshap", "PayShap", "Instant, from your banking app"],
+  ];
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
+        <h2 className="text-lg font-bold text-slate-800">Add funds</h2>
+        <div className="grid grid-cols-3 gap-2">
+          {methods.map(([key, label, hint]) => (
+            <button key={key} type="button" onClick={() => setMethod(key)}
+              className={`text-left rounded-lg border px-3 py-2 ${method === key ? "border-blue-600 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}>
+              <div className="text-sm font-semibold text-slate-800">{label}</div>
+              <div className="text-[11px] text-slate-500 leading-tight">{hint}</div>
+            </button>
+          ))}
+        </div>
+
+        {method === "ozow" && (
+          wallet.ozowEnabled ? (
+            <form onSubmit={payByBank} className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">Amount (R)</label>
+                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" inputMode="decimal" placeholder="e.g. 20000" value={amount} onChange={e => setAmount(e.target.value)} autoFocus />
+              </div>
+              <p className="text-[11px] text-slate-400">You'll go to Ozow, choose your bank, log in there and approve the payment, then come back here. The money goes straight into your company's account.</p>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <button type="submit" disabled={busy || !amount} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white py-2 rounded-lg font-semibold text-sm">
+                {busy ? "Opening your bank…" : "Continue to pay"}
+              </button>
+            </form>
+          ) : (
+            <p className="text-sm text-slate-500">Pay by bank isn't set up yet. Your company's admin can add the Ozow details on the Bank tab. Use EFT or PayShap meanwhile.</p>
+          )
+        )}
+
+        {method === "eft" && (
+          d.accountNumber ? (
+            <div>
+              <p className="text-xs text-slate-500 mb-2">Pay into this account from any bank. It shows in the balance once it clears (instant with real-time payments, otherwise usually same or next day).</p>
+              <CopyRow label="Bank" value={d.bankName} />
+              <CopyRow label="Account name" value={d.accountName} />
+              <CopyRow label="Account number" value={d.accountNumber} />
+              <CopyRow label="Branch code" value={d.branchCode} />
+              <CopyRow label="Reference" value={d.reference} />
+            </div>
+          ) : <p className="text-sm text-slate-500">The account details aren't filled in yet. Your company's admin can add them on the Bank tab.</p>
+        )}
+
+        {method === "payshap" && (
+          d.payShapId ? (
+            <div>
+              <p className="text-xs text-slate-500 mb-2">In your banking app choose PayShap and pay to:</p>
+              <CopyRow label="ShapID" value={d.payShapId} />
+              <CopyRow label="Reference" value={d.reference} />
+              <p className="text-[11px] text-slate-400 mt-2">PayShap payments are instant but limited per payment by the banks (Investec lists R3,000), so it suits small top-ups.</p>
+            </div>
+          ) : <p className="text-sm text-slate-500">No PayShap ID has been added yet. Your company's admin can add it on the Bank tab.</p>
+        )}
+
+        <button type="button" onClick={onClose} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold text-sm">Close</button>
+      </div>
+    </div>
+  );
+}
+
+function WalletCard() {
+  const [wallet, setWallet] = useState(null);
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = (fresh) => {
+    setRefreshing(!!fresh);
+    return api.get(`/pay/wallet${fresh ? "?fresh=1" : ""}`, authHeaders())
+      .then(r => { setWallet(r.data); setError(""); })
+      .catch(err => setError(errorText(err, "Failed to load the wallet")))
+      .finally(() => setRefreshing(false));
+  };
+  useEffect(() => { load(false); }, []);
+
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (!wallet) return null;
+  const bal = wallet.balance;
+  const asOf = bal?.asOf ? new Date(bal.asOf).toLocaleTimeString("en-ZA", { timeZone: "Africa/Johannesburg", hour: "2-digit", minute: "2-digit" }) : null;
+
+  return (
+    <div className={`rounded-xl border p-4 ${wallet.lowBalance ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs text-slate-500">Wallet — available in your account</div>
+          {bal ? (
+            <div className={`text-3xl font-bold mt-1 ${wallet.lowBalance ? "text-red-700" : "text-emerald-700"}`}>{money(bal.available)}</div>
+          ) : (
+            <div className="text-sm text-slate-500 mt-1">
+              {wallet.balanceError ? "Couldn't read the balance from the bank right now." : wallet.walletSetUp ? "Balance shows once your bank is connected." : "Not set up yet — your company's admin chooses the wallet account on the Bank tab."}
+            </div>
+          )}
+          <div className="text-xs text-slate-400 mt-1">
+            {asOf && <>Updated {asOf} · </>}
+            Spent today {money(wallet.spentToday)} · this month {money(wallet.spentThisMonth)}
+          </div>
+          {wallet.lowBalance && (
+            <div className="text-sm text-red-700 font-semibold mt-2">
+              Low balance — below your warning amount of {money(wallet.lowBalanceAlert)}. Drivers can't spend more than what's in the account.
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {wallet.walletSetUp && (
+            <button onClick={() => load(true)} disabled={refreshing} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-semibold px-3 py-2 rounded-lg">
+              {refreshing ? "…" : "Refresh"}
+            </button>
+          )}
+          {wallet.canAddFunds && (
+            <button onClick={() => setAdding(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+              + Add funds
+            </button>
+          )}
+        </div>
+      </div>
+
+      {wallet.topUps?.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          <div className="text-xs text-slate-500 mb-1">Recent pay-by-bank top-ups</div>
+          {wallet.topUps.slice(0, 5).map(t => (
+            <div key={t.id} className="flex justify-between text-xs py-0.5">
+              <span className="text-slate-600">{when(t.createdAt)} · {t.createdByName || "—"}</span>
+              <span>
+                <span className="font-medium text-slate-800">{money(t.amount)}</span>{" "}
+                <span className={TOPUP_STATUS[t.status]?.cls}>{TOPUP_STATUS[t.status]?.label || t.status}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {adding && <AddFundsModal wallet={wallet} onClose={() => setAdding(false)} />}
+    </div>
+  );
+}
+
+// Shown when the browser comes back from Ozow (?topup=<id>). The result is
+// asked from Ozow via FleetPro — never taken from the redirect itself.
+function TopUpReturnBanner({ topUpId, onDone }) {
+  const [topUp, setTopUp] = useState(null);
+  useEffect(() => {
+    let stop = false, tries = 0;
+    const check = async () => {
+      try {
+        const r = await api.get(`/pay/wallet/topups/${topUpId}`, authHeaders());
+        if (stop) return;
+        setTopUp(r.data);
+        if (["created", "pending"].includes(r.data.status) && tries++ < 20) setTimeout(check, 3000);
+      } catch { if (!stop) setTopUp({ status: "unknown" }); }
+    };
+    check();
+    return () => { stop = true; };
+  }, [topUpId]);
+  if (!topUp) return null;
+  const s = TOPUP_STATUS[topUp.status];
+  const msg = topUp.status === "successful" ? `Payment of ${money(topUp.amount)} received — it shows in the balance once the bank settles it.`
+    : topUp.status === "failed" ? `The payment didn't go through${topUp.reason ? ` (${topUp.reason})` : ""}. Nothing was taken.`
+    : topUp.status === "expired" ? "The payment link expired before it was used."
+    : topUp.status === "unknown" ? "Couldn't check the payment yet — it will update on the dashboard."
+    : "Checking the payment with Ozow…";
+  return (
+    <div className={`rounded-lg border px-4 py-3 mb-4 text-sm flex justify-between gap-3 ${topUp.status === "successful" ? "bg-green-50 border-green-200" : topUp.status === "failed" ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+      <span className={s?.cls || "text-slate-600"}>{msg}</span>
+      <button onClick={onDone} className="text-slate-400 hover:text-slate-600">✕</button>
+    </div>
+  );
+}
+
+// ── Wallet setup (Bank tab, company admin only) ──────────────────────────────
+function WalletSettingsCard() {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+
+  const load = () => api.get("/pay/wallet/settings", authHeaders())
+    .then(r => {
+      setData(r.data);
+      const s = r.data.settings || {};
+      setForm({
+        walletAccountId: s.walletAccountId || "", bankName: s.bankName || "Investec", accountName: s.accountName || "",
+        accountNumber: s.accountNumber || "", branchCode: s.branchCode || "580105", depositReference: s.depositReference || "",
+        payShapId: s.payShapId || "", lowBalanceAlert: s.lowBalanceAlert != null ? String(s.lowBalanceAlert) : "5000",
+        ozowClientId: s.ozowClientId || "", ozowClientSecret: "", ozowSiteCode: s.ozowSiteCode || "", ozowStaging: !!s.ozowStaging,
+      });
+    })
+    .catch(err => setError(errorText(err, "Failed to load wallet settings")));
+  useEffect(() => { load(); }, []);
+
+  if (error && !form) return <p className="text-sm text-red-600">{error}</p>;
+  if (!form) return null;
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const pickAccount = (e) => {
+    const id = e.target.value;
+    const a = data.accounts.find(x => x.accountId === id);
+    setForm(f => ({ ...f, walletAccountId: id, ...(a && { accountNumber: f.accountNumber || a.accountNumber, accountName: f.accountName || a.accountName }) }));
+  };
+
+  async function save(e, extra = {}) {
+    e?.preventDefault();
+    setError(""); setNotice(""); setSaving(true);
+    try {
+      const payload = { ...form, ...extra };
+      if (!payload.ozowClientSecret) delete payload.ozowClientSecret;
+      await api.put("/pay/wallet/settings", payload, authHeaders());
+      setNotice("Saved.");
+      await load();
+    } catch (err) {
+      setError(errorText(err, "Failed to save"));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function testOzow() {
+    setError(""); setNotice("");
+    try { await api.post("/pay/wallet/ozow-test", {}, authHeaders()); setNotice("Ozow login works."); }
+    catch (err) { setError(errorText(err, "Ozow test failed")); }
+  }
+
+  const s = data.settings || {};
+  const inputCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500";
+  const labelCls = "text-xs text-slate-500 font-semibold block mb-1";
+  return (
+    <form onSubmit={save} className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+      <div>
+        <h3 className="text-base font-semibold text-slate-800">Wallet & adding funds</h3>
+        <p className="text-xs text-slate-500 mt-0.5">Which account the cards spend from, and how your team adds money to it. Only you can change this.</p>
+      </div>
+
+      <div>
+        <label className={labelCls}>Wallet account (balance shown on the dashboard)</label>
+        {data.bankConnected ? (
+          data.accounts.length ? (
+            <select className={inputCls} value={form.walletAccountId} onChange={pickAccount}>
+              <option value="">Choose the account your cards are on…</option>
+              {data.accounts.map(a => <option key={a.accountId} value={a.accountId}>{a.accountName} · {a.accountNumber} · {a.productName}</option>)}
+            </select>
+          ) : <p className="text-sm text-slate-500">{data.accountsError ? `Couldn't read your accounts: ${data.accountsError}` : "No accounts found."}</p>
+        ) : <p className="text-sm text-slate-500">Connect your bank above first.</p>}
+      </div>
+
+      <div>
+        <label className={labelCls}>Low-balance warning (R)</label>
+        <input className={inputCls} inputMode="decimal" placeholder="e.g. 5000" value={form.lowBalanceAlert} onChange={set("lowBalanceAlert")} />
+      </div>
+
+      <div className="border-t border-slate-100 pt-3">
+        <div className="text-sm font-semibold text-slate-700 mb-2">EFT details (shown under Add funds → EFT)</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className={labelCls}>Account name</label><input className={inputCls} placeholder="e.g. Kudu Transport (Pty) Ltd" value={form.accountName} onChange={set("accountName")} /></div>
+          <div><label className={labelCls}>Account number</label><input className={inputCls} inputMode="numeric" placeholder="e.g. 10011425044" value={form.accountNumber} onChange={set("accountNumber")} /></div>
+          <div><label className={labelCls}>Bank</label><input className={inputCls} value={form.bankName} onChange={set("bankName")} /></div>
+          <div><label className={labelCls}>Branch code</label><input className={inputCls} inputMode="numeric" placeholder="580105" value={form.branchCode} onChange={set("branchCode")} /></div>
+          <div className="col-span-2"><label className={labelCls}>Reference to use</label><input className={inputCls} placeholder="e.g. FLEETPROPAY" value={form.depositReference} onChange={set("depositReference")} /></div>
+        </div>
+      </div>
+
+      <div className="border-t border-slate-100 pt-3">
+        <div className="text-sm font-semibold text-slate-700 mb-2">PayShap</div>
+        <label className={labelCls}>ShapID or Shap Name (set it up in your banking app under PayShap)</label>
+        <input className={inputCls} placeholder="e.g. 0821234567@investec or KUDUTRANSPORT" value={form.payShapId} onChange={set("payShapId")} />
+      </div>
+
+      <div className="border-t border-slate-100 pt-3">
+        <div className="text-sm font-semibold text-slate-700 mb-1">Pay by bank (Ozow)</div>
+        <p className="text-[11px] text-slate-500 mb-2">Your company's own Ozow merchant account, paying out into your bank account. The client ID, secret and site code are on the Ozow Dashboard (dash.ozow.com).</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className={labelCls}>Ozow client ID</label><input className={inputCls} placeholder="e.g. 26 letters and numbers" value={form.ozowClientId} onChange={set("ozowClientId")} autoComplete="off" /></div>
+          <div><label className={labelCls}>Site code</label><input className={inputCls} placeholder="e.g. KUD-KUD-001" value={form.ozowSiteCode} onChange={set("ozowSiteCode")} /></div>
+          <div className="col-span-2"><label className={labelCls}>Ozow client secret</label><input type="password" autoComplete="new-password" className={inputCls} placeholder={s.hasOzowSecret ? "•••••• saved — leave blank to keep" : "from the Ozow Dashboard"} value={form.ozowClientSecret} onChange={set("ozowClientSecret")} /></div>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-700 mt-2 cursor-pointer">
+          <input type="checkbox" className="rounded border-slate-300" checked={form.ozowStaging} onChange={e => setForm(f => ({ ...f, ozowStaging: e.target.checked }))} />
+          Ozow staging (test) keys
+        </label>
+        {s.hasOzowSecret && (
+          <div className="flex gap-4 mt-2">
+            <button type="button" onClick={testOzow} className="text-sm text-blue-600 hover:underline font-semibold">Test Ozow login</button>
+            <button type="button" onClick={(e) => { if (window.confirm("Remove the Ozow details? Pay by bank stops being offered.")) save(e, { removeOzow: true }); }} className="text-sm text-red-600 hover:underline font-semibold">Remove Ozow</button>
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {notice && <p className="text-sm text-green-700">{notice}</p>}
+      <button type="submit" disabled={saving} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white py-2 rounded-lg font-semibold text-sm">
+        {saving ? "Saving…" : "Save wallet settings"}
+      </button>
+    </form>
+  );
+}
+
 function DashboardTab({ categories }) {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
@@ -129,6 +481,7 @@ function DashboardTab({ categories }) {
 
   return (
     <div className="space-y-4">
+      <WalletCard />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatTile label="Spent today" value={money(stats.totals.today)} accent="#0f172a" />
         <StatTile label="Spent this week" value={money(stats.totals.week)} sub="Since Monday" accent="#0f172a" />
@@ -938,7 +1291,7 @@ function BankTab() {
   const labelCls = "text-xs text-slate-500 font-semibold block mb-1";
 
   return (
-    <div className="max-w-xl space-y-4">
+    <div className="max-w-2xl space-y-4">
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
@@ -1009,6 +1362,7 @@ function BankTab() {
           </div>
         )}
       </div>
+      <WalletSettingsCard />
     </div>
   );
 }
@@ -1018,6 +1372,13 @@ export default function FleetProPay() {
   const [categories, setCategories] = useState([]);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("dashboard");
+  const [returnedTopUp, setReturnedTopUp] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("topup"); } catch { return null; }
+  });
+  const clearReturnedTopUp = () => {
+    setReturnedTopUp(null);
+    try { window.history.replaceState(null, "", window.location.pathname); } catch { /* old browser */ }
+  };
 
   useEffect(() => {
     Promise.all([api.get("/pay/access", authHeaders()), api.get("/pay/categories", authHeaders())])
@@ -1051,6 +1412,7 @@ export default function FleetProPay() {
               </button>
             ))}
           </div>
+          {returnedTopUp && <TopUpReturnBanner topUpId={returnedTopUp} onDone={clearReturnedTopUp} />}
           {tab === "dashboard" && <DashboardTab categories={categories} />}
           {tab === "cards" && <CardsTab access={access} />}
           {tab === "payments" && <PaymentsTab categories={categories} />}
