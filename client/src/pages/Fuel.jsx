@@ -416,6 +416,12 @@ function FillsTab({ options }) {
           {sums.trailer > 0 && <> · Trailers <strong>{litres(sums.trailer)}</strong></>} · <strong>{money(sums.cost)}</strong>
         </p>
       )}
+      {/* The server sends at most 1 000 (take: 1000 in fuelRoutes.js GET /fills) */}
+      {fills?.length >= 1000 && (
+        <p className="text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 mb-2">
+          Showing the latest 1 000 fill-ups only — choose fewer dates or one truck to see the rest. The Reports tab always counts all of them.
+        </p>
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">
@@ -486,11 +492,13 @@ function csvCell(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-// Per-truck overview for the chosen range: three bar charts that share one
-// truck order (highest cost first), so one truck sits on the same line in
-// each chart. Hovering a truck highlights it in all three. Single-measure
-// charts, so one colour and no legend — the chart title names the measure.
+// Per-truck overview for the chosen range, built to stay compact at 500+
+// trucks: one thin row per truck with small in-cell bars (litres, cost,
+// km/L), sortable by any column, a search box, and the top rows first with
+// "Show all" opening a scrolling list. Each bar column is one measure, so
+// one colour and no legend — the column header names it.
 const BAR = "#2a78d6";
+const TOP_ROWS = 15;
 
 function sumByTruck(rows) {
   const trucks = new Map();
@@ -500,85 +508,140 @@ function sumByTruck(rows) {
     for (const f of ["fills", "truckLitres", "trailerLitres", "truckCost", "trailerCost", "km", "segmentKm", "segmentLitres"]) t[f] += r[f] || 0;
     trucks.set(key, t);
   }
-  return [...trucks.values()]
-    .map(t => ({ ...t, kmPerLitre: t.segmentKm > 0 && t.segmentLitres > 0 ? t.segmentKm / t.segmentLitres : null }))
-    .sort((a, b) => b.truckCost - a.truckCost || a.reg.localeCompare(b.reg));
+  return [...trucks.values()].map(t => ({
+    ...t,
+    kmPerLitre: t.segmentKm > 0 && t.segmentLitres > 0 ? t.segmentKm / t.segmentLitres : null,
+    costPerKm: t.km > 0 ? t.truckCost / t.km : null,
+  }));
 }
 
-function BarChart({ title, sub, trucks, value, format, hover, setHover, reference }) {
-  const max = Math.max(...trucks.map(t => value(t) || 0), reference?.value || 0) || 1;
+// Small bar + value in one cell. The value text stays in the text colour;
+// the bar only carries the size. `mark` draws the fleet-average tick.
+function BarCell({ value, max, text, mark }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <h3 className="font-semibold text-slate-800 text-sm">{title}</h3>
-      <p className="text-xs text-slate-500 mb-3">{sub}</p>
-      <div className="relative">
-        {reference && (
-          <div className="absolute top-0 bottom-0 border-l border-dashed border-slate-400 pointer-events-none z-10"
-            style={{ left: `calc(5.5rem + (100% - 5.5rem - 4.5rem) * ${reference.value / max})` }}>
-            <span className="absolute -top-4 -translate-x-1/2 text-[10px] text-slate-500 whitespace-nowrap">{reference.label}</span>
-          </div>
-        )}
-        {trucks.map(t => {
-          const v = value(t);
-          const dim = hover && hover !== t.key;
-          return (
-            <div key={t.key} className={`flex items-center h-8 rounded transition-opacity ${dim ? "opacity-35" : ""} ${hover === t.key ? "bg-slate-50" : ""}`}
-              onMouseEnter={() => setHover(t.key)} onMouseLeave={() => setHover(null)}>
-              <div className="w-[5.5rem] shrink-0 pr-2 text-xs font-semibold text-slate-700 truncate" title={t.reg}>{t.reg}</div>
-              <div className="flex-1 flex items-center min-w-0">
-                {v != null && v > 0
-                  ? <div className="h-[18px] rounded-r" style={{ width: `${(v / max) * 100}%`, background: BAR, minWidth: 2 }} />
-                  : null}
-              </div>
-              <div className="w-[4.5rem] shrink-0 pl-2 text-xs text-slate-700 tabular-nums whitespace-nowrap">{v != null ? format(v) : <span className="text-slate-400">—</span>}</div>
-            </div>
-          );
-        })}
+    <td className="px-2 py-0.5">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 h-2.5 min-w-[60px]">
+          {value > 0 && <div className="absolute inset-y-0 left-0 rounded-r-sm" style={{ width: `${Math.min(100, (value / max) * 100)}%`, background: BAR }} />}
+          {mark != null && <div className="absolute -top-0.5 -bottom-0.5 border-l border-dashed border-slate-500" style={{ left: `${(mark / max) * 100}%` }} />}
+        </div>
+        <span className="w-[4.75rem] text-right tabular-nums whitespace-nowrap">{text}</span>
       </div>
-    </div>
+    </td>
   );
 }
 
+const SORTS = {
+  reg:         { label: "Truck", get: t => t.reg, asc: true },
+  truckLitres: { label: "Litres", get: t => t.truckLitres },
+  truckCost:   { label: "Cost", get: t => t.truckCost },
+  kmPerLitre:  { label: "km/L", get: t => t.kmPerLitre },
+  costPerKm:   { label: "Cost/km", get: t => t.costPerKm },
+  km:          { label: "km", get: t => t.km },
+  fills:       { label: "Fills", get: t => t.fills },
+};
+
 function TruckOverview({ report }) {
-  const [hover, setHover] = useState(null);
+  const [sort, setSort] = useState({ key: "truckCost", desc: true });
+  const [q, setQ] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const trucks = useMemo(() => sumByTruck(report.rows), [report]);
+  const all = useMemo(() => sumByTruck(report.rows.map(r => ({ ...r, vehicleId: "all", vehicleReg: "all" })))[0], [report]);
+
+  const sorted = useMemo(() => {
+    const { get } = SORTS[sort.key];
+    const needle = q.trim().toLowerCase();
+    return trucks
+      .filter(t => !needle || t.reg.toLowerCase().includes(needle))
+      .sort((a, b) => {
+        const va = get(a), vb = get(b);
+        if (va == null && vb == null) return a.reg.localeCompare(b.reg);
+        if (va == null) return 1;           // no figure yet → always last
+        if (vb == null) return -1;
+        const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+        return (sort.desc ? -c : c) || a.reg.localeCompare(b.reg);
+      });
+  }, [trucks, sort, q]);
   if (!trucks.length) return null;
-  const all = sumByTruck(report.rows.map(r => ({ ...r, vehicleId: "all", vehicleReg: "all" })))[0];
-  const h = trucks.find(t => t.key === hover);
-  const short = (n) => n >= 10000 ? `R${(n / 1000).toFixed(0)}k` : `R${Math.round(n).toLocaleString("en-ZA")}`;
+
+  // reduce, not Math.max(...arr) — spreading 500+ values is fine, but this
+  // keeps working for any fleet size.
+  const top = (f) => trucks.reduce((m, t) => Math.max(m, f(t) || 0), 0) || 1;
+  const max = {
+    truckLitres: top(t => t.truckLitres),
+    truckCost: top(t => t.truckCost),
+    kmPerLitre: Math.max(top(t => t.kmPerLitre), all.kmPerLitre || 0),
+  };
+  const shown = showAll || q ? sorted : sorted.slice(0, TOP_ROWS);
+  const clickSort = (key) => setSort(s => s.key === key ? { key, desc: !s.desc } : { key, desc: !SORTS[key].asc });
+  const th = (k, className = "") => (
+    <th key={k} className={`px-2 py-1.5 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-slate-700 ${className}`} onClick={() => clickSort(k)}>
+      {SORTS[k].label}{sort.key === k ? (sort.desc ? " ▾" : " ▴") : ""}
+    </th>
+  );
   const tiles = [
-    ["Truck diesel", litres(all.truckLitres)],
+    ["Trucks", trucks.length.toLocaleString("en-ZA")],
+    ["Truck diesel", litres(Math.round(all.truckLitres))],
     ["Truck cost", money(all.truckCost)],
     ["Fleet km/L", all.kmPerLitre != null ? all.kmPerLitre.toFixed(2) : "—"],
-    ["Trailer (tanker pump)", all.trailerLitres ? `${litres(all.trailerLitres)} · ${money(all.trailerCost)}` : "—"],
+    ["Cost/km", all.costPerKm != null ? `R${all.costPerKm.toFixed(2)}` : "—"],
+    ["Trailer pump diesel", all.trailerLitres ? `${litres(Math.round(all.trailerLitres))} · ${money(all.trailerCost)}` : "—"],
   ];
+
   return (
-    <div className="mb-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+    <div className="mb-5">
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2 mb-2">
         {tiles.map(([k, v]) => (
-          <div key={k} className="bg-white rounded-xl border border-slate-200 px-4 py-3">
-            <div className="text-xs text-slate-500">{k}</div>
-            <div className="text-lg font-bold text-slate-800 whitespace-nowrap">{v}</div>
+          <div key={k} className="bg-white rounded-lg border border-slate-200 px-3 py-1.5">
+            <div className="text-[11px] text-slate-500">{k}</div>
+            <div className="text-sm font-bold text-slate-800 whitespace-nowrap truncate" title={v}>{v}</div>
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <BarChart title="Diesel used per truck" sub="Truck litres in this period" trucks={trucks}
-          value={t => t.truckLitres} format={v => litres(Math.round(v))} hover={hover} setHover={setHover} />
-        <BarChart title="Cost per truck" sub="Truck diesel cost in this period" trucks={trucks}
-          value={t => t.truckCost} format={short} hover={hover} setHover={setHover} />
-        <BarChart title="km/L per truck" sub="Higher is better · dashed line = fleet" trucks={trucks}
-          value={t => t.kmPerLitre} format={v => v.toFixed(2)} hover={hover} setHover={setHover}
-          reference={all.kmPerLitre != null ? { value: all.kmPerLitre, label: `fleet ${all.kmPerLitre.toFixed(2)}` } : null} />
-      </div>
-      {/* One details line for the hovered truck, so the bars stay uncluttered */}
-      <div className="h-6 mt-2 text-sm text-slate-600">
-        {h ? (
-          <span><strong className="text-slate-800">{h.reg}</strong> · {h.fills} fill-up{h.fills === 1 ? "" : "s"} · {litres(h.truckLitres)} · {money(h.truckCost)}
-            {h.km ? <> · {km(h.km)} · R{(h.truckCost / h.km).toFixed(2)}/km</> : null}
-            {h.kmPerLitre != null ? <> · {h.kmPerLitre.toFixed(2)} km/L</> : " · no full-to-full stretch yet"}
-            {h.trailerLitres ? <> · trailer {litres(h.trailerLitres)} ({money(h.trailerCost)})</> : null}</span>
-        ) : <span className="text-slate-400">Point at a truck to see all its figures.</span>}
+
+      <div className="bg-white rounded-xl border border-slate-200">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-800 text-sm">Per truck</h3>
+          <span className="text-xs text-slate-500">Click a column to sort · dashed tick = fleet km/L</span>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Find truck…"
+            className="ml-auto border border-slate-300 rounded-md px-2 py-1 text-xs w-36" />
+        </div>
+        <div className={showAll && !q ? "max-h-[28rem] overflow-y-auto" : ""}>
+          <table className="w-full text-xs text-slate-700">
+            <thead className="text-slate-500 text-[11px] uppercase bg-slate-50 sticky top-0 z-10">
+              <tr>
+                {th("reg", "text-left w-28")}
+                {th("truckLitres", "text-left")}
+                {th("truckCost", "text-left")}
+                {th("kmPerLitre", "text-left")}
+                {th("costPerKm", "text-right")}
+                {th("km", "text-right")}
+                {th("fills", "text-right")}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(t => (
+                <tr key={t.key} className="border-t border-slate-100 hover:bg-slate-50"
+                  title={t.trailerLitres ? `Trailer pump: ${litres(t.trailerLitres)} · ${money(t.trailerCost)}` : undefined}>
+                  <td className="px-2 py-0.5 font-semibold whitespace-nowrap">{t.reg}</td>
+                  <BarCell value={t.truckLitres} max={max.truckLitres} text={litres(Math.round(t.truckLitres))} />
+                  <BarCell value={t.truckCost} max={max.truckCost} text={`R${Math.round(t.truckCost).toLocaleString("en-ZA")}`} />
+                  <BarCell value={t.kmPerLitre || 0} max={max.kmPerLitre} mark={all.kmPerLitre}
+                    text={t.kmPerLitre != null ? t.kmPerLitre.toFixed(2) : <span className="text-slate-400">—</span>} />
+                  <td className="px-2 py-0.5 text-right tabular-nums whitespace-nowrap">{t.costPerKm != null ? `R${t.costPerKm.toFixed(2)}` : "—"}</td>
+                  <td className="px-2 py-0.5 text-right tabular-nums whitespace-nowrap">{t.km ? t.km.toLocaleString("en-ZA") : "—"}</td>
+                  <td className="px-2 py-0.5 text-right tabular-nums">{t.fills}</td>
+                </tr>
+              ))}
+              {shown.length === 0 && <tr><td colSpan={7} className="px-2 py-3 text-center text-slate-400">No truck matches “{q}”.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        {!q && sorted.length > TOP_ROWS && (
+          <button onClick={() => setShowAll(s => !s)} className="w-full border-t border-slate-200 py-1.5 text-xs font-semibold text-blue-600 hover:bg-slate-50">
+            {showAll ? `Show top ${TOP_ROWS} only` : `Show all ${sorted.length} trucks`}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -589,10 +652,12 @@ function ReportsTab() {
   const [range, setRange] = useState(() => ({ preset: "3_months", ...presetRange("3_months") }));
   const [report, setReport] = useState(null);
   const [error, setError] = useState("");
+  // Which period folds are open; unset = the default (open only for a small fleet)
+  const [openPeriods, setOpenPeriods] = useState({});
 
   useEffect(() => {
     if (!range.from || !range.to) return;
-    setError(""); setReport(null);
+    setError(""); setReport(null); setOpenPeriods({});
     const params = new URLSearchParams({ group, from: dayStart(range.from), to: dayEnd(range.to) });
     api.get(`/fuel/report?${params}`, authHeaders())
       .then(r => setReport(r.data))
@@ -623,16 +688,16 @@ function ReportsTab() {
 
   const Row = ({ r, truck, bold }) => (
     <tr className={`border-t border-slate-100 ${bold ? "bg-slate-50 font-semibold" : ""}`}>
-      <td className="px-3 py-2 whitespace-nowrap">{truck}</td>
-      <td className="px-3 py-2 text-right">{r.fills}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">{litres(r.truckLitres)}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">{r.km ? km(r.km) : "—"}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">{r.kmPerLitre != null ? r.kmPerLitre.toFixed(2) : "—"}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">{money(r.truckCost)}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">{r.costPerKm != null ? `R${r.costPerKm.toFixed(2)}` : "—"}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap border-l border-slate-100">{r.trailerLitres ? litres(r.trailerLitres) : "—"}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">{r.trailerCost ? money(r.trailerCost) : "—"}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap border-l border-slate-100">{money(r.totalCost)}</td>
+      <td className="px-3 py-1 whitespace-nowrap">{truck}</td>
+      <td className="px-3 py-1 text-right">{r.fills}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap">{litres(r.truckLitres)}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap">{r.km ? km(r.km) : "—"}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap">{r.kmPerLitre != null ? r.kmPerLitre.toFixed(2) : "—"}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap">{money(r.truckCost)}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap">{r.costPerKm != null ? `R${r.costPerKm.toFixed(2)}` : "—"}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap border-l border-slate-100">{r.trailerLitres ? litres(r.trailerLitres) : "—"}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap">{r.trailerCost ? money(r.trailerCost) : "—"}</td>
+      <td className="px-3 py-1 text-right whitespace-nowrap border-l border-slate-100">{money(r.totalCost)}</td>
     </tr>
   );
 
@@ -652,35 +717,44 @@ function ReportsTab() {
       {report && byPeriod.length === 0 && <p className="text-sm text-slate-400">No fill-ups in this period.</p>}
       {report && byPeriod.length > 0 && <TruckOverview report={report} />}
 
-      <div className="space-y-5">
-        {byPeriod.map(({ total, rows }) => (
-          <div key={total.period} className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
-            <div className="px-4 py-2.5 border-b border-slate-200 flex flex-wrap items-baseline gap-x-4">
-              <h3 className="font-semibold text-slate-800">{label(total.period)}</h3>
-              <span className="text-sm text-slate-500">{money(total.totalCost)} · {litres(total.truckLitres + total.trailerLitres)}{total.kmPerLitre != null && <> · fleet {total.kmPerLitre.toFixed(2)} km/L</>}</span>
-            </div>
-            <table className="w-full text-sm">
+      {/* One fold per period — open by default only while the fleet is small,
+          so 500 trucks don't turn every month into 500 rows on screen. */}
+      <div className="space-y-2">
+        {byPeriod.map(({ total, rows }) => {
+          const isOpen = openPeriods[total.period] ?? rows.length <= TOP_ROWS;
+          return (
+          <details key={`${group}-${total.period}`} open={isOpen}
+            onToggle={e => { const o = e.currentTarget.open; if (o !== isOpen) setOpenPeriods(p => ({ ...p, [total.period]: o })); }}
+            className="group bg-white rounded-xl border border-slate-200 overflow-x-auto">
+            <summary className="px-4 py-2 flex flex-wrap items-baseline gap-x-4 cursor-pointer select-none list-none hover:bg-slate-50">
+              <span className="text-slate-400 text-xs group-open:rotate-90 transition-transform">▶</span>
+              <h3 className="font-semibold text-slate-800 text-sm">{label(total.period)}</h3>
+              <span className="text-xs text-slate-500">{rows.length} truck{rows.length === 1 ? "" : "s"} · {money(total.totalCost)} · {litres(Math.round(total.truckLitres + total.trailerLitres))}{total.kmPerLitre != null && <> · fleet {total.kmPerLitre.toFixed(2)} km/L</>}</span>
+            </summary>
+            {/* Rows are only drawn while open, so a closed month costs nothing */}
+            {isOpen && <table className="w-full text-xs border-t border-slate-200">
               <thead className="text-slate-500 text-xs uppercase">
                 <tr>
-                  <th className="text-left px-3 py-2">Truck</th>
-                  <th className="text-right px-3 py-2">Fill-ups</th>
-                  <th className="text-right px-3 py-2">Truck litres</th>
-                  <th className="text-right px-3 py-2">km</th>
-                  <th className="text-right px-3 py-2">km/L</th>
-                  <th className="text-right px-3 py-2">Truck cost</th>
-                  <th className="text-right px-3 py-2">Cost/km</th>
-                  <th className="text-right px-3 py-2 border-l border-slate-100">Trailer litres</th>
-                  <th className="text-right px-3 py-2">Trailer cost</th>
-                  <th className="text-right px-3 py-2 border-l border-slate-100">Total cost</th>
+                  <th className="text-left px-3 py-1">Truck</th>
+                  <th className="text-right px-3 py-1">Fill-ups</th>
+                  <th className="text-right px-3 py-1">Truck litres</th>
+                  <th className="text-right px-3 py-1">km</th>
+                  <th className="text-right px-3 py-1">km/L</th>
+                  <th className="text-right px-3 py-1">Truck cost</th>
+                  <th className="text-right px-3 py-1">Cost/km</th>
+                  <th className="text-right px-3 py-1 border-l border-slate-100">Trailer litres</th>
+                  <th className="text-right px-3 py-1">Trailer cost</th>
+                  <th className="text-right px-3 py-1 border-l border-slate-100">Total cost</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(r => <Row key={r.vehicleReg} r={r} truck={r.vehicleReg} />)}
                 {rows.length > 1 && <Row r={total} truck="All trucks" bold />}
               </tbody>
-            </table>
-          </div>
-        ))}
+            </table>}
+          </details>
+          );
+        })}
       </div>
       {report && byPeriod.length > 0 && (
         <p className="text-xs text-slate-400 mt-3">
