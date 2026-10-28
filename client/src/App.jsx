@@ -258,6 +258,30 @@ function usePayAccess(enabled) {
   return allowed;
 }
 
+// FleetProPay wallet below its low-balance warning amount → red "Low" badge
+// on the sidebar item. Checked every 2 minutes (the server caches the bank
+// balance for a minute, so this never hammers the bank). Returns null when
+// fine or unknown, else { available, alert }.
+function usePayLowBalance(enabled) {
+  const [low, setLow] = useState(null);
+  useEffect(() => {
+    if (!enabled) { setLow(null); return; }
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const res = await authFetch(`${API}/pay/wallet`);
+        if (!res.ok) return;
+        const w = await res.json();
+        if (!cancelled) setLow(w.lowBalance ? { available: w.balance?.available, alert: w.lowBalanceAlert } : null);
+      } catch {}
+    };
+    refresh();
+    const poll = setInterval(refresh, 120000);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [enabled]);
+  return low;
+}
+
 function getAuthPayload() {
   const token = localStorage.getItem("fleetpro_token");
   if (!token) return null;
@@ -406,6 +430,7 @@ export default function App() {
     !!payload && (payload.role === "admin" || payload.role === "staff") && canUseFeature("whatsappBot")
   );
   const canUsePay = usePayAccess(!!payload && (payload.role === "admin" || payload.role === "staff") && !!payload.tenantId);
+  const payLowBalance = usePayLowBalance(canUsePay);
 
   if (!payload) {
     return <LoggedOutRoutes />;
@@ -472,7 +497,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} unmappedWhatsappGroupsCount={unmappedWhatsappGroupsCount} canUseFeature={canUseFeature} canUsePay={canUsePay} />
+      <Sidebar role={role} user={{ ...payload, displayName }} availableCount={availableCount} expiringDocsCount={expiringDocsCount} expiringVehicleDocsCount={expiringVehicleDocsCount} unmappedWhatsappGroupsCount={unmappedWhatsappGroupsCount} canUseFeature={canUseFeature} canUsePay={canUsePay} payLowBalance={payLowBalance} />
       <div className="flex-1 bg-slate-50 overflow-auto min-w-0">
         <Routes>
           <Route path="/"      element={mapElement} />

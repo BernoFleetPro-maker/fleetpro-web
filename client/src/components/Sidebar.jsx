@@ -49,7 +49,7 @@ function pruneDanglingMarkers(items) {
   return result;
 }
 
-export default function Sidebar({ role = "admin", user = {}, availableCount = 0, expiringDocsCount = 0, expiringVehicleDocsCount = 0, unmappedWhatsappGroupsCount = 0, canUseFeature = () => true, canUsePay = false }) {
+export default function Sidebar({ role = "admin", user = {}, availableCount = 0, expiringDocsCount = 0, expiringVehicleDocsCount = 0, unmappedWhatsappGroupsCount = 0, canUseFeature = () => true, canUsePay = false, payLowBalance = null }) {
   const isStaff = role === "staff";
   // Clients is tenant-wide gated (clientPortal) on top of any per-staff key —
   // applies uniformly here since canUseFeature already bypasses for admin.
@@ -145,6 +145,14 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0,
                       {expiringVehicleDocsCount}
                     </span>
                   )}
+                  {item.to === "/fleetpropay" && payLowBalance && (
+                    <span
+                      className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
+                      title={`Wallet balance ${payLowBalance.available != null ? "R" + Math.round(payLowBalance.available).toLocaleString("en-ZA") : ""} is below your warning amount${payLowBalance.alert != null ? " of R" + Math.round(payLowBalance.alert).toLocaleString("en-ZA") : ""}`}
+                    >
+                      Low
+                    </span>
+                  )}
                   {item.to === "/clients" && unmappedWhatsappGroupsCount > 0 && (
                     <span
                       className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
@@ -162,6 +170,9 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0,
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
               )}
               {collapsed && item.to === "/vehicles" && expiringVehicleDocsCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+              )}
+              {collapsed && item.to === "/fleetpropay" && payLowBalance && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
               )}
               {collapsed && item.to === "/clients" && unmappedWhatsappGroupsCount > 0 && (
