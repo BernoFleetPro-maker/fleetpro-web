@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { POINT_HOVER_EVENT, POINT_STYLE, applyPointHighlight } from "../utils/pointHighlight";
 
 const API = "https://fleetpro-backend-production.up.railway.app/api";
 
@@ -21,6 +22,7 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
   const mapInstance      = useRef(null);
   const markersRef       = useRef({});
   const pointOverlaysRef = useRef([]);
+  const hoveredPointTypeRef = useRef(null); // "loading" | "dropoff" | null — which kind of point the sidebar is hovering (see pointHighlight.js)
   const routeLinesRef    = useRef({});
   const vehicleRouteRef  = useRef({});
   const activeVehicleRef = useRef(null); // tracks selected vehicle for route highlight
@@ -510,15 +512,31 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
         const lat=Number(p.lat), lon=Number(p.lon), radius=Number(p.radius)||1000;
         if(isNaN(lat)||isNaN(lon)) return;
         const center = new g.maps.LatLng(lat,lon);
-        const color  = (p.type||"").toLowerCase()==="dropoff" ? "#8ee68e" : "#7fb3ff";
-        const circle = new g.maps.Circle({ map,center,radius,fillColor:color,fillOpacity:0.18,strokeColor:color,strokeOpacity:0.7,strokeWeight:2 });
-        const dot    = new g.maps.Marker({ map,position:center,icon:{path:g.maps.SymbolPath.CIRCLE,scale:2,fillColor:color,fillOpacity:1,strokeColor:"#111",strokeWeight:1} });
+        const isDropoff = (p.type||"").toLowerCase()==="dropoff";
+        const color  = isDropoff ? "#8ee68e" : "#7fb3ff";
+        const base   = POINT_STYLE.base;
+        const circle = new g.maps.Circle({ map,center,radius,fillColor:color,fillOpacity:base.fillOpacity,strokeColor:color,strokeOpacity:base.strokeOpacity,strokeWeight:base.strokeWeight });
+        const dot    = new g.maps.Marker({ map,position:center,icon:{path:g.maps.SymbolPath.CIRCLE,scale:base.dotScale,fillColor:color,fillOpacity:1,strokeColor:"#111",strokeWeight:1} });
         const info   = new g.maps.InfoWindow({ content:`<div style="font-size:12px;color:#222;">${p.title||"Point"}<br/>Radius: ${radius} m</div>`, maxWidth:200 });
         dot.addListener("click", () => info.open(map,dot));
-        pointOverlaysRef.current.push({ circle, dot });
+        pointOverlaysRef.current.push({ circle, dot, type: isDropoff ? "dropoff" : "loading" });
       });
+      // The points are redrawn on every refresh — keep a hover that is still
+      // in progress (mouse resting on the sidebar link) applied to the new ones.
+      applyPointHighlight(pointOverlaysRef.current, hoveredPointTypeRef.current);
     } catch(err) { console.error("Failed to load points:",err); }
   }
+
+  // Sidebar hover on "Loading Points" / "Dropoff Points" → that kind of point
+  // stands out a little on the map (announced by Sidebar.jsx).
+  useEffect(() => {
+    function onPointHover(e) {
+      hoveredPointTypeRef.current = e.detail?.type || null;
+      applyPointHighlight(pointOverlaysRef.current, hoveredPointTypeRef.current);
+    }
+    window.addEventListener(POINT_HOVER_EVENT, onPointHover);
+    return () => window.removeEventListener(POINT_HOVER_EVENT, onPointHover);
+  }, []);
 
   useEffect(() => {
     let pollTimer = null;

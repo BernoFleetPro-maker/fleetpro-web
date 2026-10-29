@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { canSeeStaffItem } from "../utils/staffAccess";
+import { announcePointHover } from "../utils/pointHighlight";
 
 // Shared by admin and staff — staff additionally get filtered by their own
 // permissions (see canSeeStaffItem below); admin always sees everything.
@@ -102,10 +103,20 @@ export default function Sidebar({ role = "admin", user = {}, availableCount = 0,
               {item.section}
             </div>
           );
+          // Hovering (or keyboard-focusing) "Loading Points" / "Dropoff Points"
+          // makes that kind of point stand out on the map — see pointHighlight.js.
+          const pointKind = item.key === "loadingPoints" ? "loading" : item.key === "dropoffPoints" ? "dropoff" : null;
+          const pointHoverProps = pointKind ? {
+            onMouseEnter: () => announcePointHover(pointKind),
+            onMouseLeave: () => announcePointHover(null),
+            onFocus:      () => announcePointHover(pointKind),
+            onBlur:       () => announcePointHover(null),
+          } : {};
           return (
             <NavLink
               key={item.to}
               to={item.to}
+              {...pointHoverProps}
               title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
                 `relative flex items-center gap-3 px-3 py-3 hover:bg-slate-700 transition-colors ${
