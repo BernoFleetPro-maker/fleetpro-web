@@ -18,6 +18,8 @@ const errorText = (err, fallback) => err?.response?.data?.error || fallback;
 
 const money = (n) => Number(n || 0).toLocaleString("en-ZA", { style: "currency", currency: "ZAR" });
 const litres = (n) => `${Number(n || 0).toLocaleString("en-ZA", { maximumFractionDigits: 2 })} L`;
+// Same key the server uses (fuelReport.js truckKey)
+const truckKey = (r) => r.vehicleId || `reg:${r.vehicleReg}`;
 const km = (n) => `${Number(n || 0).toLocaleString("en-ZA")} km`;
 const when = (d) => new Date(d).toLocaleString("en-ZA", {
   timeZone: "Africa/Johannesburg", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -390,9 +392,13 @@ function FillsTab({ options }) {
     load();
   }
 
+  // km = odometer km since each truck's previous fill (as in Reports); km/L
+  // = all full-to-full stretches together, so a long stretch weighs more.
   const sums = useMemo(() => (fills || []).reduce((s, f) => ({
     truck: s.truck + f.truckLitres, trailer: s.trailer + (f.trailerLitres || 0), cost: s.cost + f.totalCost,
-  }), { truck: 0, trailer: 0, cost: 0 }), [fills]);
+    km: s.km + (f.kmSinceLast || 0),
+    segKm: s.segKm + (f.segmentKm || 0), segLitres: s.segLitres + (f.segmentLitres || 0),
+  }), { truck: 0, trailer: 0, cost: 0, km: 0, segKm: 0, segLitres: 0 }), [fills]);
 
   return (
     <div>
@@ -414,6 +420,8 @@ function FillsTab({ options }) {
         <p className="text-sm text-slate-600 mb-2">
           {fills.length} fill-up{fills.length === 1 ? "" : "s"} · Trucks <strong>{litres(sums.truck)}</strong>
           {sums.trailer > 0 && <> · Trailers <strong>{litres(sums.trailer)}</strong></>} · <strong>{money(sums.cost)}</strong>
+          {" "}· Driven <strong>{sums.km > 0 ? km(sums.km) : "—"}</strong>
+          {" "}· Average <strong>{sums.segKm > 0 && sums.segLitres > 0 ? `${(sums.segKm / sums.segLitres).toFixed(2)} km/L` : "— km/L"}</strong>
         </p>
       )}
       {/* The server sends at most 1 000 (take: 1000 in fuelRoutes.js GET /fills) */}
@@ -503,7 +511,7 @@ const TOP_ROWS = 15;
 function sumByTruck(rows) {
   const trucks = new Map();
   for (const r of rows) {
-    const key = r.vehicleId || r.vehicleReg;
+    const key = truckKey(r);
     const t = trucks.get(key) || { key, reg: r.vehicleReg, fills: 0, truckLitres: 0, trailerLitres: 0, truckCost: 0, trailerCost: 0, km: 0, segmentKm: 0, segmentLitres: 0, segmentCost: 0 };
     for (const f of ["fills", "truckLitres", "trailerLitres", "truckCost", "trailerCost", "km", "segmentKm", "segmentLitres", "segmentCost"]) t[f] += r[f] || 0;
     trucks.set(key, t);
@@ -541,7 +549,7 @@ const SORTS = {
   fills:       { label: "Fills", get: t => t.fills },
 };
 
-function TruckOverview({ report }) {
+function TruckOverview({ report, onPick }) {
   const [sort, setSort] = useState({ key: "truckCost", desc: true });
   const [q, setQ] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -602,7 +610,7 @@ function TruckOverview({ report }) {
       <div className="bg-white rounded-xl border border-slate-200">
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200">
           <h3 className="font-semibold text-slate-800 text-sm">Per truck</h3>
-          <span className="text-xs text-slate-500">Click a column to sort · dashed tick = fleet km/L</span>
+          <span className="text-xs text-slate-500">Click a truck to see it alone · click a column to sort · dashed tick = fleet km/L</span>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Find truck…"
             className="ml-auto border border-slate-300 rounded-md px-2 py-1 text-xs w-36" />
         </div>
@@ -623,7 +631,9 @@ function TruckOverview({ report }) {
               {shown.map(t => (
                 <tr key={t.key} className="border-t border-slate-100 hover:bg-slate-50"
                   title={t.trailerLitres ? `Trailer pump: ${litres(t.trailerLitres)} · ${money(t.trailerCost)}` : undefined}>
-                  <td className="px-2 py-0.5 font-semibold whitespace-nowrap">{t.reg}</td>
+                  <td className="px-2 py-0.5 font-semibold whitespace-nowrap">
+                    <button onClick={() => onPick(t.key)} className="text-blue-700 hover:underline" title={`Show ${t.reg} only`}>{t.reg}</button>
+                  </td>
                   <BarCell value={t.truckLitres} max={max.truckLitres} text={litres(Math.round(t.truckLitres))} />
                   <BarCell value={t.truckCost} max={max.truckCost} text={`R${Math.round(t.truckCost).toLocaleString("en-ZA")}`} />
                   <BarCell value={t.kmPerLitre || 0} max={max.kmPerLitre} mark={all.kmPerLitre}
@@ -652,6 +662,7 @@ function ReportsTab() {
   const [range, setRange] = useState(() => ({ preset: "3_months", ...presetRange("3_months") }));
   const [report, setReport] = useState(null);
   const [error, setError] = useState("");
+  const [truck, setTruck] = useState("");   // "" = all trucks, else truckKey()
   // Which period folds are open; unset = the default (open only for a small fleet)
   const [openPeriods, setOpenPeriods] = useState({});
 
@@ -665,10 +676,24 @@ function ReportsTab() {
   }, [group, range.from, range.to]);
 
   const label = group === "month" ? monthLabel : weekLabel;
-  const byPeriod = useMemo(() => {
-    if (!report) return [];
-    return report.totals.map(t => ({ total: t, rows: report.rows.filter(r => r.period === t.period) }));
+  // Trucks in this report, for the picker
+  const truckList = useMemo(() => {
+    const m = new Map();
+    for (const r of report?.rows || []) m.set(truckKey(r), r.vehicleReg);
+    return [...m].map(([key, reg]) => ({ key, reg })).sort((a, b) => a.reg.localeCompare(b.reg));
   }, [report]);
+  const truckReg = truckList.find(t => t.key === truck)?.reg;
+  // One truck picked: its own rows, and each period's total is just that row.
+  const view = useMemo(() => {
+    if (!report || !truck) return report;
+    const rows = report.rows.filter(r => truckKey(r) === truck);
+    return { ...report, rows, totals: rows };
+  }, [report, truck]);
+  const byPeriod = useMemo(() => {
+    if (!view) return [];
+    return view.totals.map(t => ({ total: t, rows: view.rows.filter(r => r.period === t.period) }));
+  }, [view]);
+  const pick = (key) => { setTruck(key); setOpenPeriods({}); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   function downloadCsv() {
     const head = ["Period", "Truck", "Fill-ups", "Truck litres", "km", "km/L", "Truck cost (R)", "Cost per km (R)", "Trailer litres", "Trailer cost (R)", "Total cost (R)"];
@@ -681,14 +706,16 @@ function ReportsTab() {
     const blob = new Blob([lines.map(l => l.map(csvCell).join(",")).join("\r\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `fuel-${group}-${range.from}-to-${range.to}.csv`;
+    a.download = `fuel-${truckReg ? `${truckReg.replace(/s+/g, "")}-` : ""}${group}-${range.from}-to-${range.to}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
 
-  const Row = ({ r, truck, bold }) => (
+  const Row = ({ r, name, bold }) => (
     <tr className={`border-t border-slate-100 ${bold ? "bg-slate-50 font-semibold" : ""}`}>
-      <td className="px-3 py-1 whitespace-nowrap">{truck}</td>
+      <td className="px-3 py-1 whitespace-nowrap">
+        {bold || truck ? name : <button onClick={() => pick(truckKey(r))} className="text-blue-700 hover:underline" title={`Show ${name} only`}>{name}</button>}
+      </td>
       <td className="px-3 py-1 text-right">{r.fills}</td>
       <td className="px-3 py-1 text-right whitespace-nowrap">{litres(r.truckLitres)}</td>
       <td className="px-3 py-1 text-right whitespace-nowrap">{r.km ? km(r.km) : "—"}</td>
@@ -710,12 +737,19 @@ function ReportsTab() {
           ))}
         </div>
         <RangePicker range={range} setRange={setRange} />
+        <select className={`border rounded-lg px-2 py-1.5 text-sm ${truck ? "border-blue-500 text-blue-700 font-semibold" : "border-slate-300"}`}
+          value={truck} onChange={e => pick(e.target.value)}>
+          <option value="">All trucks</option>
+          {truck && !truckReg && <option value={truck}>(no fill-ups in this period)</option>}
+          {truckList.map(t => <option key={t.key} value={t.key}>{t.reg}</option>)}
+        </select>
+        {truck && <button onClick={() => pick("")} className="text-sm text-blue-600 hover:underline">← All trucks</button>}
         <button onClick={downloadCsv} disabled={!byPeriod.length} className="ml-auto bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-sm font-semibold px-4 py-2 rounded-lg">Download CSV</button>
       </div>
       {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
       {!report && !error && <p className="text-sm text-slate-400">Loading…</p>}
-      {report && byPeriod.length === 0 && <p className="text-sm text-slate-400">No fill-ups in this period.</p>}
-      {report && byPeriod.length > 0 && <TruckOverview report={report} />}
+      {report && byPeriod.length === 0 && <p className="text-sm text-slate-400">No fill-ups{truck ? " for this truck" : ""} in this period.</p>}
+      {report && byPeriod.length > 0 && <TruckOverview key={truck || "all"} report={view} onPick={pick} />}
 
       {/* One fold per period — open by default only while the fleet is small,
           so 500 trucks don't turn every month into 500 rows on screen. */}
@@ -748,8 +782,8 @@ function ReportsTab() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => <Row key={r.vehicleReg} r={r} truck={r.vehicleReg} />)}
-                {rows.length > 1 && <Row r={total} truck="All trucks" bold />}
+                {rows.map(r => <Row key={r.vehicleReg} r={r} name={r.vehicleReg} />)}
+                {rows.length > 1 && <Row r={total} name="All trucks" bold />}
               </tbody>
             </table>}
           </details>
