@@ -1133,7 +1133,15 @@ function SessionsTab({ categories }) {
               <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-400">No pay taps yet.</td></tr>
             ) : rows.map(s => (
               <tr key={s.id} className="border-t border-slate-100">
-                <td className="px-4 py-2 whitespace-nowrap text-slate-600">{when(s.openedAt)}</td>
+                <td className="px-4 py-2 whitespace-nowrap text-slate-600">
+                  {when(s.openedAt)}
+                  {/* Driver changed it in the app afterwards (category, slip retaken) */}
+                  {s.history?.length > 0 && (
+                    <span className="ml-1 text-amber-600 cursor-help" title={s.history.map(h => `${when(h.at)} · ${h.by}: ${h.action === "category_changed"
+                      ? `for ${catLabel[h.changes?.category?.[0]] || h.changes?.category?.[0]} → ${catLabel[h.changes?.category?.[1]] || h.changes?.category?.[1]}`
+                      : "slip photo retaken"}`).join("\n")}>✎</span>
+                  )}
+                </td>
                 <td className="px-4 py-2">{s.driverName}</td>
                 <td className="px-4 py-2"><CategoryChip category={s.category} label={catLabel[s.category]} /></td>
                 <td className="px-4 py-2 text-xs">

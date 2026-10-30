@@ -132,7 +132,7 @@ function historyLine(h) {
   if (h.action === "corrected") {
     return Object.entries(h.changes || {}).map(([k, [a, b]]) => `${HISTORY_FIELDS[k] || k}: ${showValue(k, a)} → ${showValue(k, b)}`).join(" · ");
   }
-  return { added: "Added by the office", removed: `Removed${h.reason ? ` — ${h.reason}` : ""}`, restored: "Put back", photo_removed: `${PHOTO_LABELS[h.kind] || "Photo"} photo removed` }[h.action] || h.action;
+  return { added: "Added by the office", removed: `Removed${h.reason ? ` — ${h.reason}` : ""}`, restored: "Put back", photo_removed: `${PHOTO_LABELS[h.kind] || "Photo"} photo removed`, photo_added: `${PHOTO_LABELS[h.kind] || "Photo"} photo added` }[h.action] || h.action;
 }
 
 // SA local "YYYY-MM-DDTHH:mm" for <input type="datetime-local">.
@@ -329,7 +329,7 @@ function FillModal({ fill, options, onClose, onSaved, onOpenPhotos }) {
                 <h3 className="text-sm font-semibold text-slate-700 mb-1">Changes</h3>
                 <ul className="text-xs text-slate-600 space-y-1">
                   {fill.history.slice().reverse().map((h, i) => (
-                    <li key={i}><span className="text-slate-400">{when(h.at)} · {h.by}:</span> {historyLine(h)}</li>
+                    <li key={i}><span className="text-slate-400">{when(h.at)} · {h.by}{h.byDriver ? " (driver, in the app)" : ""}:</span> {historyLine(h)}</li>
                   ))}
                 </ul>
               </div>
@@ -455,7 +455,7 @@ function FillsTab({ options }) {
             {fills?.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-slate-400">{showRemoved ? "Nothing removed in this period." : "No fill-ups in this period."}</td></tr>}
             {fills?.map(f => (
               <tr key={f.id} className={`border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${f.deletedAt ? "opacity-60" : ""}`} onClick={() => !f.deletedAt && setEditing(f)}>
-                <td className="px-3 py-2 whitespace-nowrap">{when(f.filledAt)}{f.history?.some(h => h.action === "corrected") && <span title="Corrected by the office" className="ml-1 text-amber-600">✎</span>}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{when(f.filledAt)}{f.history?.some(h => h.action === "corrected") && <span title={f.history.some(h => h.action === "corrected" && h.byDriver) ? "Changed by the driver after sending — see its history" : "Corrected by the office"} className="ml-1 text-amber-600">✎</span>}</td>
                 <td className="px-3 py-2 font-semibold whitespace-nowrap">{f.vehicleReg}</td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">{f.odometerKm.toLocaleString("en-ZA")}</td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">{f.kmSinceLast != null ? f.kmSinceLast.toLocaleString("en-ZA") : <span className="text-slate-300">—</span>}</td>
