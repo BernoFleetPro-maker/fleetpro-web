@@ -345,10 +345,11 @@ function FileStorageSettings() {
       {editing && (
         <form onSubmit={connect} className="mt-3 space-y-3">
           <div className="bg-white border border-slate-200 rounded-lg p-3 text-xs text-slate-600 space-y-1">
-            <p className="font-semibold text-slate-700">Where to find these three things</p>
+            <p className="font-semibold text-slate-700">Before you connect — in Cloudinary</p>
             <p>1. Log in at <span className="font-mono">cloudinary.com</span> (a free account is fine — sign up if you don't have one).</p>
-            <p>2. Open the <b>Dashboard</b> → <b>Product Environment Credentials</b>.</p>
-            <p>3. Copy the <b>Cloud name</b>, the <b>API Key</b> and the <b>API Secret</b> (click the eye icon to show it).</p>
+            <p>2. Go to <b>Settings</b> → <b>Security</b> and tick <b>Allow delivery of PDF and ZIP files</b>, then save. New accounts block PDFs until you do, and your PDF documents won't open without it.</p>
+            <p>3. Open the <b>Dashboard</b> → <b>Product Environment Credentials</b>.</p>
+            <p>4. Copy the <b>Cloud name</b>, the <b>API Key</b> and the <b>API Secret</b> (click the eye icon to show it), and paste them below.</p>
           </div>
           <div>
             <label className="text-xs text-slate-600 font-semibold block mb-1">Cloud name</label>
