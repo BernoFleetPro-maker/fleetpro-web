@@ -49,6 +49,8 @@ export default function SuperAdminPanel({ token, onLogout }) {
           </button>
         </div>
 
+        <DriverFinder tenants={tenants} authHeaders={authHeaders} reload={loadTenants} />
+
         <TenantsTab tenants={tenants} authHeaders={authHeaders} reload={loadTenants} onOpenTenant={setSelectedTenant} loading={loading} />
       </div>
     </div>
@@ -97,6 +99,184 @@ const TRACKING_DEFAULTS = {
   trackingFieldSpeed: "speed", trackingFieldHeading: "heading", trackingFieldTimestamp: "dt",
   trackingTimestampFormat: "excel_serial", trackingResponseArrayPath: "",
 };
+
+// ── FIND A DRIVER BY PHONE — across every company ────────────────────────────
+// A phone number can only be active with one company at a time, and companies
+// don't always delete the drivers who leave them — so from here a number can be
+// found wherever it sits, then deleted there or moved to another company.
+function DriverFinder({ tenants, authHeaders, reload }) {
+  const [phone, setPhone] = useState("");
+  const [results, setResults] = useState(null); // null until the first search
+  const [searched, setSearched] = useState(""); // the text the results on screen are for
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [moveRow, setMoveRow] = useState(null); // id of the row whose "Move to" picker is open
+  const [moveTo, setMoveTo] = useState("");
+  const [busyId, setBusyId] = useState(null);
+
+  const activeCompanies = tenants.filter(t => t.active);
+
+  async function runSearch(text) {
+    setError("");
+    setSearching(true);
+    try {
+      const res = await api.get("/superadmin/drivers/search", { ...authHeaders, params: { phone: text } });
+      setResults(res.data);
+      setSearched(text);
+    } catch (err) {
+      setResults(null);
+      setError(err.response?.data?.error || "Search failed");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function onSubmit(e) {
+    e.preventDefault();
+    setNotice("");
+    setMoveRow(null);
+    runSearch(phone);
+  }
+
+  async function deleteDriver(d) {
+    if (!window.confirm(`Delete ${d.name} from ${d.companyName}?\n\nThey go into that company's Bin (its task history keeps their name), and the number is then free to be added at another company.`)) return;
+    setBusyId(d.id);
+    setError("");
+    setNotice("");
+    try {
+      await api.post(`/superadmin/drivers/${d.id}/remove`, {}, authHeaders);
+      setNotice(`${d.name} was deleted from ${d.companyName}.`);
+      await runSearch(searched);
+      reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Could not delete the driver");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function moveDriver(d) {
+    const target = activeCompanies.find(t => t.id === moveTo);
+    if (!target) return;
+    if (!window.confirm(`Move ${d.name} from ${d.companyName} to ${target.displayName}?\n\n${d.companyName} keeps them in its Bin along with their old tasks and documents; ${target.displayName} gets them as a new driver. They must log out and back in on the driver app.`)) return;
+    setBusyId(d.id);
+    setError("");
+    setNotice("");
+    try {
+      const res = await api.post(`/superadmin/drivers/${d.id}/move`, { toTenantId: target.id }, authHeaders);
+      setNotice(`${d.name} is now at ${res.data.companyName}${res.data.restored ? " (their earlier record there was brought back from its Bin)" : ""}. Tell them to log out and back in on the driver app.`);
+      setMoveRow(null);
+      setMoveTo("");
+      await runSearch(searched);
+      reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Could not move the driver");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className={cardClass}>
+      <h3 className="text-sm font-semibold mb-1">Find a driver by phone number</h3>
+      <p className="text-xs text-slate-500 mb-3">
+        Searches every company at once. A number can only be active with one company, so when a company never deleted a
+        driver who left, find the number here and delete it from that company or move the driver to another one.
+      </p>
+
+      <form onSubmit={onSubmit} className="flex gap-2">
+        <input
+          className={fieldClass}
+          placeholder="Phone number, e.g. 081 520 4020 (at least 4 digits, any format)"
+          value={phone}
+          onChange={e => setPhone(e.target.value)}
+        />
+        <button type="submit" disabled={searching} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm px-4 py-2 rounded">
+          {searching ? "Searching…" : "Search"}
+        </button>
+      </form>
+
+      {error && <p className="text-red-400 text-sm mt-3">{error}</p>}
+      {notice && <p className="text-green-400 text-sm mt-3">{notice}</p>}
+
+      {results && (
+        results.length === 0 ? (
+          <p className="text-slate-500 text-sm mt-3">No driver found with “{searched}” in their number.</p>
+        ) : (
+          <table className="w-full text-sm mt-4">
+            <thead>
+              <tr className="text-slate-400 border-b border-slate-700">
+                <th className="text-left py-2">Company</th>
+                <th className="text-left py-2">Driver</th>
+                <th className="text-left py-2">Phone</th>
+                <th className="text-left py-2">Status</th>
+                <th className="text-left py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map(d => (
+                <React.Fragment key={d.id}>
+                  <tr className="border-b border-slate-800">
+                    <td className="py-2">{d.companyName}</td>
+                    <td className="py-2 font-medium">{d.name}</td>
+                    <td className="py-2 text-slate-300">{d.phone}</td>
+                    <td className="py-2">
+                      {d.inBin
+                        ? <span className="text-xs bg-amber-900/60 text-amber-200 px-2 py-0.5 rounded">In its Bin</span>
+                        : <span className="text-xs bg-green-900/60 text-green-200 px-2 py-0.5 rounded">Active</span>}
+                    </td>
+                    <td className="py-2 text-right whitespace-nowrap">
+                      {!d.inBin && (
+                        <button
+                          disabled={busyId === d.id}
+                          onClick={() => deleteDriver(d)}
+                          className="bg-red-900 hover:bg-red-800 disabled:opacity-50 text-red-200 text-xs px-3 py-1 rounded mr-2"
+                        >
+                          Delete
+                        </button>
+                      )}
+                      <button
+                        disabled={busyId === d.id}
+                        onClick={() => { setMoveRow(moveRow === d.id ? null : d.id); setMoveTo(""); }}
+                        className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs px-3 py-1 rounded"
+                      >
+                        Move to another company
+                      </button>
+                    </td>
+                  </tr>
+                  {moveRow === d.id && (
+                    <tr className="border-b border-slate-800 bg-slate-800/40">
+                      <td colSpan={5} className="py-3 px-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400 text-xs">Move {d.name} to:</span>
+                          <select className={fieldClass + " max-w-xs"} value={moveTo} onChange={e => setMoveTo(e.target.value)}>
+                            <option value="">Choose a company…</option>
+                            {activeCompanies.filter(t => t.id !== d.companyId).map(t => (
+                              <option key={t.id} value={t.id}>{t.displayName}</option>
+                            ))}
+                          </select>
+                          <button
+                            disabled={!moveTo || busyId === d.id}
+                            onClick={() => moveDriver(d)}
+                            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs px-3 py-2 rounded"
+                          >
+                            Move
+                          </button>
+                          <button onClick={() => setMoveRow(null)} className="text-xs text-slate-400 hover:text-white underline">Cancel</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+    </div>
+  );
+}
 
 // ── TENANTS LIST ──────────────────────────────────────────────────────────────
 function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
