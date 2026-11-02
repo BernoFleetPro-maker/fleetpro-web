@@ -100,6 +100,13 @@ const TRACKING_DEFAULTS = {
   trackingTimestampFormat: "excel_serial", trackingResponseArrayPath: "",
 };
 
+// Which file storage a company has connected (never any keys — see storageRoutes.js).
+function StorageChip({ storage }) {
+  if (storage?.provider === "cloudinary") return <span className="text-xs bg-green-900/60 text-green-200 px-2 py-0.5 rounded">Own Cloudinary</span>;
+  if (storage?.provider === "platform") return <span className="text-xs bg-slate-700 text-slate-200 px-2 py-0.5 rounded">FleetPro shared</span>;
+  return <span className="text-xs bg-amber-900/60 text-amber-200 px-2 py-0.5 rounded">Not set up</span>;
+}
+
 // ── FIND A DRIVER BY PHONE — across every company ────────────────────────────
 // A phone number can only be active with one company at a time, and companies
 // don't always delete the drivers who leave them — so from here a number can be
@@ -411,6 +418,7 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
               <th className="text-left py-2">Drivers</th>
               <th className="text-left py-2">Tasks</th>
               <th className="text-left py-2">Vehicles</th>
+              <th className="text-left py-2">File storage</th>
               <th className="text-left py-2"></th>
             </tr>
           </thead>
@@ -427,6 +435,7 @@ function TenantsTab({ tenants, authHeaders, reload, onOpenTenant, loading }) {
                 <td className="py-2">{t._count.drivers}</td>
                 <td className="py-2">{t._count.tasks}</td>
                 <td className="py-2">{t._count.vehicles}</td>
+                <td className="py-2"><StorageChip storage={t.storage} /></td>
                 <td className="py-2">
                   {showArchived ? (
                     <button onClick={() => restoreTenant(t.id)} className="bg-green-900 hover:bg-green-800 text-green-200 text-xs px-3 py-1 rounded">
@@ -520,6 +529,21 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
       reload();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to update features");
+    }
+  }
+
+  // Only for Kudu and test companies — a real client connects its own storage.
+  async function setSharedStorage(on) {
+    const q = on
+      ? `Put ${tenant.displayName} on FleetPro's shared storage?\n\nOnly for FleetPro's own company and test companies. A real client should connect its own storage in Settings instead, so its files never share an account with anyone else's.`
+      : `Switch ${tenant.displayName} off FleetPro's shared storage?\n\nIt won't be able to save new photos or documents until its admin connects its own storage in Settings. Files already saved stay where they are.`;
+    if (!window.confirm(q)) return;
+    setError("");
+    try {
+      await api.put(`/superadmin/tenants/${tenant.id}/storage`, { platform: on }, authHeaders);
+      reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to update file storage");
     }
   }
 
@@ -749,6 +773,40 @@ function TenantDetailView({ tenant, authHeaders, onBack, onLogout, reload }) {
                 </span>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* File storage card — which storage is connected; never the keys */}
+        <div className={cardClass}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-semibold">File storage</h3>
+            <StorageChip storage={tenant.storage} />
+          </div>
+          {tenant.storage?.provider === "cloudinary" && (
+            <p className="text-sm text-slate-300">
+              Connected to the company's own Cloudinary account <span className="font-mono text-slate-400">({tenant.storage.cloudName})</span>.
+              {tenant.storage.lastError && <span className="block text-xs text-red-400 mt-1">Last check failed: {tenant.storage.lastError}</span>}
+            </p>
+          )}
+          {tenant.storage?.provider === "platform" && (
+            <p className="text-sm text-slate-300">Using FleetPro's shared storage — for FleetPro's own company and test companies only.</p>
+          )}
+          {!tenant.storage && (
+            <p className="text-sm text-amber-300">
+              Not set up — this company can't save photos or documents until its own admin connects storage under Settings → File storage.
+              Add this to every new company's onboarding.
+            </p>
+          )}
+          <p className="text-xs text-slate-500 mt-2">The company's storage keys are entered by its own admin and are never shown here.</p>
+          {!tenant.storage && (
+            <button onClick={() => setSharedStorage(true)} className="mt-3 bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">
+              Use FleetPro's shared storage (test companies only)
+            </button>
+          )}
+          {tenant.storage?.provider === "platform" && (
+            <button onClick={() => setSharedStorage(false)} className="mt-3 bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded">
+              Switch off shared storage
+            </button>
           )}
         </div>
 

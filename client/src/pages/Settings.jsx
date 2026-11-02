@@ -220,6 +220,168 @@ function WhatsappBotSettings() {
   );
 }
 
+// Admin-only. Where THIS company's uploaded files (delivery photos, driver /
+// vehicle / trailer documents, fuel photos, Pay slips) are kept. Every company
+// connects its own storage when it is set up — until it has, photos and
+// documents can't be saved. The keys are tested, saved encrypted, and never
+// shown again (the server only ever says which account is connected).
+function FileStorageSettings() {
+  const [info, setInfo] = useState(null);   // { connected, provider, cloudName, lastTestedAt, lastError }
+  const [loadError, setLoadError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ cloudName: "", apiKey: "", apiSecret: "" });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [msg, setMsg] = useState({ type: "", text: "" });
+
+  const load = async () => {
+    try {
+      const res = await authFetch(`${API}/storage`);
+      if (!res.ok) throw new Error();
+      setInfo(await res.json());
+      setLoadError("");
+    } catch {
+      setLoadError("Could not load your file storage settings.");
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const submit = async (confirmChange) => {
+    const res = await authFetch(`${API}/storage/cloudinary`, { method: "PUT", body: JSON.stringify({ ...form, confirmChange }) });
+    return { res, data: await res.json().catch(() => ({})) };
+  };
+
+  const connect = async (e) => {
+    e.preventDefault();
+    setMsg({ type: "", text: "" });
+    setSaving(true);
+    try {
+      let { res, data } = await submit(false);
+      if (res.status === 409 && data.needsConfirm) {
+        if (!window.confirm(data.error)) return;
+        ({ res, data } = await submit(true));
+      }
+      if (!res.ok) { setMsg({ type: "error", text: data.error || "Could not connect that account." }); return; }
+      setInfo(data);
+      setEditing(false);
+      setForm({ cloudName: "", apiKey: "", apiSecret: "" });
+      setMsg({ type: "ok", text: "Connected. From now on, photos and documents are saved to your own Cloudinary account." });
+    } catch {
+      setMsg({ type: "error", text: "Could not reach FleetPro. Check your connection and try again." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const retest = async () => {
+    setMsg({ type: "", text: "" });
+    setTesting(true);
+    try {
+      const res = await authFetch(`${API}/storage/test`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg({ type: "error", text: data.error || "The test failed." }); await load(); return; }
+      setInfo(data);
+      setMsg({ type: "ok", text: "Test passed — your storage is working." });
+    } catch {
+      setMsg({ type: "error", text: "Could not reach FleetPro. Check your connection and try again." });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const inputClass = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500";
+  const notSetUp = info && !info.connected;
+  const own = info?.connected && info.provider === "cloudinary";
+  const shared = info?.connected && info.provider === "platform";
+
+  return (
+    <div className={`border rounded-xl p-5 ${notSetUp ? "bg-amber-50 border-amber-300" : "bg-blue-50 border-blue-200"}`}>
+      <h3 className="font-semibold text-slate-800 mb-2">🗂️ File storage</h3>
+      <p className="text-xs text-slate-500 mb-3">
+        Where your company's delivery photos, driver, vehicle and trailer documents, fuel photos and Pay slips are kept.
+        They go to storage that belongs to you, not to anyone else's account.
+      </p>
+
+      {loadError && <p className="text-sm text-red-600">{loadError}</p>}
+      {!info && !loadError && <p className="text-sm text-slate-400 animate-pulse">Loading…</p>}
+
+      {notSetUp && (
+        <p className="text-sm font-semibold text-amber-800 mb-2">
+          ⚠️ Not set up yet — photos and documents can't be saved until you connect your storage.
+        </p>
+      )}
+      {own && (
+        <div className="mb-2">
+          <p className="text-sm font-semibold text-green-700">✅ Connected to your Cloudinary account</p>
+          <p className="text-xs text-slate-500 mt-1">Cloud name: <span className="font-mono">{info.cloudName}</span>
+            {info.lastTestedAt && <> · last checked {new Date(info.lastTestedAt).toLocaleString("en-ZA")}</>}
+          </p>
+          {info.lastError && <p className="text-xs text-red-600 mt-1">Last check failed: {info.lastError}</p>}
+        </div>
+      )}
+      {shared && (
+        <p className="text-sm text-slate-700 mb-2">
+          Using FleetPro's shared storage (set up by FleetPro for testing). Connect your own account below to keep your files separate.
+        </p>
+      )}
+
+      {msg.text && <p className={`text-sm mb-2 ${msg.type === "ok" ? "text-green-700" : "text-red-600"}`}>{msg.text}</p>}
+
+      {info && !editing && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          <button onClick={() => { setEditing(true); setMsg({ type: "", text: "" }); }}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+            {notSetUp ? "Connect Cloudinary" : own ? "Change account" : "Connect your own Cloudinary"}
+          </button>
+          {own && (
+            <button onClick={retest} disabled={testing}
+              className="bg-slate-200 hover:bg-slate-300 disabled:opacity-60 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold">
+              {testing ? "Testing…" : "Test again"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <form onSubmit={connect} className="mt-3 space-y-3">
+          <div className="bg-white border border-slate-200 rounded-lg p-3 text-xs text-slate-600 space-y-1">
+            <p className="font-semibold text-slate-700">Where to find these three things</p>
+            <p>1. Log in at <span className="font-mono">cloudinary.com</span> (a free account is fine — sign up if you don't have one).</p>
+            <p>2. Open the <b>Dashboard</b> → <b>Product Environment Credentials</b>.</p>
+            <p>3. Copy the <b>Cloud name</b>, the <b>API Key</b> and the <b>API Secret</b> (click the eye icon to show it).</p>
+          </div>
+          <div>
+            <label className="text-xs text-slate-600 font-semibold block mb-1">Cloud name</label>
+            <input className={inputClass} value={form.cloudName} onChange={e => setForm({ ...form, cloudName: e.target.value })} placeholder="e.g. my-company" autoComplete="off" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-600 font-semibold block mb-1">API Key</label>
+            <input className={inputClass} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} placeholder="e.g. 123456789012345" autoComplete="off" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-600 font-semibold block mb-1">API Secret</label>
+            <input className={inputClass} type="password" value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} placeholder="Paste your API secret" autoComplete="new-password" />
+          </div>
+          <p className="text-[11px] text-slate-500">
+            We'll check them with a small test upload before saving. They're stored encrypted and never shown again — not to your staff,
+            your clients, or on FleetPro's Super Admin screen.
+          </p>
+          <div className="flex gap-2">
+            <button type="submit" disabled={saving}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+              {saving ? "Testing…" : "Test and connect"}
+            </button>
+            <button type="button" onClick={() => { setEditing(false); setMsg({ type: "", text: "" }); }}
+              className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 export default function Settings({ canUseFeature = () => true }) {
   // Change password state
   const [pwCurrent, setPwCurrent] = useState("");
@@ -384,6 +546,13 @@ export default function Settings({ canUseFeature = () => true }) {
         </ul>
         <p className="text-xs text-amber-600 mt-2">To change, update these in Railway project settings and redeploy.</p>
       </div>
+      )}
+
+      {/* File storage — the company admin only (the keys are the company's own) */}
+      {role === "admin" && payload?.tenantId && (
+        <div className="mt-6">
+          <FileStorageSettings />
+        </div>
       )}
 
       {/* WhatsApp bot — admin only, matches the backend's own gate on status/qr */}
