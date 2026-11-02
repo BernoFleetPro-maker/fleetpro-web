@@ -659,7 +659,7 @@ function TruckOverview({ report, onPick }) {
 
 function ReportsTab() {
   const [group, setGroup] = useState("month");
-  const [range, setRange] = useState(() => ({ preset: "3_months", ...presetRange("3_months") }));
+  const [range, setRange] = useState(() => ({ preset: "this_month", ...presetRange("this_month") }));
   const [report, setReport] = useState(null);
   const [error, setError] = useState("");
   const [truck, setTruck] = useState("");   // "" = all trucks, else truckKey()
