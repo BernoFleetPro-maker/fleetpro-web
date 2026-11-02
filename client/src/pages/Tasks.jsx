@@ -209,7 +209,7 @@ function PodModal({ task, drivers, vehicles, onClose }) {
               <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">🏁 Dropoff Location</div><div className="text-white text-sm font-medium">{task.dropoffLocation || "—"}</div></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">👤 Driver</div><div className="text-white text-sm">{driver?.name || "—"}</div></div>
+              <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">👤 Driver</div><div className="text-white text-sm">{driver?.name || task.assignedDriver?.name || "—"}</div></div>
               <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">🚛 Vehicle</div><div className="text-white text-sm">{vehicle?.registration || "—"}</div></div>
             </div>
             {task.notes && <div className="bg-slate-800 rounded-lg p-3"><div className="text-xs text-slate-400 mb-1">📝 Driver Notes</div><div className="text-white text-sm">{task.notes}</div></div>}
@@ -602,7 +602,9 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
     return acc;
   }, {});
 
-  const driverName    = (id) => drivers.find(d => d.id === id)?.name || "—";
+  // A removed driver isn't in the active `drivers` list any more, but every task
+  // carries its driver's name from the server — so history never goes blank.
+  const driverName    = (task) => drivers.find(d => d.id === task.assignedDriverId)?.name || task.assignedDriver?.name || "—";
   const vehicleReg    = (id) => vehicles.find(v => v.id === id)?.registration || "—";
 
   // Search matches order number, title, load/dropoff location, and notes —
@@ -857,7 +859,7 @@ export default function Tasks({ role = "admin", clientId = null, permissions = n
                       </div>
                       <div className="text-slate-400 truncate mt-0.5">📍{task.loadLocation || "—"} → 🏁{task.dropoffLocation || "—"}</div>
                       <div className="text-slate-400 truncate mt-0.5">
-                        👤 {task.assignedDriverId ? driverName(task.assignedDriverId) : <span className="italic text-slate-500">Unassigned</span>}
+                        👤 {task.assignedDriverId ? driverName(task) : <span className="italic text-slate-500">Unassigned</span>}
                         {"  "}🚛 {task.vehicleId ? vehicleReg(task.vehicleId) : <span className="italic text-slate-500">—</span>}
                       </div>
                       {(task.date || task.pickupTime) && (

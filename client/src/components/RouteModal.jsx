@@ -139,7 +139,7 @@ export default function RouteModal({ task, drivers, vehicles, driverName: driver
   }, [task?.id]);
 
   const fmt = (d) => d ? new Date(d).toLocaleString("en-ZA") : "—";
-  const driverName = driverNameProp || drivers?.find(d => d.id === task?.assignedDriverId)?.name || "—";
+  const driverName = driverNameProp || drivers?.find(d => d.id === task?.assignedDriverId)?.name || task?.assignedDriver?.name || "—";
   const vehicleReg  = vehicleRegProp || vehicles?.find(v => v.id === task?.vehicleId)?.registration || "—";
 
   useEffect(() => {

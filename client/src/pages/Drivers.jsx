@@ -446,7 +446,7 @@ function BinModal({ onClose, onChange }) {
   };
 
   const handlePermanentDelete = async (id, name) => {
-    if (!window.confirm(`Permanently delete ${name}? This cannot be undone.`)) return;
+    if (!window.confirm(`Permanently delete ${name}?\n\nTheir phone number, login and documents are erased and this cannot be undone. Their name stays on old tasks, so your history is kept.`)) return;
     setBusyId(id);
     setModalError("");
     try {
@@ -478,7 +478,7 @@ function BinModal({ onClose, onChange }) {
             <div className="bg-red-950 border border-red-800 text-red-300 text-sm px-3 py-2 rounded">{modalError}</div>
           )}
           <p className="text-xs text-slate-500">
-            Deleted drivers are kept here for 12 months and can be restored. After that they're removed automatically.
+            Deleted drivers are kept here for 12 months and can be restored with their task history. After that they're removed automatically — their name stays on old tasks, but their phone number, login and documents are erased.
           </p>
 
           {loading ? (
