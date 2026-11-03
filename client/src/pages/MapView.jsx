@@ -561,6 +561,10 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
 
         const mapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
         const shareText = `📍 ${reg} current location:\n${mapsUrl}`;
+        // Desktop browsers (Chrome/Edge on Windows) also have navigator.share,
+        // but their share sheet has no "copy" — so Copy is its own button and
+        // Share is an extra, shown only where it exists.
+        const canShare = typeof navigator.share === "function";
 
         const menu = document.createElement("div");
         menu.id = "fp-loc-menu";
@@ -573,9 +577,12 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
               <button id="fp-open-maps" style="background:#34a853;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">
                 🗺 Open in Google Maps
               </button>
-              <button id="fp-share-link" style="background:#1e88e5;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">
-                📤 Share / Copy Link
+              <button id="fp-copy-link" style="background:#1e88e5;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">
+                📋 Copy location
               </button>
+              ${canShare ? `<button id="fp-share-link" style="background:#334155;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">
+                📤 Share…
+              </button>` : ""}
             </div>
             <button id="fp-loc-cancel" style="margin-top:10px;width:100%;background:transparent;color:#64748b;border:none;font-size:12px;cursor:pointer;padding:4px;">Cancel</button>
           </div>`;
@@ -587,18 +594,24 @@ export default function MapView({ role = "admin", clientId = null, canUseFeature
           menu.remove();
         };
 
-        document.getElementById("fp-share-link").onclick = () => {
-          if (navigator.share) {
-            // shareText already embeds mapsUrl — a separate `url` field here
-            // gets appended after `text` by share targets like WhatsApp on
-            // Android, showing the same link twice.
-            navigator.share({ title: `${reg} Location`, text: shareText }).catch(() => {});
-          } else {
-            navigator.clipboard.writeText(shareText).then(() => {
-              document.getElementById("fp-share-link").textContent = "✅ Copied!";
-              setTimeout(() => menu.remove(), 1200);
-            }).catch(() => { window.prompt("Copy this link:", mapsUrl); menu.remove(); });
-          }
+        document.getElementById("fp-copy-link").onclick = () => {
+          const copied = navigator.clipboard?.writeText
+            ? navigator.clipboard.writeText(shareText)
+            : Promise.reject(new Error("clipboard unavailable"));
+          copied.then(() => {
+            document.getElementById("fp-copy-link").textContent = "✅ Copied — now paste it";
+            setTimeout(() => menu.remove(), 1500);
+          }).catch(() => { window.prompt("Copy this link:", mapsUrl); menu.remove(); });
+        };
+
+        const shareBtn = document.getElementById("fp-share-link");
+        if (shareBtn) shareBtn.onclick = () => {
+          // shareText already embeds mapsUrl — a separate `url` field here
+          // gets appended after `text` by share targets like WhatsApp on
+          // Android, showing the same link twice.
+          // Closes once the share went through; a cancelled share (the promise
+          // rejects) leaves the menu open so Copy is still one click away.
+          navigator.share({ title: `${reg} Location`, text: shareText }).then(() => menu.remove()).catch(() => {});
         };
 
         document.getElementById("fp-loc-cancel").onclick = () => menu.remove();
