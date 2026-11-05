@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-
 const COLORS = {
   bg: "#0B0F17",
   panel: "#121826",
@@ -17,27 +15,18 @@ const FONT_IMPORT_URL =
 const PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=com.bernostrubing.fleetprodriverapp";
 
-// Real https:// landing page for a driver invite — exists specifically
-// because WhatsApp (and most chat apps) won't turn a custom-scheme link
-// like fleetprodriver://invite/<token> into something tappable, but will
-// always linkify a normal https link. This page just re-issues that same
-// custom-scheme redirect from inside a real browser tab, which the app is
-// already listening for (App.tsx's Linking handler) — no app update
-// needed for this to work. If nothing installed catches the redirect,
-// the page reveals a Play Store fallback instead of looking broken.
+// Real https:// landing page for a driver invite — exists because WhatsApp
+// (and most chat apps) won't turn a custom-scheme link like
+// fleetprodriver://invite/<token> into something tappable, but will always
+// linkify a normal https link.
+//
+// It deliberately does NOT open the app by itself: the office also sends
+// this link to get drivers onto the latest version, and jumping straight
+// into an old installed app skipped the Play Store. So the page shows two
+// steps — 1. install/update on Google Play, 2. open the app, which hands it
+// the invite (App.tsx's Linking handler).
 export default function InviteRedirectPage({ token }) {
-  const [showFallback, setShowFallback] = useState(false);
   const appLink = `fleetprodriver://invite/${token}`;
-
-  useEffect(() => {
-    // Most mobile browsers only honour a custom-scheme navigation as a
-    // direct result of a user gesture — a plain page-load redirect is
-    // often silently swallowed. Firing it anyway costs nothing when it's
-    // blocked, and catches the browsers that do allow it.
-    window.location.href = appLink;
-    const t = setTimeout(() => setShowFallback(true), 1500);
-    return () => clearTimeout(t);
-  }, [appLink]);
 
   return (
     <div style={{ background: COLORS.bg, color: COLORS.text, fontFamily: "'Inter', sans-serif", minHeight: "100vh" }}>
@@ -53,42 +42,26 @@ export default function InviteRedirectPage({ token }) {
         .fp-btn:active { opacity: 0.85; }
         .fp-btn-solid { background: ${COLORS.blue}; color: #fff; }
         .fp-btn-outline { background: transparent; color: ${COLORS.text}; border-color: ${COLORS.line}; }
-        .fp-spinner {
-          width: 28px; height: 28px; border-radius: 50%;
-          border: 3px solid ${COLORS.line}; border-top-color: ${COLORS.blueLight};
-          animation: fp-spin 0.8s linear infinite;
-        }
-        @keyframes fp-spin { to { transform: rotate(360deg); } }
-        @media (prefers-reduced-motion: reduce) {
-          .fp-spinner { animation: none; }
-        }
+        .fp-step { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: ${COLORS.blueLight}; }
+        .fp-step-text { font-size: 14.5px; line-height: 1.5; color: ${COLORS.textMuted}; margin: 6px 0 14px; }
       `}</style>
 
       <div style={{ maxWidth: 420, margin: "0 auto", padding: "20vh 24px 40px", textAlign: "center" }}>
         <div style={{ fontWeight: 700, fontSize: 19, marginBottom: 40 }}>FleetPro Driver</div>
 
-        {!showFallback ? (
-          <>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
-              <div className="fp-spinner" />
-            </div>
-            <p style={{ fontSize: 14.5, color: COLORS.textMuted, margin: 0 }}>
-              Opening the app&hellip;
-            </p>
-          </>
-        ) : (
-          <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: 28 }}>
-            <p style={{ fontSize: 14.5, lineHeight: 1.6, color: COLORS.textMuted, margin: "0 0 20px" }}>
-              If nothing happened, use the button below — or install the app first if you don't have it yet.
-            </p>
-            <a className="fp-btn fp-btn-solid" href={appLink} style={{ marginBottom: 12 }}>
-              Open FleetPro Driver
-            </a>
-            <a className="fp-btn fp-btn-outline" href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">
-              Get the app on Google Play
-            </a>
-          </div>
-        )}
+        <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: 28, textAlign: "left" }}>
+          <div className="fp-step">Step 1</div>
+          <p className="fp-step-text">Install FleetPro Driver, or update it if you already have it.</p>
+          <a className="fp-btn fp-btn-solid" href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">
+            Install / Update on Google Play
+          </a>
+
+          <div className="fp-step" style={{ marginTop: 28 }}>Step 2</div>
+          <p className="fp-step-text">Come back to this page and open the app to connect to your company.</p>
+          <a className="fp-btn fp-btn-outline" href={appLink}>
+            Open FleetPro Driver
+          </a>
+        </div>
       </div>
     </div>
   );
