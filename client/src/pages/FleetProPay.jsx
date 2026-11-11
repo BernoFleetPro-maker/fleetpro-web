@@ -64,7 +64,59 @@ const AUDIT_ACTIONS = {
   card_unfrozen:      "Card unfrozen",
   card_cancelled:     "Card cancelled",
   provider_changed:   "Bank login changed",
+  card_demo_on:       "Demo mode on",
+  card_demo_off:      "Demo mode off",
+  demo_cleared:       "Demo payments deleted",
 };
+
+// Demo mode (Kudu admin only, see payDemo.service.js on the backend):
+// anything a demo recorded carries this badge.
+function DemoBadge() {
+  return <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 align-middle">DEMO</span>;
+}
+
+// "Simulate tap" — stands in for holding the phone to a card machine. The
+// backend runs FleetPro's real card code on it, so it can be declined too.
+function DemoTapModal({ card, onClose, onDone }) {
+  const [amount, setAmount] = useState("");
+  const [merchant, setMerchant] = useState("Engen Truck Stop");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function tap(e) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try {
+      const r = await api.post(`/pay/cards/${card.id}/demo-tap`, { amount, merchant }, authHeaders());
+      onDone(r.data.approved
+        ? `Approved: ${money(r.data.transaction?.amount)} at ${r.data.transaction?.merchantName}. The card is locked again.`
+        : `Declined: ${DECLINE_REASONS[r.data.reason] || r.data.reason || "declined"}.`);
+    } catch (err) {
+      setError(errorText(err, "The demo tap didn't work"));
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <form onSubmit={tap} onClick={e => e.stopPropagation()} className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 space-y-3">
+        <h3 className="font-semibold text-slate-800">Simulate tap <DemoBadge /></h3>
+        <p className="text-xs text-slate-500">
+          Like {card.driver?.name || "the driver"} holding the phone to a card machine. It's only approved in the 60 seconds after they tap PAY in the app, and within the limit.
+        </p>
+        <input autoFocus required inputMode="decimal" placeholder="Amount, e.g. 1250" value={amount} onChange={e => setAmount(e.target.value)}
+          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+        <input placeholder="Shop name" value={merchant} onChange={e => setMerchant(e.target.value)}
+          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="text-sm px-4 py-2 rounded-lg border border-slate-300">Close</button>
+          <button disabled={busy} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+            {busy ? "Tapping…" : "Tap"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 function StatusBadge({ card }) {
   const s = STATUS_STYLES[card.status] || { label: card.status, cls: "bg-slate-100 text-slate-600" };
@@ -778,6 +830,7 @@ function CardsTab({ access }) {
   const [assigning, setAssigning] = useState(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [demoTapCard, setDemoTapCard] = useState(null);
   const bank = access.provider !== "none";
 
   async function load() {
@@ -838,6 +891,21 @@ function CardsTab({ access }) {
     });
   };
 
+  const switchDemo = (card, on) => {
+    if (on && !window.confirm(`Switch ${cardName(card)} to demo mode? It won't use the bank: ${card.driver?.name || "its driver"} gets a "tap card machine" button in the app, and every payment is marked DEMO until you delete them.`)) return;
+    bankAction("demo-" + card.id, async () => {
+      await api.post(`/pay/cards/${card.id}/demo`, { on }, authHeaders());
+      return on ? `${cardName(card)} is in demo mode.` : `${cardName(card)} is back to normal. Demo payments stay until you delete them.`;
+    });
+  };
+  const clearDemo = () => {
+    if (!window.confirm("Delete all demo payments, demo pay taps and their slip photos? Real payments are not touched.")) return;
+    bankAction("clear-demo", async () => {
+      const r = await api.post("/pay/demo/clear", {}, authHeaders());
+      return `Deleted ${r.data.payments} demo payment${r.data.payments === 1 ? "" : "s"} and ${r.data.taps} demo pay tap${r.data.taps === 1 ? "" : "s"}.`;
+    });
+  };
+
   const unassignedCount = cards.filter(c => !c.driver).length;
   return (
     <div>
@@ -858,6 +926,12 @@ function CardsTab({ access }) {
                   {busy === "sync" ? "Syncing…" : "Sync cards from bank"}
                 </button>
               </>
+            )}
+            {access.demo && (
+              <button onClick={clearDemo} disabled={!!busy}
+                className="bg-white border border-purple-300 hover:bg-purple-50 disabled:opacity-50 text-purple-700 text-sm font-semibold px-4 py-2 rounded-lg">
+                {busy === "clear-demo" ? "Deleting…" : "Delete demo payments"}
+              </button>
             )}
             <button onClick={() => setForm({})} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">
               + Add card
@@ -902,7 +976,7 @@ function CardsTab({ access }) {
                     <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">Unassigned</span>
                   )}
                 </td>
-                <td className="px-4 py-3"><StatusBadge card={card} /></td>
+                <td className="px-4 py-3"><StatusBadge card={card} />{card.provider === "demo" && <DemoBadge />}</td>
                 <td className="px-4 py-3"><SpendBar spent={card.spentToday} limit={card.dailyLimit} /></td>
                 <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{money(card.spentThisWeek)}</td>
                 <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
@@ -930,6 +1004,14 @@ function CardsTab({ access }) {
                       <button onClick={() => act(card, "cancel")} className="text-red-600 hover:underline text-xs font-semibold">Cancel</button>
                     </>
                   )}
+                  {access.demo && card.status !== "cancelled" && (card.provider === "demo" ? (
+                    <>
+                      <button onClick={() => setDemoTapCard(card)} className="text-purple-700 hover:underline text-xs font-semibold">Simulate tap</button>
+                      <button onClick={() => switchDemo(card, false)} disabled={!!busy} className="text-purple-700 hover:underline text-xs font-semibold">Demo off</button>
+                    </>
+                  ) : card.status !== "frozen" && (
+                    <button onClick={() => switchDemo(card, true)} disabled={!!busy} className="text-purple-700 hover:underline text-xs font-semibold">Demo mode</button>
+                  ))}
                 </td>
               </tr>
             ))}
@@ -943,6 +1025,10 @@ function CardsTab({ access }) {
       {assigning && (
         <AssignModal card={assigning} drivers={drivers} canManage={access.canManage}
           onClose={() => setAssigning(null)} onSaved={() => { setAssigning(null); load(); }} />
+      )}
+      {demoTapCard && (
+        <DemoTapModal card={demoTapCard} onClose={() => setDemoTapCard(null)}
+          onDone={(msg) => { setDemoTapCard(null); setError(""); setNotice(msg); load(); }} />
       )}
     </div>
   );
@@ -1045,6 +1131,7 @@ function PaymentsTab({ categories }) {
                 <td className="px-4 py-2">
                   {t.merchantName}
                   {t.merchantCity && <span className="text-xs text-slate-400"> · {t.merchantCity}</span>}
+                  {t.demo && <DemoBadge />}
                 </td>
                 <td className="px-4 py-2"><CategoryChip category={t.category} label={catLabel[t.category]} /></td>
                 <td className={`px-4 py-2 text-right font-medium ${t.status === "approved" ? "text-slate-800" : "text-slate-400 line-through"}`}>{money(t.amount)}</td>
@@ -1149,6 +1236,7 @@ function SessionsTab({ categories }) {
                     <span className={s.transaction.status === "approved" ? "text-slate-800" : "text-red-600"}>
                       {money(s.transaction.amount)} · {s.transaction.merchantName}
                       {s.transaction.status !== "approved" && ` (${s.transaction.status})`}
+                      {s.transaction.demo && <DemoBadge />}
                     </span>
                   ) : <span className="text-slate-400">No payment came through</span>}
                 </td>
