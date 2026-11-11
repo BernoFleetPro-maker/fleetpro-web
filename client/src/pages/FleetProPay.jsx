@@ -118,6 +118,19 @@ function DemoTapModal({ card, onClose, onDone }) {
   );
 }
 
+// Whether the driver's phone can tap to pay, as the driver app last reported.
+// Nothing shown until the driver has a version of the app that checks.
+const NFC_NOTE = {
+  none: { text: "No NFC: can't tap to pay", cls: "text-red-600" },
+  off:  { text: "NFC switched off", cls: "text-amber-700" },
+  on:   { text: "Can tap to pay ✓", cls: "text-green-700" },
+};
+function NfcNote({ driver }) {
+  const n = NFC_NOTE[driver?.nfcStatus];
+  if (!n) return null;
+  return <div className={`text-xs font-medium mt-0.5 ${n.cls}`} title={driver.nfcCheckedAt ? `Checked ${when(driver.nfcCheckedAt)}` : undefined}>{n.text}</div>;
+}
+
 function StatusBadge({ card }) {
   const s = STATUS_STYLES[card.status] || { label: card.status, cls: "bg-slate-100 text-slate-600" };
   return (
@@ -971,6 +984,7 @@ function CardsTab({ access }) {
                     <div>
                       <div className="text-slate-800">{card.driver.name}</div>
                       <div className="text-xs text-slate-400">{card.driver.phone}</div>
+                      <NfcNote driver={card.driver} />
                     </div>
                   ) : (
                     <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">Unassigned</span>
