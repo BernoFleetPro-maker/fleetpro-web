@@ -349,6 +349,7 @@ function FillsTab({ options }) {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(null);   // fill, or "new"
   const [viewer, setViewer] = useState(null);
+  const [sort, setSort] = useState({ key: null, desc: false });
 
   async function load() {
     if (!range.from || !range.to) return;
@@ -400,6 +401,31 @@ function FillsTab({ options }) {
     segKm: s.segKm + (f.segmentKm || 0), segLitres: s.segLitres + (f.segmentLitres || 0),
   }), { truck: 0, trailer: 0, cost: 0, km: 0, segKm: 0, segLitres: 0 }), [fills]);
 
+  const FILL_SORTS = {
+    odometerKm:  { get: f => f.odometerKm },
+    kmSinceLast: { get: f => f.kmSinceLast },
+    truckLitres: { get: f => f.truckLitres },
+    kmPerLitre:  { get: f => f.kmPerLitre },
+    totalCost:   { get: f => f.totalCost },
+  };
+  const clickSort = (key) => setSort(s => s.key === key ? { key, desc: !s.desc } : { key, desc: true });
+  const sorted = useMemo(() => {
+    if (!sort.key || !fills) return fills;
+    const { get } = FILL_SORTS[sort.key];
+    return [...fills].sort((a, b) => {
+      const va = get(a), vb = get(b);
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      return sort.desc ? vb - va : va - vb;
+    });
+  }, [fills, sort]);
+  const fillTh = (key, label, className = "") => (
+    <th className={`px-3 py-2 cursor-pointer select-none whitespace-nowrap hover:text-slate-700 ${className}`} onClick={() => clickSort(key)}>
+      {label}{sort.key === key ? (sort.desc ? " ▾" : " ▴") : ""}
+    </th>
+  );
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -437,13 +463,13 @@ function FillsTab({ options }) {
             <tr>
               <th className="text-left px-3 py-2">Date</th>
               <th className="text-left px-3 py-2">Truck</th>
-              <th className="text-right px-3 py-2">Odometer</th>
-              <th className="text-right px-3 py-2">km since last</th>
-              <th className="text-right px-3 py-2">Truck litres</th>
-              <th className="text-right px-3 py-2">km/L</th>
+              {fillTh("odometerKm", "Odometer", "text-right")}
+              {fillTh("kmSinceLast", "km since last", "text-right")}
+              {fillTh("truckLitres", "Truck litres", "text-right")}
+              {fillTh("kmPerLitre", "km/L", "text-right")}
               <th className="text-left px-3 py-2">Trailer</th>
               <th className="text-right px-3 py-2">Price/L</th>
-              <th className="text-right px-3 py-2">Total</th>
+              {fillTh("totalCost", "Total", "text-right")}
               <th className="text-left px-3 py-2">Station</th>
               <th className="text-left px-3 py-2">Driver</th>
               <th className="text-left px-3 py-2">Photos</th>
@@ -453,7 +479,7 @@ function FillsTab({ options }) {
           <tbody>
             {fills === null && <tr><td colSpan={13} className="px-3 py-6 text-center text-slate-400">Loading…</td></tr>}
             {fills?.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-slate-400">{showRemoved ? "Nothing removed in this period." : "No fill-ups in this period."}</td></tr>}
-            {fills?.map(f => (
+            {sorted?.map(f => (
               <tr key={f.id} className={`border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${f.deletedAt ? "opacity-60" : ""}`} onClick={() => !f.deletedAt && setEditing(f)}>
                 <td className="px-3 py-2 whitespace-nowrap">{when(f.filledAt)}{f.history?.some(h => h.action === "corrected") && <span title={f.history.some(h => h.action === "corrected" && h.byDriver) ? "Changed by the driver after sending — see its history" : "Corrected by the office"} className="ml-1 text-amber-600">✎</span>}</td>
                 <td className="px-3 py-2 font-semibold whitespace-nowrap">{f.vehicleReg}</td>
@@ -665,6 +691,8 @@ function ReportsTab() {
   const [truck, setTruck] = useState("");   // "" = all trucks, else truckKey()
   // Which period folds are open; unset = the default (open only for a small fleet)
   const [openPeriods, setOpenPeriods] = useState({});
+  // One shared sort applies inside every open period's table
+  const [periodSort, setPeriodSort] = useState({ key: null, desc: false });
 
   useEffect(() => {
     if (!range.from || !range.to) return;
@@ -710,6 +738,37 @@ function ReportsTab() {
     a.click();
     URL.revokeObjectURL(a.href);
   }
+
+  const PERIOD_SORTS = {
+    reg:           { label: "Truck", get: r => r.vehicleReg, asc: true },
+    fills:         { label: "Fill-ups", get: r => r.fills },
+    truckLitres:   { label: "Truck litres", get: r => r.truckLitres },
+    km:            { label: "km", get: r => r.km },
+    kmPerLitre:    { label: "km/L", get: r => r.kmPerLitre },
+    truckCost:     { label: "Truck cost", get: r => r.truckCost },
+    costPerKm:     { label: "Cost/km", get: r => r.costPerKm },
+    trailerLitres: { label: "Trailer litres", get: r => r.trailerLitres },
+    trailerCost:   { label: "Trailer cost", get: r => r.trailerCost },
+    totalCost:     { label: "Total cost", get: r => r.totalCost },
+  };
+  const clickPeriodSort = (key) => setPeriodSort(s => s.key === key ? { key, desc: !s.desc } : { key, desc: !PERIOD_SORTS[key].asc });
+  const periodTh = (key, className = "") => (
+    <th key={key} className={`px-3 py-1 cursor-pointer select-none whitespace-nowrap hover:text-slate-700 ${className}`} onClick={() => clickPeriodSort(key)}>
+      {PERIOD_SORTS[key].label}{periodSort.key === key ? (periodSort.desc ? " ▾" : " ▴") : ""}
+    </th>
+  );
+  const sortRows = (rows) => {
+    if (!periodSort.key) return rows;
+    const { get } = PERIOD_SORTS[periodSort.key];
+    return [...rows].sort((a, b) => {
+      const va = get(a), vb = get(b);
+      if (va == null && vb == null) return a.vehicleReg.localeCompare(b.vehicleReg);
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+      return (periodSort.desc ? -c : c) || a.vehicleReg.localeCompare(b.vehicleReg);
+    });
+  };
 
   const Row = ({ r, name, bold }) => (
     <tr className={`border-t border-slate-100 ${bold ? "bg-slate-50 font-semibold" : ""}`}>
@@ -769,20 +828,20 @@ function ReportsTab() {
             {isOpen && <table className="w-full text-xs border-t border-slate-200">
               <thead className="text-slate-500 text-xs uppercase">
                 <tr>
-                  <th className="text-left px-3 py-1">Truck</th>
-                  <th className="text-right px-3 py-1">Fill-ups</th>
-                  <th className="text-right px-3 py-1">Truck litres</th>
-                  <th className="text-right px-3 py-1">km</th>
-                  <th className="text-right px-3 py-1">km/L</th>
-                  <th className="text-right px-3 py-1">Truck cost</th>
-                  <th className="text-right px-3 py-1">Cost/km</th>
-                  <th className="text-right px-3 py-1 border-l border-slate-100">Trailer litres</th>
-                  <th className="text-right px-3 py-1">Trailer cost</th>
-                  <th className="text-right px-3 py-1 border-l border-slate-100">Total cost</th>
+                  {periodTh("reg", "text-left")}
+                  {periodTh("fills", "text-right")}
+                  {periodTh("truckLitres", "text-right")}
+                  {periodTh("km", "text-right")}
+                  {periodTh("kmPerLitre", "text-right")}
+                  {periodTh("truckCost", "text-right")}
+                  {periodTh("costPerKm", "text-right")}
+                  {periodTh("trailerLitres", "text-right border-l border-slate-100")}
+                  {periodTh("trailerCost", "text-right")}
+                  {periodTh("totalCost", "text-right border-l border-slate-100")}
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => <Row key={r.vehicleReg} r={r} name={r.vehicleReg} />)}
+                {sortRows(rows).map(r => <Row key={r.vehicleReg} r={r} name={r.vehicleReg} />)}
                 {rows.length > 1 && <Row r={total} name="All trucks" bold />}
               </tbody>
             </table>}
